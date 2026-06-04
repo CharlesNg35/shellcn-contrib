@@ -1,4 +1,4 @@
-.PHONY: fmt test build
+.PHONY: fmt test build tag
 
 PLUGIN ?=
 
@@ -11,3 +11,6 @@ test:
 build:
 	@test -n "$(PLUGIN)" || (echo "usage: make build PLUGIN=<name>" >&2; exit 1)
 	./scripts/build-plugin.sh "$(PLUGIN)"
+
+tag:
+	./scripts/create-tag.sh
