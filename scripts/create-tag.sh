@@ -47,26 +47,26 @@ next_patch() {
 
 select_plugin() {
   local plugins=("$@")
-  local choice plugin
+  local choice latest label
 
-  echo "Available plugins:"
+  echo "Plugins:" >&2
   for i in "${!plugins[@]}"; do
-    printf "  %2d) %s\n" "$((i + 1))" "${plugins[$i]}"
+    latest=$(latest_version_for_plugin "${plugins[$i]}" || true)
+    if [ -n "$latest" ]; then
+      label="latest v${latest}"
+    else
+      label="no release tag"
+    fi
+    printf "  %2d) %-16s %s\n" "$((i + 1))" "${plugins[$i]}" "$label" >&2
   done
 
   while true; do
-    read -r -p "Plugin name or number: " choice
+    read -r -p "Select plugin [1-${#plugins[@]}]: " choice
     if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#plugins[@]})); then
       echo "${plugins[$((choice - 1))]}"
       return
     fi
-    for plugin in "${plugins[@]}"; do
-      if [ "$choice" = "$plugin" ]; then
-        echo "$plugin"
-        return
-      fi
-    done
-    echo "Unknown plugin: ${choice}" >&2
+    echo "Choose a number from 1 to ${#plugins[@]}." >&2
   done
 }
 
@@ -81,25 +81,42 @@ latest_version_for_plugin() {
 
 select_version() {
   local plugin=$1
-  local latest version major minor patch choice custom
+  local latest major minor patch choice custom
 
   latest=$(latest_version_for_plugin "$plugin" || true)
   if [ -z "$latest" ]; then
-    read -r -p "Version [0.1.0]: " version
-    version=${version:-0.1.0}
-    normalize_version "$version"
-    return
+    echo "No existing release tag for ${plugin}." >&2
+    echo "  1) v0.1.0" >&2
+    echo "  2) custom" >&2
+    while true; do
+      read -r -p "Select version [1]: " choice
+      choice=${choice:-1}
+      case "$choice" in
+        1)
+          echo "0.1.0"
+          return
+          ;;
+        2)
+          read -r -p "Custom version: " custom
+          normalize_version "$custom"
+          return
+          ;;
+        *)
+          echo "Choose 1 or 2." >&2
+          ;;
+      esac
+    done
   fi
 
   major=$(next_major "$latest")
   minor=$(next_minor "$latest")
   patch=$(next_patch "$latest")
 
-  echo "Latest ${plugin} version: v${latest}"
-  echo "  1) patch v${patch}"
-  echo "  2) minor v${minor}"
-  echo "  3) major v${major}"
-  echo "  4) custom"
+  echo "Current ${plugin} version: v${latest}" >&2
+  echo "  1) patch v${patch}" >&2
+  echo "  2) minor v${minor}" >&2
+  echo "  3) major v${major}" >&2
+  echo "  4) custom" >&2
 
   while true; do
     read -r -p "Select version [1]: " choice
@@ -118,7 +135,7 @@ select_version() {
         return
         ;;
       4|custom)
-        read -r -p "Version: " custom
+        read -r -p "Custom version: " custom
         normalize_version "$custom"
         return
         ;;
@@ -130,11 +147,12 @@ select_version() {
 }
 
 git rev-parse --show-toplevel >/dev/null
-git diff --quiet || fail "working tree has unstaged changes"
-git diff --cached --quiet || fail "index has staged changes"
 
 echo "Fetching remote tags from ${remote}..."
 git fetch "$remote" --tags --prune --prune-tags
+
+git diff --quiet || fail "working tree has unstaged changes"
+git diff --cached --quiet || fail "index has staged changes"
 
 mapfile -t plugins < <(find plugins -maxdepth 1 -mindepth 1 -type d -printf '%f\n' | sort)
 [ "${#plugins[@]}" -gt 0 ] || fail "no plugins found under plugins/"
