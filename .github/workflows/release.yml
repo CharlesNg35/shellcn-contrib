@@ -1,0 +1,93 @@
+name: Release plugin
+
+on:
+  push:
+    tags: ["*-v*"]
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: Plugin directory name under plugins/
+        required: true
+      version:
+        description: Version without the leading v, for example 0.1.0
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.4"
+          cache: true
+          cache-dependency-path: |
+            plugins/*/go.sum
+            shared/*/go.sum
+
+      - name: Resolve plugin and version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+            plugin="${tag%%-v*}"
+            version="${tag#${plugin}-v}"
+          else
+            plugin="${{ inputs.plugin }}"
+            version="${{ inputs.version }}"
+            tag="${plugin}-v${version}"
+          fi
+          test -f "plugins/${plugin}/go.mod" || { echo "unknown plugin: ${plugin}" >&2; exit 1; }
+          {
+            echo "plugin=${plugin}"
+            echo "version=${version}"
+            echo "tag=${tag}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Cross-compile
+        shell: bash
+        env:
+          GONOSUMDB: github.com/charlesng35/shellcn,github.com/charlesng35/shellcn/sdk
+        run: |
+          set -euo pipefail
+          plugin="${{ steps.release.outputs.plugin }}"
+          version="${{ steps.release.outputs.version }}"
+          name="shellcn-plugin-${plugin}"
+          ldflags="-s -w -X main.version=${version}"
+          mkdir -p dist
+
+          targets=(
+            "linux/amd64"
+            "linux/arm64"
+            "darwin/amd64"
+            "darwin/arm64"
+            "windows/amd64"
+            "windows/arm64"
+          )
+
+          for target in "${targets[@]}"; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            ext=""
+            [ "${goos}" = "windows" ] && ext=".exe"
+            CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" \
+              go -C "plugins/${plugin}" build -trimpath -ldflags "${ldflags}" \
+              -o "../../dist/${name}-${goos}-${goarch}${ext}" "./cmd/${name}"
+          done
+
+          (cd dist && sha256sum * > checksums.txt)
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.release.outputs.tag }}"
+          gh release view "$tag" >/dev/null 2>&1 || \
+            gh release create "$tag" --title "$tag" --generate-notes
+          gh release upload "$tag" dist/* --clobber

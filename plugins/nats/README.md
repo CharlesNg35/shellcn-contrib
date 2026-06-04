@@ -1,0 +1,15 @@
+# ShellCN Nats plugin
+
+External ShellCN plugin for Nats.
+
+This plugin is maintained in the ShellCN contrib monorepo. It is still a normal
+ShellCN plugin: one Go module, one protocol, one release binary.
+
+## Build
+
+```sh
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o shellcn-plugin-nats ./cmd/shellcn-plugin-nats
+```
+
+Copy the binary into the gateway plugin directory, restart ShellCN, then enable
+it under **Settings -> Protocols**.

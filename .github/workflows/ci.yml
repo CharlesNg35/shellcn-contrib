@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  plugins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.4"
+          cache: true
+          cache-dependency-path: |
+            plugins/*/go.sum
+            shared/*/go.sum
+
+      - name: Check plugins
+        env:
+          GONOSUMDB: github.com/charlesng35/shellcn,github.com/charlesng35/shellcn/sdk
+        run: ./scripts/check.sh
