@@ -3,9 +3,31 @@ set -euo pipefail
 
 remote=${REMOTE:-origin}
 
+if [ -t 2 ] && [ -n "${TERM:-}" ] && command -v tput >/dev/null 2>&1; then
+  bold=$(tput bold || true)
+  dim=$(tput dim || true)
+  reset=$(tput sgr0 || true)
+  red=$(tput setaf 1 || true)
+  green=$(tput setaf 2 || true)
+  yellow=$(tput setaf 3 || true)
+  cyan=$(tput setaf 6 || true)
+else
+  bold=
+  dim=
+  reset=
+  red=
+  green=
+  yellow=
+  cyan=
+fi
+
 fail() {
-  echo "$*" >&2
+  echo "${red}$*${reset}" >&2
   exit 1
+}
+
+info() {
+  echo "${cyan}$*${reset}" >&2
 }
 
 is_semver() {
@@ -45,31 +67,6 @@ next_patch() {
   echo "${major}.${minor}.$((patch + 1))"
 }
 
-select_plugin() {
-  local plugins=("$@")
-  local choice latest label
-
-  echo "Plugins:" >&2
-  for i in "${!plugins[@]}"; do
-    latest=$(latest_version_for_plugin "${plugins[$i]}" || true)
-    if [ -n "$latest" ]; then
-      label="latest v${latest}"
-    else
-      label="no release tag"
-    fi
-    printf "  %2d) %-16s %s\n" "$((i + 1))" "${plugins[$i]}" "$label" >&2
-  done
-
-  while true; do
-    read -r -p "Select plugin [1-${#plugins[@]}]: " choice
-    if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#plugins[@]})); then
-      echo "${plugins[$((choice - 1))]}"
-      return
-    fi
-    echo "Choose a number from 1 to ${#plugins[@]}." >&2
-  done
-}
-
 latest_version_for_plugin() {
   local plugin=$1
   git tag --list "${plugin}-v*" |
@@ -79,76 +76,139 @@ latest_version_for_plugin() {
     tail -n 1
 }
 
+can_use_fzf() {
+  command -v fzf >/dev/null 2>&1 && [ -r /dev/tty ] && [ -w /dev/tty ]
+}
+
+select_with_fzf() {
+  local prompt=$1
+  shift
+  printf '%s\n' "$@" |
+    fzf --ansi --height=70% --reverse --border --prompt="${prompt} "
+}
+
+status_for_plugin() {
+  local plugin=$1 latest
+  latest=$(latest_version_for_plugin "$plugin" || true)
+  if [ -n "$latest" ]; then
+    echo "${green}latest v${latest}${reset}"
+  else
+    echo "${yellow}no release tag${reset}"
+  fi
+}
+
+select_plugin() {
+  local plugins=("$@")
+  local choice selected line status
+  local display=()
+
+  for plugin in "${plugins[@]}"; do
+    status=$(status_for_plugin "$plugin")
+    display+=("${plugin}"$'\t'"${status}")
+  done
+
+  if can_use_fzf; then
+    selected=$(select_with_fzf "plugin>" "${display[@]}") || fail "no plugin selected"
+    echo "${selected%%$'\t'*}"
+    return
+  fi
+
+  echo "${bold}Plugins${reset}" >&2
+  echo "${dim}Install fzf for arrow-key selection. Falling back to Bash select.${reset}" >&2
+  PS3="${bold}Select plugin [1-${#plugins[@]}]: ${reset}"
+  select line in "${display[@]}"; do
+    if [[ "${REPLY:-}" =~ ^[0-9]+$ ]] && ((REPLY >= 1 && REPLY <= ${#display[@]})); then
+      echo "${plugins[$((REPLY - 1))]}"
+      return
+    fi
+    echo "Choose a number from 1 to ${#plugins[@]}." >&2
+  done
+}
+
+select_custom_version() {
+  local custom
+  while true; do
+    read -r -p "Custom version: " custom
+    normalize_version "$custom"
+    return
+  done
+}
+
+select_version_from_options() {
+  local prompt=$1
+  shift
+  local selected line
+  local options=("$@")
+
+  if can_use_fzf; then
+    selected=$(select_with_fzf "${prompt}>" "${options[@]}") || fail "no version selected"
+    echo "${selected%%$'\t'*}"
+    return
+  fi
+
+  PS3="${bold}${prompt} [1-${#options[@]}]: ${reset}"
+  select line in "${options[@]}"; do
+    if [[ "${REPLY:-}" =~ ^[0-9]+$ ]] && ((REPLY >= 1 && REPLY <= ${#options[@]})); then
+      echo "${line%%$'\t'*}"
+      return
+    fi
+    echo "Choose a number from 1 to ${#options[@]}." >&2
+  done
+}
+
 select_version() {
   local plugin=$1
-  local latest major minor patch choice custom
+  local latest major minor patch version
+  local options=()
 
   latest=$(latest_version_for_plugin "$plugin" || true)
   if [ -z "$latest" ]; then
-    echo "No existing release tag for ${plugin}." >&2
-    echo "  1) v0.1.0" >&2
-    echo "  2) custom" >&2
-    while true; do
-      read -r -p "Select version [1]: " choice
-      choice=${choice:-1}
-      case "$choice" in
-        1)
-          echo "0.1.0"
-          return
-          ;;
-        2)
-          read -r -p "Custom version: " custom
-          normalize_version "$custom"
-          return
-          ;;
-        *)
-          echo "Choose 1 or 2." >&2
-          ;;
-      esac
-    done
+    info "No existing release tag for ${bold}${plugin}${reset}."
+    options+=("0.1.0"$'\t'"${green}initial release${reset}")
+    options+=("custom"$'\t'"custom version")
+    version=$(select_version_from_options "version" "${options[@]}")
+    if [ "$version" = "custom" ]; then
+      select_custom_version
+    else
+      echo "$version"
+    fi
+    return
   fi
 
   major=$(next_major "$latest")
   minor=$(next_minor "$latest")
   patch=$(next_patch "$latest")
 
-  echo "Current ${plugin} version: v${latest}" >&2
-  echo "  1) patch v${patch}" >&2
-  echo "  2) minor v${minor}" >&2
-  echo "  3) major v${major}" >&2
-  echo "  4) custom" >&2
+  info "Current ${bold}${plugin}${reset} version: ${green}v${latest}${reset}"
+  options+=("${patch}"$'\t'"patch")
+  options+=("${minor}"$'\t'"minor")
+  options+=("${major}"$'\t'"major")
+  options+=("custom"$'\t'"custom version")
 
-  while true; do
-    read -r -p "Select version [1]: " choice
-    choice=${choice:-1}
-    case "$choice" in
-      1|patch)
-        echo "$patch"
-        return
-        ;;
-      2|minor)
-        echo "$minor"
-        return
-        ;;
-      3|major)
-        echo "$major"
-        return
-        ;;
-      4|custom)
-        read -r -p "Custom version: " custom
-        normalize_version "$custom"
-        return
-        ;;
-      *)
-        echo "Choose 1, 2, 3, or 4." >&2
-        ;;
-    esac
-  done
+  version=$(select_version_from_options "version" "${options[@]}")
+  if [ "$version" = "custom" ]; then
+    select_custom_version
+  else
+    echo "$version"
+  fi
+}
+
+confirm_push() {
+  local tag=$1 push
+  read -r -p "Push ${green}${tag}${reset} to ${remote}? [y/N] " push
+  case "$push" in
+    y | Y | yes | YES)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 git rev-parse --show-toplevel >/dev/null
 
-echo "Fetching remote tags from ${remote}..."
+info "Fetching remote tags from ${remote}..."
 git fetch "$remote" --tags --prune --prune-tags
 
 git diff --quiet || fail "working tree has unstaged changes"
@@ -168,16 +228,12 @@ if tag_exists_remote "$tag"; then
   fail "tag already exists on ${remote}: ${tag}"
 fi
 
-echo "Creating tag ${tag} at $(git rev-parse --short HEAD)"
+echo "Creating tag ${green}${tag}${reset} at ${bold}$(git rev-parse --short HEAD)${reset}"
 git tag "$tag"
 
-read -r -p "Push ${tag} to ${remote}? [y/N] " push
-case "$push" in
-  y|Y|yes|YES)
-    git push "$remote" "refs/tags/${tag}:refs/tags/${tag}"
-    ;;
-  *)
-    echo "Tag created locally only. Push later with:"
-    echo "  git push ${remote} refs/tags/${tag}:refs/tags/${tag}"
-    ;;
-esac
+if confirm_push "$tag"; then
+  git push "$remote" "refs/tags/${tag}:refs/tags/${tag}"
+else
+  echo "Tag created locally only. Push later with:"
+  echo "  git push ${remote} refs/tags/${tag}:refs/tags/${tag}"
+fi
