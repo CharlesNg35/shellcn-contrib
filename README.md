@@ -92,17 +92,18 @@ Build one plugin:
 make build PLUGIN=surrealdb
 ```
 
-## Plugins planned for this repo
+## Plugins in this repo
 
 These protocols are better as first-party external plugins than built-ins:
 
 | Area | Plugins |
 | ---- | ------- |
+| Shells | Telnet |
 | Databases | MSSQL, Oracle, CockroachDB, ClickHouse, Cassandra, DynamoDB, Neo4j, SurrealDB |
 | Search | Elasticsearch, OpenSearch, Meilisearch, Typesense, Solr |
 | Messaging | Kafka, RabbitMQ, NATS |
 | Files and storage | NFS, MinIO |
-| Observability | InfluxDB |
+| Observability | Prometheus, InfluxDB |
 
 ## License
 
