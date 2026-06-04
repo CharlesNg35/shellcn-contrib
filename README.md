@@ -7,19 +7,19 @@ This repo collects plugins maintained by the ShellCN team. They are useful, but
 not core enough to ship inside the gateway binary. Outside contributors can send
 PRs here, but independent plugin authors should usually keep their plugin in
 their own repo and submit only the Marketplace manifest to
-[shellcn-plugins](https://github.com/CharlesNg35/shellcn-plugins).
+[shellcn-plugin-registry](https://github.com/CharlesNg35/shellcn-plugin-registry).
 
 Each plugin here is still a normal ShellCN plugin: one Go module, one protocol,
 one release binary.
 
 ## How this repo fits
 
-| Repo | Purpose |
-| ---- | ------- |
-| [shellcn](https://github.com/CharlesNg35/shellcn) | The gateway, SDK, and small built-in plugin set. |
-| [shellcn-contrib](https://github.com/CharlesNg35/shellcn-contrib) | Source code for first-party external plugins. |
-| [shellcn-plugins](https://github.com/CharlesNg35/shellcn-plugins) | Marketplace registry consumed by the gateway. |
-| [shellcn-plugin-starter](https://github.com/CharlesNg35/shellcn-plugin-starter) | Template for writing a new plugin. |
+| Repo                                                                              | Purpose                                          |
+| --------------------------------------------------------------------------------- | ------------------------------------------------ |
+| [shellcn](https://github.com/CharlesNg35/shellcn)                                 | The gateway, SDK, and small built-in plugin set. |
+| [shellcn-contrib](https://github.com/CharlesNg35/shellcn-contrib)                 | Source code for first-party external plugins.    |
+| [shellcn-plugin-registry](https://github.com/CharlesNg35/shellcn-plugin-registry) | Marketplace registry consumed by the gateway.    |
+| [shellcn-plugin-starter](https://github.com/CharlesNg35/shellcn-plugin-starter)   | Template for writing a new plugin.               |
 
 ## Repository layout
 
@@ -74,7 +74,7 @@ The release workflow builds that plugin for the supported gateway platforms and
 uploads binaries plus `checksums.txt` to the GitHub Release.
 
 After the release exists, add or update the plugin manifest in
-[shellcn-plugins](https://github.com/CharlesNg35/shellcn-plugins). Once merged,
+[shellcn-plugin-registry](https://github.com/CharlesNg35/shellcn-plugin-registry). Once merged,
 the plugin becomes installable from the in-app Marketplace.
 
 ## Local maintenance
@@ -96,14 +96,14 @@ make build PLUGIN=surrealdb
 
 These protocols are better as first-party external plugins than built-ins:
 
-| Area | Plugins |
-| ---- | ------- |
-| Shells | Telnet |
-| Databases | MSSQL, Oracle, CockroachDB, ClickHouse, Cassandra, DynamoDB, Neo4j, SurrealDB |
-| Search | Elasticsearch, OpenSearch, Meilisearch, Typesense, Solr |
-| Messaging | Kafka, RabbitMQ, NATS |
-| Files and storage | NFS, MinIO |
-| Observability | Prometheus, InfluxDB |
+| Area              | Plugins                                                                       |
+| ----------------- | ----------------------------------------------------------------------------- |
+| Shells            | Telnet                                                                        |
+| Databases         | MSSQL, Oracle, CockroachDB, ClickHouse, Cassandra, DynamoDB, Neo4j, SurrealDB |
+| Search            | Elasticsearch, OpenSearch, Meilisearch, Typesense, Solr                       |
+| Messaging         | Kafka, RabbitMQ, NATS                                                         |
+| Files and storage | NFS, MinIO                                                                    |
+| Observability     | Prometheus, InfluxDB                                                          |
 
 ## License
 

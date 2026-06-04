@@ -6,7 +6,7 @@ binary. It is a source-code repo, not the Marketplace registry.
 External contributors can send PRs here for plugins the ShellCN team maintains.
 If you are publishing your own plugin, keep it in your own GitHub repo and submit
 its manifest to
-[shellcn-plugins](https://github.com/CharlesNg35/shellcn-plugins) so it appears
+[shellcn-plugin-registry](https://github.com/CharlesNg35/shellcn-plugin-registry) so it appears
 in the Marketplace.
 
 ## Add a plugin
@@ -59,6 +59,6 @@ plugin, and uploads release assets.
 ## Marketplace
 
 After releasing, submit the manifest to
-[shellcn-plugins](https://github.com/CharlesNg35/shellcn-plugins). That registry
+[shellcn-plugin-registry](https://github.com/CharlesNg35/shellcn-plugin-registry). That registry
 verifies checksums, executes the binaries through the real plugin handshake, and
 builds the Marketplace index consumed by ShellCN.
