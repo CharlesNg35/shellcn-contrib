@@ -162,6 +162,44 @@ func TestOperationalRoutes(t *testing.T) {
 	}
 }
 
+func TestOptionalRoutesDegradeWhenDisabled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/ready":
+			_, _ = w.Write([]byte("ready"))
+		case r.URL.Path == "/loki/api/v1/index/stats":
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/loki/api/v1/rules":
+			_, _ = w.Write([]byte(`{"status":"error","error":"unable to read rule dir /loki/rules/fake: open /loki/rules/fake: no such file or directory"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/loki/api/v1/delete":
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	p := New()
+	sess, err := p.Connect(context.Background(), plugin.ConnectConfig{Config: map[string]any{"endpoint": srv.URL}, Net: plugintest.DirectTransport()})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = sess.Close() }()
+	h := contribtest.NewHarness(t, p.Routes())
+
+	stats := h.Call(context.Background(), rid("stats.read"), sess, nil, nil, nil)
+	if len(stats.(row)) != 0 {
+		t.Fatalf("expected empty stats document, got %#v", stats)
+	}
+	if items := pageItems(h.Call(context.Background(), rid("rules.list"), sess, nil, nil, nil)); len(items) != 0 {
+		t.Fatalf("expected empty rules page, got %#v", items)
+	}
+	if items := pageItems(h.Call(context.Background(), rid("deletes.list"), sess, nil, nil, nil)); len(items) != 0 {
+		t.Fatalf("expected empty deletes page, got %#v", items)
+	}
+	h.AssertCovered(rid("stats.read"), rid("rules.list"), rid("deletes.list"))
+}
+
 func mustJSON(t *testing.T, value any) []byte {
 	t.Helper()
 	data, err := json.Marshal(value)

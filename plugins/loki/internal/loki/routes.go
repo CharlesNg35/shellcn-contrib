@@ -72,6 +72,9 @@ func lokiAPI(rc *plugin.RequestContext, method, path string, query url.Values, o
 	if err != nil {
 		return err
 	}
+	if len(data) == 0 {
+		return nil
+	}
 	var env envelope
 	if err := json.Unmarshal(data, &env); err != nil {
 		if out == nil {
@@ -163,7 +166,13 @@ func streamLogs(rc *plugin.RequestContext) (any, error) {
 func readStats(rc *plugin.RequestContext) (any, error) {
 	var out any
 	if err := lokiAPI(rc, http.MethodGet, "/loki/api/v1/index/stats", rangeQuery(rc, selectorQuery(rc)), &out); err != nil {
+		if optionalLokiFeatureUnavailable(err) {
+			return row{}, nil
+		}
 		return nil, err
+	}
+	if out == nil {
+		return row{}, nil
 	}
 	return out, nil
 }
@@ -195,6 +204,9 @@ func listVolume(rc *plugin.RequestContext) (any, error) {
 func listRules(rc *plugin.RequestContext) (any, error) {
 	var data any
 	if err := lokiAPI(rc, http.MethodGet, "/loki/api/v1/rules", nil, &data); err != nil {
+		if optionalLokiFeatureUnavailable(err) {
+			return broker.PageRows(rc, []row{})
+		}
 		return nil, err
 	}
 	return broker.PageRows(rc, flattenRules(data))
@@ -217,6 +229,9 @@ func formatQuery(rc *plugin.RequestContext) (any, error) {
 func listDeletes(rc *plugin.RequestContext) (any, error) {
 	var data any
 	if err := lokiAPI(rc, http.MethodGet, "/loki/api/v1/delete", rangeBounds(rc), &data); err != nil {
+		if optionalLokiFeatureUnavailable(err) {
+			return broker.PageRows(rc, []row{})
+		}
 		return nil, err
 	}
 	rows := normalizeRows(data)
@@ -513,6 +528,24 @@ func stableRowID(item row) string {
 		parts = append(parts, key+"="+fmt.Sprint(item[key]))
 	}
 	return strings.Join(parts, "|")
+}
+
+func optionalLokiFeatureUnavailable(err error) bool {
+	if errors.Is(err, plugin.ErrNotFound) {
+		return true
+	}
+	text := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"404 page not found",
+		"unable to read rule dir",
+		"ruler api is not enabled",
+		"deletion mode is disabled",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func ensureWritable(s *Session) error {

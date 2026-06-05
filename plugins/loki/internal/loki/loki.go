@@ -51,7 +51,7 @@ func (Plugin) Manifest() plugin.Manifest {
 	return plugin.Manifest{
 		APIVersion:          plugin.CurrentAPIVersion,
 		Name:                protocolName,
-		Version:             "0.1.0",
+		Version:             "0.1.1",
 		Title:               "Grafana Loki",
 		Description:         "Loki log cockpit with labels, label values, streams, LogQL range queries, and build/status details.",
 		Icon:                plugin.Icon{Type: plugin.IconSVG, Value: iconSVG},
