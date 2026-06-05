@@ -93,7 +93,7 @@ func startJaegerContainer(ctx context.Context, t *testing.T) (string, string) {
 	zipkinEndpoint := mappedEndpoint(ctx, t, name, "9411/tcp")
 	deadline := time.Now().Add(60 * time.Second)
 	for {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, queryEndpoint+"/api/services", nil)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, queryEndpoint+"/api/v3/services", nil)
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil && resp.StatusCode < 500 {
 			_ = resp.Body.Close()

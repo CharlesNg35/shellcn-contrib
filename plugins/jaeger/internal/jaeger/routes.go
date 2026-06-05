@@ -1,7 +1,6 @@
 package jaeger
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -13,8 +12,16 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
-type response struct {
-	Data any `json:"data"`
+type servicesResponse struct {
+	Services []string `json:"services"`
+}
+
+type operationsResponse struct {
+	Operations []row `json:"operations"`
+}
+
+type tracesResponse struct {
+	Result row `json:"result"`
 }
 
 func Routes() []plugin.Route {
@@ -32,8 +39,8 @@ func Routes() []plugin.Route {
 func session(rc *plugin.RequestContext) (*Session, error) { return unwrap(rc.Session) }
 
 func overview(rc *plugin.RequestContext) (any, error) {
-	var services []string
-	if err := jaegerData(rc, "/api/services", nil, &services); err != nil {
+	services, err := fetchServices(rc)
+	if err != nil {
 		return nil, err
 	}
 	return row{"services": len(services)}, nil
@@ -55,8 +62,8 @@ func treeServices(rc *plugin.RequestContext) (any, error) {
 }
 
 func listServices(rc *plugin.RequestContext) (any, error) {
-	var services []string
-	if err := jaegerData(rc, "/api/services", nil, &services); err != nil {
+	services, err := fetchServices(rc)
+	if err != nil {
 		return nil, err
 	}
 	rows := make([]row, 0, len(services))
@@ -68,16 +75,11 @@ func listServices(rc *plugin.RequestContext) (any, error) {
 
 func listOperations(rc *plugin.RequestContext) (any, error) {
 	q := url.Values{"service": []string{serviceParam(rc)}}
-	var operations []row
-	if err := jaegerData(rc, "/api/operations", q, &operations); err != nil {
+	var resp operationsResponse
+	if err := jaegerGet(rc, "/api/v3/operations", q, &resp); err != nil {
 		return nil, err
 	}
-	for _, item := range operations {
-		if item["name"] == nil {
-			item["name"] = item["operationName"]
-		}
-	}
-	return broker.PageRows(rc, operations)
+	return broker.PageRows(rc, resp.Operations)
 }
 
 func listTraces(rc *plugin.RequestContext) (any, error) {
@@ -89,31 +91,37 @@ func listTraces(rc *plugin.RequestContext) (any, error) {
 	if qLimit, err := strconv.Atoi(rc.Query().Get("limit")); err == nil && qLimit > 0 && qLimit < limit {
 		limit = qLimit
 	}
-	q := url.Values{
-		"service":  []string{serviceParam(rc)},
-		"limit":    []string{strconv.Itoa(limit)},
-		"lookback": []string{defaultLookback(rc)},
-	}
-	if op := strings.TrimSpace(rc.Query().Get("operation")); op != "" {
-		q.Set("operation", op)
-	}
-	var traces []row
-	if err := jaegerData(rc, "/api/traces", q, &traces); err != nil {
+	start, end, err := traceWindow(rc)
+	if err != nil {
 		return nil, err
 	}
-	rows := flattenTraces(traces)
-	return broker.PageRows(rc, rows)
+	q := url.Values{
+		"query.service_name":   []string{serviceParam(rc)},
+		"query.start_time_min": []string{start.Format(time.RFC3339Nano)},
+		"query.start_time_max": []string{end.Format(time.RFC3339Nano)},
+		"query.num_traces":     []string{strconv.Itoa(limit)},
+		"query.raw_traces":     []string{"false"},
+	}
+	if op := strings.TrimSpace(rc.Query().Get("operation")); op != "" {
+		q.Set("query.operation_name", op)
+	}
+	var resp tracesResponse
+	if err := jaegerGet(rc, "/api/v3/traces", q, &resp); err != nil {
+		return nil, err
+	}
+	return broker.PageRows(rc, traceRows(resp.Result))
 }
 
 func readTrace(rc *plugin.RequestContext) (any, error) {
-	var traces []row
-	if err := jaegerData(rc, "/api/traces/"+url.PathEscape(traceParam(rc)), nil, &traces); err != nil {
+	var resp tracesResponse
+	if err := jaegerGet(rc, "/api/v3/traces/"+url.PathEscape(traceParam(rc)), nil, &resp); err != nil {
 		return nil, err
 	}
-	if len(traces) == 0 {
+	rows := traceRows(resp.Result)
+	if len(rows) == 0 {
 		return nil, fmt.Errorf("%w: trace %q", plugin.ErrNotFound, traceParam(rc))
 	}
-	return traces[0], nil
+	return rows[0], nil
 }
 
 func listSpans(rc *plugin.RequestContext) (any, error) {
@@ -125,70 +133,98 @@ func listSpans(rc *plugin.RequestContext) (any, error) {
 	return broker.PageRows(rc, rows)
 }
 
-func jaegerData(rc *plugin.RequestContext, path string, q url.Values, out any) error {
+func fetchServices(rc *plugin.RequestContext) ([]string, error) {
+	var resp servicesResponse
+	if err := jaegerGet(rc, "/api/v3/services", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Services, nil
+}
+
+func jaegerGet(rc *plugin.RequestContext, path string, q url.Values, out any) error {
 	s, err := session(rc)
 	if err != nil {
 		return err
 	}
-	var resp response
-	if err := s.client.Do(rc.Ctx, http.MethodGet, path, q, nil, &resp); err != nil {
-		return err
-	}
-	data, err := json.Marshal(resp.Data)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, out)
+	return s.client.Do(rc.Ctx, http.MethodGet, path, q, nil, out)
 }
 
-func flattenTraces(traces []row) []row {
-	rows := make([]row, 0, len(traces))
-	for _, trace := range traces {
-		spans := asRows(trace["spans"])
-		first := row{}
-		if len(spans) > 0 {
-			first = spans[0]
+func traceRows(result row) []row {
+	resourceSpans := asRows(result["resourceSpans"])
+	out := make([]row, 0, len(resourceSpans))
+	for _, resourceSpan := range resourceSpans {
+		service := resourceServiceName(resourceSpan)
+		spans := spansForResource(resourceSpan, service)
+		if len(spans) == 0 {
+			continue
 		}
-		processes := asProcessMap(trace["processes"])
-		service := serviceName(first, processes)
-		id := fmt.Sprint(trace["traceID"])
-		rows = append(rows, row{
+		first := spans[0]
+		id := stringValue(first["traceID"])
+		out = append(out, row{
 			"traceID":       id,
 			"operationName": first["operationName"],
-			"serviceName":   service,
+			"serviceName":   first["serviceName"],
 			"duration":      first["duration"],
-			"startTime":     unixMicro(first["startTime"]),
+			"startTime":     first["startTime"],
 			"spans":         len(spans),
+			"resourceSpans": []row{resourceSpan},
 			"ref":           plugin.ResourceRef{Kind: "trace", Name: id, UID: id},
 		})
 	}
-	return rows
+	return out
 }
 
 func flattenSpans(trace row) []row {
-	processes := asProcessMap(trace["processes"])
-	spans := asRows(trace["spans"])
-	rows := make([]row, 0, len(spans))
-	for _, span := range spans {
-		rows = append(rows, row{
-			"spanID":        span["spanID"],
-			"operationName": span["operationName"],
-			"serviceName":   serviceName(span, processes),
-			"duration":      span["duration"],
-			"startTime":     unixMicro(span["startTime"]),
-			"tags":          span["tags"],
-		})
+	resourceSpans := asRows(trace["resourceSpans"])
+	out := []row{}
+	for _, resourceSpan := range resourceSpans {
+		service := resourceServiceName(resourceSpan)
+		for _, span := range spansForResource(resourceSpan, service) {
+			out = append(out, row{
+				"spanID":        span["spanID"],
+				"operationName": span["operationName"],
+				"serviceName":   span["serviceName"],
+				"duration":      span["duration"],
+				"startTime":     span["startTime"],
+				"tags":          span["tags"],
+			})
+		}
 	}
-	return rows
+	return out
 }
 
-func serviceName(span row, processes map[string]row) string {
-	processID := fmt.Sprint(span["processID"])
-	process := processes[processID]
-	if service := strings.TrimSpace(fmt.Sprint(process["serviceName"])); service != "" && service != "<nil>" {
-		return service
+func spansForResource(resourceSpan row, service string) []row {
+	scopeSpans := asRows(resourceSpan["scopeSpans"])
+	out := []row{}
+	for _, scopeSpan := range scopeSpans {
+		for _, span := range asRows(scopeSpan["spans"]) {
+			out = append(out, normalizeSpan(span, service))
+		}
 	}
-	return ""
+	return out
+}
+
+func normalizeSpan(span row, service string) row {
+	start := unixNano(span["startTimeUnixNano"])
+	end := unixNano(span["endTimeUnixNano"])
+	duration := ""
+	if start > 0 && end > start {
+		duration = time.Duration(end - start).String()
+	}
+	return row{
+		"traceID":       stringValue(span["traceID"], span["traceId"]),
+		"spanID":        stringValue(span["spanID"], span["spanId"]),
+		"operationName": stringValue(span["operationName"], span["name"]),
+		"serviceName":   service,
+		"duration":      duration,
+		"startTime":     unixNanoTime(start),
+		"tags":          attributesMap(span["attributes"]),
+	}
+}
+
+func resourceServiceName(resourceSpan row) string {
+	resource, _ := resourceSpan["resource"].(map[string]any)
+	return stringValue(attributesMap(resource["attributes"])["service.name"])
 }
 
 func asRows(v any) []row {
@@ -208,31 +244,75 @@ func asRows(v any) []row {
 	}
 }
 
-func asProcessMap(v any) map[string]row {
-	out := map[string]row{}
-	if raw, ok := v.(map[string]any); ok {
-		for key, value := range raw {
-			if m, ok := value.(map[string]any); ok {
-				out[key] = row(m)
-			}
+func attributesMap(v any) map[string]any {
+	out := map[string]any{}
+	for _, item := range asRows(v) {
+		key := stringValue(item["key"])
+		if key == "" {
+			continue
 		}
+		out[key] = attributeValue(item["value"])
 	}
 	return out
 }
 
-func unixMicro(v any) string {
-	var micros int64
-	switch t := v.(type) {
-	case float64:
-		micros = int64(t)
-	case int64:
-		micros = t
-	case int:
-		micros = int64(t)
-	default:
-		return fmt.Sprint(v)
+func attributeValue(v any) any {
+	value, _ := v.(map[string]any)
+	for _, key := range []string{"stringValue", "intValue", "doubleValue", "boolValue"} {
+		if raw, ok := value[key]; ok {
+			return raw
+		}
 	}
-	return time.UnixMicro(micros).UTC().Format(time.RFC3339Nano)
+	return v
+}
+
+func stringValue(values ...any) string {
+	for _, v := range values {
+		s := strings.TrimSpace(fmt.Sprint(v))
+		if s != "" && s != "<nil>" {
+			return s
+		}
+	}
+	return ""
+}
+
+func unixNano(v any) int64 {
+	switch t := v.(type) {
+	case string:
+		n, _ := strconv.ParseInt(t, 10, 64)
+		return n
+	case float64:
+		return int64(t)
+	case int64:
+		return t
+	case int:
+		return int64(t)
+	default:
+		return 0
+	}
+}
+
+func unixNanoTime(n int64) string {
+	if n <= 0 {
+		return ""
+	}
+	return time.Unix(0, n).UTC().Format(time.RFC3339Nano)
+}
+
+func traceWindow(rc *plugin.RequestContext) (time.Time, time.Time, error) {
+	end := time.Now().UTC()
+	if raw := strings.TrimSpace(rc.Query().Get("end")); raw != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("%w: end must be RFC3339", plugin.ErrInvalidInput)
+		}
+		end = parsed.UTC()
+	}
+	lookback, err := time.ParseDuration(defaultLookback(rc))
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("%w: lookback must be a duration", plugin.ErrInvalidInput)
+	}
+	return end.Add(-lookback), end, nil
 }
 
 func defaultLookback(rc *plugin.RequestContext) string {

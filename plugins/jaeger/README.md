@@ -3,12 +3,7 @@
 ShellCN external plugin for [Jaeger](https://www.jaegertracing.io/).
 
 It provides services, operations, trace search, trace detail, and span inspection
-through Jaeger Query.
-
-Implementation note: Jaeger's stable read APIs are gRPC QueryService and
-`/api/v3/*`. This plugin currently uses the same `/api/*` JSON API as the Jaeger
-UI to keep the plugin small; integration tests cover that contract before
-release.
+through Jaeger Query's stable `/api/v3/*` HTTP API.
 
 ## Build
 

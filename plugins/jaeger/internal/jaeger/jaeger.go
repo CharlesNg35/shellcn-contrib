@@ -85,7 +85,7 @@ func (Plugin) Connect(ctx context.Context, cfg plugin.ConnectConfig) (plugin.Ses
 
 func (s *Session) HealthCheck(ctx context.Context) error {
 	var out any
-	return s.client.Do(ctx, "GET", "/api/services", nil, nil, &out)
+	return s.client.Do(ctx, "GET", "/api/v3/services", nil, nil, &out)
 }
 
 func (s *Session) OpenChannel(context.Context, plugin.ChannelRequest) (plugin.Channel, error) {
