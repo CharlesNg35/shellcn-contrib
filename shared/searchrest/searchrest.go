@@ -26,6 +26,7 @@ type Client struct {
 	http     *http.Client
 	endpoint string
 	auth     Auth
+	headers  map[string]string
 }
 
 type Options struct {
@@ -34,6 +35,7 @@ type Options struct {
 	TLSConfig *tls.Config
 	Timeout   time.Duration
 	Dialer    func(context.Context, string, string) (net.Conn, error)
+	Headers   map[string]string
 }
 
 func New(options Options) *Client {
@@ -45,6 +47,7 @@ func New(options Options) *Client {
 		http:     &http.Client{Transport: transport, Timeout: options.Timeout},
 		endpoint: strings.TrimRight(options.Endpoint, "/"),
 		auth:     options.Auth,
+		headers:  options.Headers,
 	}
 }
 
@@ -90,6 +93,11 @@ func (c *Client) Raw(ctx context.Context, method, path string, query url.Values,
 	}
 	if c.auth.Header != "" && c.auth.Value != "" {
 		req.Header.Set(c.auth.Header, c.auth.Value)
+	}
+	for key, value := range c.headers {
+		if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
+			req.Header.Set(key, value)
+		}
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
