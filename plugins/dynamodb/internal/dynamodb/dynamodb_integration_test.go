@@ -36,7 +36,7 @@ func TestDynamoDBPluginIntegration(t *testing.T) {
 	defer func() { _ = sess.Close() }()
 	s := sess.(*Session)
 
-	routes := routeMap(p.Routes())
+	routes := plugintest.RouteMap(p.Routes())
 	table := "shellcn_it_" + time.Now().UTC().Format("20060102150405")
 	call(ctx, t, routes[rid("table.create")], sess, nil, nil, testJSON(t, map[string]any{
 		"name": table, "partition_key": "pk", "partition_key_type": "S", "sort_key": "sk", "sort_key_type": "S", "billing_mode": "PAY_PER_REQUEST",
@@ -156,14 +156,6 @@ func waitForTable(ctx context.Context, t *testing.T, s *Session, table string) {
 	if err := waiter.Wait(ctx, &awsdynamodb.DescribeTableInput{TableName: aws.String(table)}, 30*time.Second); err != nil {
 		t.Fatalf("wait for table: %v", err)
 	}
-}
-
-func routeMap(routes []plugin.Route) map[string]plugin.Route {
-	out := map[string]plugin.Route{}
-	for _, route := range routes {
-		out[route.ID] = route
-	}
-	return out
 }
 
 func call(ctx context.Context, t *testing.T, route plugin.Route, sess plugin.Session, params map[string]string, query url.Values, body []byte) any {

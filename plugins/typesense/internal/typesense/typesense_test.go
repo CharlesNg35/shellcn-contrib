@@ -4,14 +4,13 @@ import (
 	"testing"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
+	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
 
 func TestManifest(t *testing.T) {
 	p := New()
 	m := p.Manifest()
-	if err := plugin.Validate(m, p.Routes()); err != nil {
-		t.Fatalf("manifest should validate: %v", err)
-	}
+	plugintest.ValidatePlugin(t, p)
 	if m.Category != plugin.CategorySearch {
 		t.Fatalf("category: got %q want %q", m.Category, plugin.CategorySearch)
 	}
@@ -32,7 +31,7 @@ func TestManifest(t *testing.T) {
 }
 
 func TestSynonymAndCurationRoutesAreGlobal(t *testing.T) {
-	routes := routeMap(New().Routes())
+	routes := plugintest.RouteMap(New().Routes())
 	for id, path := range map[string]string{
 		rid("synonyms.list"):   "/synonym_sets",
 		rid("synonym.upsert"):  "/synonym_sets/{synonym}",

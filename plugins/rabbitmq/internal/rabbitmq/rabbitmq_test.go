@@ -4,16 +4,12 @@ import (
 	"testing"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
+	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
 
 func TestRabbitMQManifestValidates(t *testing.T) {
-	reg := plugin.NewRegistry()
-	reg.MustRegister(New())
-
-	proj, ok := reg.Projection(protocolName)
-	if !ok {
-		t.Fatal("projection missing")
-	}
+	p := New()
+	proj := plugintest.Projection(t, p)
 	if proj.Category.Key != plugin.CategoryMessaging {
 		t.Fatalf("category: got %q want %q", proj.Category.Key, plugin.CategoryMessaging)
 	}

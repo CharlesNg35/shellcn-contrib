@@ -10,6 +10,7 @@ import (
 
 	"github.com/charlesng35/shellcn-contrib/shared/searchrest"
 	"github.com/charlesng35/shellcn/sdk/plugin"
+	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
 
 // wrappedSession mimics the core's borrowed session.Handle: a plugin.Session
@@ -74,9 +75,7 @@ func TestListTasksDecodesNumericNextCursor(t *testing.T) {
 func TestManifest(t *testing.T) {
 	p := New()
 	m := p.Manifest()
-	if err := plugin.Validate(m, p.Routes()); err != nil {
-		t.Fatalf("manifest should validate: %v", err)
-	}
+	plugintest.ValidatePlugin(t, p)
 	if m.Category != plugin.CategorySearch {
 		t.Fatalf("category: got %q want %q", m.Category, plugin.CategorySearch)
 	}

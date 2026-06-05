@@ -9,28 +9,24 @@ import (
 
 	"github.com/charlesng35/shellcn-contrib/shared/sqldb"
 	"github.com/charlesng35/shellcn/sdk/plugin"
+	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
 
 func TestManifestRegistersAndStaysDirectOnly(t *testing.T) {
-	reg := plugin.NewRegistry()
-	if err := reg.Register(New()); err != nil {
-		t.Fatalf("register DynamoDB plugin: %v", err)
-	}
-	m, ok := reg.Manifest(protocolName)
-	if !ok {
-		t.Fatal("manifest not registered")
-	}
+	p := New()
+	m := p.Manifest()
+	plugintest.ValidatePlugin(t, p)
 	if m.Agent != nil {
 		t.Fatal("DynamoDB must not declare agent transport")
 	}
 	if len(m.SupportedTransports) != 1 || m.SupportedTransports[0] != plugin.TransportDirect {
 		t.Fatalf("unexpected transports: %+v", m.SupportedTransports)
 	}
-	if !reg.CredentialKindSupportsProtocol(plugin.CredentialCloudAccessKey, protocolName) {
+	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialCloudAccessKey) {
 		t.Fatal("cloud access key credential should support DynamoDB")
 	}
 	for _, kind := range []plugin.CredentialKind{plugin.CredentialDBPassword, plugin.CredentialTLSClientCert, plugin.CredentialBasicAuth, plugin.CredentialBearerToken} {
-		if reg.CredentialKindSupportsProtocol(kind, protocolName) {
+		if plugintest.CredentialKindSupported(m.Config, kind) {
 			t.Fatalf("DynamoDB should not advertise %s credentials", kind)
 		}
 	}

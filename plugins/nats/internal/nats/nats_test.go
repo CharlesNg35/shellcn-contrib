@@ -8,6 +8,7 @@ import (
 	natsclient "github.com/nats-io/nats.go"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
+	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -87,13 +88,8 @@ func TestParseMaxAge(t *testing.T) {
 }
 
 func TestNATSManifestValidates(t *testing.T) {
-	reg := plugin.NewRegistry()
-	reg.MustRegister(New())
-
-	proj, ok := reg.Projection(protocolName)
-	if !ok {
-		t.Fatal("projection missing")
-	}
+	p := New()
+	proj := plugintest.Projection(t, p)
 	if proj.Category.Key != plugin.CategoryMessaging {
 		t.Fatalf("category: got %q want %q", proj.Category.Key, plugin.CategoryMessaging)
 	}

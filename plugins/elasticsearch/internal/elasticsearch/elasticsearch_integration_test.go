@@ -35,7 +35,7 @@ func TestElasticsearchPluginIntegration(t *testing.T) {
 	}
 	defer func() { _ = sess.Close() }()
 
-	routes := routeMap(p.Routes())
+	routes := plugintest.RouteMap(p.Routes())
 	index := "shellcn-it-" + time.Now().UTC().Format("20060102150405")
 	createBody, _ := json.Marshal(map[string]any{
 		"name": index,
@@ -235,14 +235,6 @@ func elasticsearchRaw(ctx context.Context, method, url string, body []byte) erro
 		return fmt.Errorf("%s %s returned %d: %s", method, url, resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 	return nil
-}
-
-func routeMap(routes []plugin.Route) map[string]plugin.Route {
-	out := map[string]plugin.Route{}
-	for _, route := range routes {
-		out[route.ID] = route
-	}
-	return out
 }
 
 func call(ctx context.Context, t *testing.T, route plugin.Route, sess plugin.Session, params map[string]string, query url.Values, body []byte) any {

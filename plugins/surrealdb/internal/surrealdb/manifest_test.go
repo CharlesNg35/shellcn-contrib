@@ -4,13 +4,12 @@ import (
 	"testing"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
+	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
 
 func TestManifestValidates(t *testing.T) {
 	p := &Plugin{}
-	if err := plugin.Validate(p.Manifest(), p.Routes()); err != nil {
-		t.Fatalf("invalid manifest: %v", err)
-	}
+	plugintest.ValidatePlugin(t, p)
 }
 
 func TestParseOptions(t *testing.T) {

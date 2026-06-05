@@ -50,7 +50,7 @@ func runSolrScenario(ctx context.Context, t *testing.T, cfg map[string]any) {
 	}
 	defer func() { _ = sess.Close() }()
 
-	routes := routeMap(p.Routes())
+	routes := plugintest.RouteMap(p.Routes())
 	core := "shellcn_it_" + time.Now().UTC().Format("20060102150405")
 	createBody, _ := json.Marshal(map[string]any{"name": core, "config_set": "_default"})
 	call(ctx, t, routes["solr.core.create"], sess, nil, nil, createBody)
@@ -199,14 +199,6 @@ func waitForSearchSet(ctx context.Context, t *testing.T, s *Session, core string
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-}
-
-func routeMap(routes []plugin.Route) map[string]plugin.Route {
-	out := map[string]plugin.Route{}
-	for _, route := range routes {
-		out[route.ID] = route
-	}
-	return out
 }
 
 func call(ctx context.Context, t *testing.T, route plugin.Route, sess plugin.Session, params map[string]string, query url.Values, body []byte) any {

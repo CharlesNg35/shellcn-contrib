@@ -8,17 +8,13 @@ import (
 
 	"github.com/charlesng35/shellcn-contrib/shared/sqldb"
 	"github.com/charlesng35/shellcn/sdk/plugin"
+	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
 
 func TestManifestRegistersAndStaysDirectOnly(t *testing.T) {
-	reg := plugin.NewRegistry()
-	if err := reg.Register(New()); err != nil {
-		t.Fatalf("register InfluxDB plugin: %v", err)
-	}
-	m, ok := reg.Manifest(protocolName)
-	if !ok {
-		t.Fatal("manifest not registered")
-	}
+	p := New()
+	m := p.Manifest()
+	plugintest.ValidatePlugin(t, p)
 	if m.Agent != nil {
 		t.Fatal("InfluxDB must not declare agent transport")
 	}
@@ -26,11 +22,11 @@ func TestManifestRegistersAndStaysDirectOnly(t *testing.T) {
 		t.Fatalf("unexpected transports: %+v", m.SupportedTransports)
 	}
 	for _, kind := range []plugin.CredentialKind{plugin.CredentialAPIToken, plugin.CredentialBearerToken, plugin.CredentialBasicAuth} {
-		if !reg.CredentialKindSupportsProtocol(kind, protocolName) {
+		if !plugintest.CredentialKindSupported(m.Config, kind) {
 			t.Fatalf("%s credential should support InfluxDB", kind)
 		}
 	}
-	if reg.CredentialKindSupportsProtocol(plugin.CredentialDBPassword, protocolName) {
+	if plugintest.CredentialKindSupported(m.Config, plugin.CredentialDBPassword) {
 		t.Fatal("InfluxDB should not advertise database password credentials")
 	}
 }

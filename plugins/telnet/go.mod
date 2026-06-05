@@ -3,7 +3,7 @@ module github.com/charlesng35/shellcn-contrib/plugins/telnet
 go 1.26.4
 
 require (
-	github.com/charlesng35/shellcn/sdk v0.1.3
+	github.com/charlesng35/shellcn/sdk v0.1.4
 	github.com/reiver/go-telnet v0.0.0-20250617105250-7da9ad70a2b2
 )
 

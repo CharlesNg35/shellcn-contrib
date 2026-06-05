@@ -8,13 +8,12 @@ import (
 	"testing"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
+	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
 
 func TestManifestValidates(t *testing.T) {
 	p := New()
-	if err := plugin.Validate(p.Manifest(), p.Routes()); err != nil {
-		t.Fatalf("telnet manifest invalid: %v", err)
-	}
+	plugintest.ValidatePlugin(t, p)
 }
 
 func TestManifestExposesTerminalRecording(t *testing.T) {

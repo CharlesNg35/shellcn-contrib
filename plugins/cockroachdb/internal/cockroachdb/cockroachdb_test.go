@@ -7,27 +7,23 @@ import (
 
 	"github.com/charlesng35/shellcn-contrib/shared/sqldb"
 	"github.com/charlesng35/shellcn/sdk/plugin"
+	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
 
 func TestManifestRegistersAndStaysDirectOnly(t *testing.T) {
-	reg := plugin.NewRegistry()
-	if err := reg.Register(New()); err != nil {
-		t.Fatalf("register CockroachDB plugin: %v", err)
-	}
-	m, ok := reg.Manifest(protocolName)
-	if !ok {
-		t.Fatal("manifest not registered")
-	}
+	p := New()
+	m := p.Manifest()
+	plugintest.ValidatePlugin(t, p)
 	if m.Agent != nil {
 		t.Fatal("CockroachDB must not declare agent transport")
 	}
 	if len(m.SupportedTransports) != 1 || m.SupportedTransports[0] != plugin.TransportDirect {
 		t.Fatalf("unexpected transports: %+v", m.SupportedTransports)
 	}
-	if !reg.CredentialKindSupportsProtocol(plugin.CredentialDBPassword, protocolName) {
+	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialDBPassword) {
 		t.Fatal("database password credential should support CockroachDB")
 	}
-	if !reg.CredentialKindSupportsProtocol(plugin.CredentialTLSClientCert, protocolName) {
+	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialTLSClientCert) {
 		t.Fatal("TLS client certificate credential should support CockroachDB")
 	}
 }

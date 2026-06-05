@@ -32,7 +32,7 @@ func TestOpenSearchPluginIntegration(t *testing.T) {
 	}
 	defer func() { _ = sess.Close() }()
 
-	routes := routeMap(p.Routes())
+	routes := plugintest.RouteMap(p.Routes())
 	index := "shellcn-it-" + time.Now().UTC().Format("20060102150405")
 	createBody, _ := json.Marshal(map[string]any{
 		"name": index,
@@ -163,14 +163,6 @@ func startOpenSearchContainer(ctx context.Context, t *testing.T) string {
 		}
 		time.Sleep(750 * time.Millisecond)
 	}
-}
-
-func routeMap(routes []plugin.Route) map[string]plugin.Route {
-	out := map[string]plugin.Route{}
-	for _, route := range routes {
-		out[route.ID] = route
-	}
-	return out
 }
 
 func call(ctx context.Context, t *testing.T, route plugin.Route, sess plugin.Session, params map[string]string, query url.Values, body []byte) any {

@@ -47,9 +47,13 @@ cp surrealdb /path/to/shellcn/plugins.d/surrealdb   # default plugins.dir
 # restart the gateway; enable it under Settings → Protocols
 ```
 
-Local development uses `replace` directives in `go.mod` pointing at the in-repo
-SDK and a local checkout of the driver. A real published plugin drops those and
-pins versions with `go get …/sdk@latest` and `go get …/surrealdb.go@latest`.
+This plugin depends on released modules directly. To update dependencies, run:
+
+```sh
+go get github.com/charlesng35/shellcn/sdk@latest
+go get github.com/surrealdb/surrealdb.go@latest
+go mod tidy
+```
 
 ## Try it against a local SurrealDB
 

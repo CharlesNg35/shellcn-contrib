@@ -35,7 +35,7 @@ func TestMeilisearchPluginIntegration(t *testing.T) {
 	}
 	defer func() { _ = sess.Close() }()
 
-	routes := routeMap(p.Routes())
+	routes := plugintest.RouteMap(p.Routes())
 	index := "shellcn_it_" + time.Now().UTC().Format("20060102150405")
 	createBody, _ := json.Marshal(map[string]any{"uid": index, "primaryKey": "id"})
 	created := call(ctx, t, routes["meilisearch.index.create"], sess, nil, nil, createBody)
@@ -199,14 +199,6 @@ func waitTaskFinished(ctx context.Context, t *testing.T, routes map[string]plugi
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-}
-
-func routeMap(routes []plugin.Route) map[string]plugin.Route {
-	out := map[string]plugin.Route{}
-	for _, route := range routes {
-		out[route.ID] = route
-	}
-	return out
 }
 
 func call(ctx context.Context, t *testing.T, route plugin.Route, sess plugin.Session, params map[string]string, query url.Values, body []byte) any {

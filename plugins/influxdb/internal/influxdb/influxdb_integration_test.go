@@ -39,7 +39,7 @@ func TestInfluxDBPluginIntegration(t *testing.T) {
 	defer func() { _ = sess.Close() }()
 	s := sess.(*Session)
 
-	routes := routeMap(p.Routes())
+	routes := plugintest.RouteMap(p.Routes())
 	measurement := "shellcn_cpu"
 	line := fmt.Sprintf("%s,host=web01 usage=0.64,status=\"ok\" %d", measurement, time.Now().UnixNano())
 	call(ctx, t, routes["influxdb.write"], sess, map[string]string{"namespace": bucket}, nil, testJSON(t, map[string]any{"line_protocol": line, "precision": "ns"}))
@@ -186,14 +186,6 @@ func waitForInfluxMeasurement(ctx context.Context, t *testing.T, s *Session, buc
 		}
 		time.Sleep(1 * time.Second)
 	}
-}
-
-func routeMap(routes []plugin.Route) map[string]plugin.Route {
-	out := map[string]plugin.Route{}
-	for _, route := range routes {
-		out[route.ID] = route
-	}
-	return out
 }
 
 func call(ctx context.Context, t *testing.T, route plugin.Route, sess plugin.Session, params map[string]string, query url.Values, body []byte) any {

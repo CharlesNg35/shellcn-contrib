@@ -56,7 +56,7 @@ func TestMinIOPluginIntegration(t *testing.T) {
 		t.Fatalf("connect: %v", err)
 	}
 	defer func() { _ = sess.Close() }()
-	routes := routeMap(p.Routes())
+	routes := plugintest.RouteMap(p.Routes())
 
 	// Create the bucket.
 	createBody, _ := json.Marshal(map[string]any{"name": bucket})
@@ -242,14 +242,6 @@ func asMap(v any) map[string]any {
 	data, _ := json.Marshal(v)
 	var out map[string]any
 	_ = json.Unmarshal(data, &out)
-	return out
-}
-
-func routeMap(routes []plugin.Route) map[string]plugin.Route {
-	out := map[string]plugin.Route{}
-	for _, route := range routes {
-		out[route.ID] = route
-	}
 	return out
 }
 

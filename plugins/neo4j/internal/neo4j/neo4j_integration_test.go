@@ -33,7 +33,7 @@ func TestNeo4jPluginIntegration(t *testing.T) {
 	}
 	defer func() { _ = sess.Close() }()
 	s := sess.(*Session)
-	routes := routeMap(p.Routes())
+	routes := plugintest.RouteMap(p.Routes())
 	db := fmt.Sprint(cfg["database"])
 
 	_, _ = executeCypher(ctx, s, db, sqldb.QueryRequest{Query: "MATCH (n:ShellCNIT) DETACH DELETE n", Confirm: true})
@@ -257,14 +257,6 @@ func startNeo4jContainer(ctx context.Context, t *testing.T) (string, string, str
 		}
 		time.Sleep(2 * time.Second)
 	}
-}
-
-func routeMap(routes []plugin.Route) map[string]plugin.Route {
-	out := map[string]plugin.Route{}
-	for _, route := range routes {
-		out[route.ID] = route
-	}
-	return out
 }
 
 func call(ctx context.Context, t *testing.T, route plugin.Route, sess plugin.Session, params map[string]string, query url.Values, body []byte) any {

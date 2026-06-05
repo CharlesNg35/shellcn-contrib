@@ -34,7 +34,7 @@ func TestPrometheusPluginIntegration(t *testing.T) {
 	s := sess.(*Session)
 	waitForPrometheusData(ctx, t, s)
 
-	routes := routeMap(p.Routes())
+	routes := plugintest.RouteMap(p.Routes())
 	call(ctx, t, routes["prometheus.overview"], sess, nil, nil, nil)
 	call(ctx, t, routes["prometheus.status.tree"], sess, nil, nil, nil)
 	statuses := pageItems(call(ctx, t, routes["prometheus.status.list"], sess, nil, nil, nil))
@@ -200,14 +200,6 @@ func waitForPrometheusData(ctx context.Context, t *testing.T, s *Session) {
 		}
 		time.Sleep(1 * time.Second)
 	}
-}
-
-func routeMap(routes []plugin.Route) map[string]plugin.Route {
-	out := map[string]plugin.Route{}
-	for _, route := range routes {
-		out[route.ID] = route
-	}
-	return out
 }
 
 func call(ctx context.Context, t *testing.T, route plugin.Route, sess plugin.Session, params map[string]string, query url.Values, body []byte) any {
