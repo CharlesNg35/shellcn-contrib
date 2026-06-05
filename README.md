@@ -9,8 +9,8 @@ PRs here, but independent plugin authors should usually keep their plugin in
 their own repo and submit only the Marketplace manifest to
 [shellcn-plugin-registry](https://github.com/CharlesNg35/shellcn-plugin-registry).
 
-Each plugin here is still a normal ShellCN plugin: one Go module, one protocol,
-one release binary.
+Each plugin here is still a normal ShellCN plugin: one Go module, one command,
+one protocol, and one release binary.
 
 ## How this repo fits
 
@@ -86,6 +86,16 @@ make fmt
 make test
 ```
 
+Run a plugin's integration test against Docker:
+
+```sh
+cd plugins/qdrant
+SHELLCN_QDRANT_INTEGRATION=1 go test ./...
+```
+
+Or point it at an existing service with the plugin-specific endpoint variable
+documented in that plugin's README.
+
 Build one plugin:
 
 ```sh
@@ -100,10 +110,10 @@ These protocols are better as first-party external plugins than built-ins:
 | ----------------- | ----------------------------------------------------------------------------- |
 | Shells            | Telnet                                                                        |
 | Databases         | MSSQL, Oracle, CockroachDB, ClickHouse, Cassandra, DynamoDB, Neo4j, SurrealDB |
-| Search            | Elasticsearch, OpenSearch, Meilisearch, Typesense, Solr                       |
+| Search and AI     | Elasticsearch, OpenSearch, Meilisearch, Typesense, Solr, Qdrant               |
 | Messaging         | Kafka, RabbitMQ, NATS                                                         |
 | Files and storage | NFS, MinIO                                                                    |
-| Observability     | Prometheus, InfluxDB                                                          |
+| Observability     | Prometheus, InfluxDB, Loki, Jaeger                                            |
 
 ## License
 
