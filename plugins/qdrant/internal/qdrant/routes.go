@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/charlesng35/shellcn-contrib/shared/broker"
 	"github.com/charlesng35/shellcn/sdk/plugin"
@@ -77,8 +78,18 @@ func qdrantAPI(ctx *plugin.RequestContext, method, path string, query url.Values
 		return err
 	}
 	var env envelope
-	if err := s.client.Do(ctx.Ctx, method, path, query, body, &env); err != nil {
-		return err
+	do := func() error {
+		env = envelope{}
+		return s.client.Do(ctx.Ctx, method, path, query, body, &env)
+	}
+	if err := do(); err != nil {
+		if !shouldRetryQdrant(method, path, err) {
+			return err
+		}
+		s.client.Close()
+		if retryErr := do(); retryErr != nil {
+			return retryErr
+		}
 	}
 	if env.Status != "" && env.Status != "ok" {
 		return fmt.Errorf("%w: Qdrant returned status %q", plugin.ErrUnavailable, env.Status)
@@ -347,8 +358,8 @@ func queryStream(rc *plugin.RequestContext, client plugin.ClientStream) error {
 	dec := json.NewDecoder(client)
 	enc := json.NewEncoder(client)
 	for {
-		var body any
-		if err := dec.Decode(&body); err != nil {
+		var frame any
+		if err := dec.Decode(&frame); err != nil {
 			if client.Context().Err() != nil || errors.Is(err, io.EOF) {
 				return nil
 			}
@@ -357,15 +368,22 @@ func queryStream(rc *plugin.RequestContext, client plugin.ClientStream) error {
 			}
 			continue
 		}
-		var out any
-		err := qdrantAPI(rc, http.MethodPost, "/collections/"+url.PathEscape(collectionParam(rc))+"/points/query", nil, body, &out)
+		body, err := queryBody(frame)
 		if err != nil {
 			if encErr := enc.Encode(row{"error": err.Error()}); encErr != nil {
 				return encErr
 			}
 			continue
 		}
-		if err := enc.Encode(out); err != nil {
+		var out any
+		err = qdrantAPI(rc, http.MethodPost, "/collections/"+url.PathEscape(collectionParam(rc))+"/points/query", nil, body, &out)
+		if err != nil {
+			if encErr := enc.Encode(row{"error": err.Error()}); encErr != nil {
+				return encErr
+			}
+			continue
+		}
+		if err := enc.Encode(queryResult(out)); err != nil {
 			return err
 		}
 	}
@@ -391,8 +409,104 @@ func requestBody(rc *plugin.RequestContext) (any, error) {
 		if body, ok := m["body"]; ok && len(m) == 1 {
 			return body, nil
 		}
+		if content, ok := m["content"].(string); ok && len(m) == 1 {
+			var body any
+			if err := json.Unmarshal([]byte(content), &body); err != nil {
+				return nil, fmt.Errorf("%w: content must be JSON", plugin.ErrInvalidInput)
+			}
+			return body, nil
+		}
 	}
 	return raw, nil
+}
+
+func queryBody(frame any) (any, error) {
+	m, ok := frame.(map[string]any)
+	if !ok {
+		return frame, nil
+	}
+	rawQuery, hasQuery := m["query"]
+	_, hasConfirm := m["confirm"]
+	queryText, queryIsText := rawQuery.(string)
+	if !hasQuery || (!hasConfirm && !queryIsText) {
+		return frame, nil
+	}
+	if !queryIsText {
+		return frame, nil
+	}
+	var body any
+	if err := json.Unmarshal([]byte(queryText), &body); err != nil {
+		return nil, fmt.Errorf("%w: query must be valid JSON", plugin.ErrInvalidInput)
+	}
+	return body, nil
+}
+
+func queryResult(v any) row {
+	points := queryPoints(v)
+	rows := make([][]any, 0, len(points))
+	for _, point := range points {
+		rows = append(rows, []any{
+			point["id"],
+			point["score"],
+			jsonText(point["payload"]),
+			jsonText(point["vector"]),
+		})
+	}
+	return row{
+		"columns":  []string{"id", "score", "payload", "vector"},
+		"rows":     rows,
+		"rowCount": len(rows),
+	}
+}
+
+func queryPoints(v any) []row {
+	switch t := v.(type) {
+	case []any:
+		return rowsFromAny(t)
+	case map[string]any:
+		if points, ok := t["points"].([]any); ok {
+			return rowsFromAny(points)
+		}
+	}
+	return nil
+}
+
+func rowsFromAny(items []any) []row {
+	rows := make([]row, 0, len(items))
+	for _, item := range items {
+		if m, ok := item.(map[string]any); ok {
+			rows = append(rows, row(m))
+		}
+	}
+	return rows
+}
+
+func jsonText(v any) string {
+	if v == nil {
+		return ""
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(data)
+}
+
+func shouldRetryQdrant(method, path string, err error) bool {
+	text := err.Error()
+	if !strings.Contains(text, "EOF") &&
+		!strings.Contains(text, "connection reset by peer") &&
+		!strings.Contains(text, "server closed idle connection") {
+		return false
+	}
+	switch method {
+	case http.MethodGet, http.MethodPut:
+		return true
+	case http.MethodPost:
+		return strings.Contains(path, "/points") && !strings.Contains(path, "/delete")
+	default:
+		return false
+	}
 }
 
 func ensureWritable(s *Session) error {
