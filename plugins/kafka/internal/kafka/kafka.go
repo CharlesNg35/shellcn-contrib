@@ -35,7 +35,6 @@ func (p *Plugin) Manifest() plugin.Manifest {
 		Agent: &plugin.AgentProfile{
 			Proxy: plugin.ProxyTarget{
 				Mode:    plugin.AgentTCP,
-				Address: "127.0.0.1:9092",
 				Risk:    plugin.RiskPrivileged,
 				Forward: true,
 			},

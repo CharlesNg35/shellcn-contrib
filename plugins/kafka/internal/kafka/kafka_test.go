@@ -33,6 +33,9 @@ func TestKafkaManifestValidates(t *testing.T) {
 	if m.Agent == nil || m.Agent.Proxy.Mode != plugin.AgentTCP || !m.Agent.Proxy.Forward {
 		t.Fatalf("kafka agent profile must use forwarded TCP proxy: %+v", m.Agent)
 	}
+	if m.Agent.Proxy.Address != "" {
+		t.Fatalf("forwarded kafka agent profile should not pin a fixed address: %q", m.Agent.Proxy.Address)
+	}
 }
 
 func TestKafkaConfigSchemaIsSpecific(t *testing.T) {
