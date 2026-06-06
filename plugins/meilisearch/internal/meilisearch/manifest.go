@@ -24,7 +24,7 @@ func objectDetailConfig() plugin.ObjectDetailConfig {
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "indexes", Label: "Indexes", Icon: icon("database"), Source: plugin.DataSource{RouteID: rid("indexes.tree")}, ResourceKind: "index"},
-		{Key: "tasks", Label: "Tasks", Icon: icon("list-checks"), Source: plugin.DataSource{RouteID: rid("tasks.tree")}, ResourceKind: "task"},
+		{Key: "tasks", Label: "Tasks", Icon: icon("list-checks"), ResourceKind: "task"},
 		{Key: "keys", Label: "API keys", Icon: icon("key-round"), Source: plugin.DataSource{RouteID: rid("keys.tree")}, ResourceKind: "key"},
 	}
 }

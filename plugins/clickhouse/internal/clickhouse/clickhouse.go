@@ -53,9 +53,9 @@ func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "databases", Label: "Databases", Icon: icon("database"), Source: plugin.DataSource{RouteID: "clickhouse.databases.tree"}, Ref: &plugin.ResourceRef{Kind: "server", Name: "Databases", UID: "server"}},
 		{Key: "dictionaries", Label: "Dictionaries", Icon: icon("book-open"), Source: plugin.DataSource{RouteID: "clickhouse.dictionaries.tree"}, ResourceKind: "dictionary"},
-		{Key: "mutations", Label: "Mutations", Icon: icon("git-compare-arrows"), Source: plugin.DataSource{RouteID: "clickhouse.mutations.tree"}, ResourceKind: "mutation"},
-		{Key: "merges", Label: "Merges", Icon: icon("merge"), Source: plugin.DataSource{RouteID: "clickhouse.merges.tree"}, ResourceKind: "merge"},
-		{Key: "processes", Label: "Processes", Icon: icon("activity"), Source: plugin.DataSource{RouteID: "clickhouse.processes.tree"}, ResourceKind: "process"},
+		{Key: "mutations", Label: "Mutations", Icon: icon("git-compare-arrows"), ResourceKind: "mutation"},
+		{Key: "merges", Label: "Merges", Icon: icon("merge"), ResourceKind: "merge"},
+		{Key: "processes", Label: "Processes", Icon: icon("activity"), ResourceKind: "process"},
 		{Key: "users", Label: "Users", Icon: icon("users"), Source: plugin.DataSource{RouteID: "clickhouse.users.tree"}, ResourceKind: "user"},
 	}
 }

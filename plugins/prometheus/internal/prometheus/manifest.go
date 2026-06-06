@@ -30,11 +30,11 @@ func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Ref: &plugin.ResourceRef{Kind: "server", Name: "Prometheus", UID: "server"}},
 		{Key: "status", Label: "Status", Icon: icon("activity"), Source: plugin.DataSource{RouteID: rid("status.tree")}, ResourceKind: "status"},
-		{Key: "targets", Label: "Targets", Icon: icon("crosshair"), Source: plugin.DataSource{RouteID: rid("targets.tree")}, ResourceKind: "target"},
-		{Key: "alerts", Label: "Alerts", Icon: icon("bell"), Source: plugin.DataSource{RouteID: rid("alerts.tree")}, ResourceKind: "alert"},
-		{Key: "rules", Label: "Rules", Icon: icon("list-checks"), Source: plugin.DataSource{RouteID: rid("rules.tree")}, ResourceKind: "rule"},
-		{Key: "metrics", Label: "Metrics", Icon: icon("chart-line"), Source: plugin.DataSource{RouteID: rid("metrics.tree")}, ResourceKind: "metric"},
-		{Key: "labels", Label: "Labels", Icon: icon("tag"), Source: plugin.DataSource{RouteID: rid("labels.tree")}, ResourceKind: "label"},
+		{Key: "targets", Label: "Targets", Icon: icon("crosshair"), ResourceKind: "target"},
+		{Key: "alerts", Label: "Alerts", Icon: icon("bell"), ResourceKind: "alert"},
+		{Key: "rules", Label: "Rules", Icon: icon("list-checks"), ResourceKind: "rule"},
+		{Key: "metrics", Label: "Metrics", Icon: icon("chart-line"), ResourceKind: "metric"},
+		{Key: "labels", Label: "Labels", Icon: icon("tag"), ResourceKind: "label"},
 	}
 }
 
