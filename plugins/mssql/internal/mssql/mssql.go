@@ -57,7 +57,7 @@ func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "databases", Label: "Databases", Icon: icon("database"), Source: plugin.DataSource{RouteID: "mssql.databases.tree"}, Ref: &plugin.ResourceRef{Kind: "server", Name: "Databases", UID: "server"}},
 		{Key: "users", Label: "Users", Icon: icon("users"), Source: plugin.DataSource{RouteID: "mssql.users.tree"}, ResourceKind: "user"},
-		{Key: "jobs", Label: "Jobs", Icon: icon("calendar-clock"), ResourceKind: "job"},
+		{Key: "jobs", Label: "Jobs", Icon: icon("calendar-clock"), Source: plugin.DataSource{RouteID: "mssql.jobs.tree"}, ResourceKind: "job"},
 	}
 }
 
@@ -291,7 +291,7 @@ func actions() []plugin.Action {
 		{ID: "mssql.job.enable", Label: "Enable job", Icon: icon("toggle-right"), RouteID: "mssql.job.enable", Params: map[string]string{"name": "${resource.name}"}},
 		{ID: "mssql.job.disable", Label: "Disable job", Icon: icon("toggle-left"), RouteID: "mssql.job.disable", Params: map[string]string{"name": "${resource.name}"}},
 		{ID: "mssql.user.create", Label: "Create user", Icon: icon("user-plus"), RouteID: "mssql.user.create"},
-		{ID: "mssql.user.grant", Label: "Grant permission", Icon: icon("shield-check"), RouteID: "mssql.user.grant", Params: map[string]string{"database": "${resource.namespace}", "user": "${resource.name}"}},
+		{ID: "mssql.user.grant", Label: "Grant permission", Icon: icon("shield-check"), RouteID: "mssql.user.grant", Params: map[string]string{"database": "${resource.namespace}", "user": "${resource.name}"}, Confirm: true, ConfirmText: "Grant this permission to the user?"},
 		{ID: "mssql.user.drop", Label: "Drop user", Icon: icon("user-minus"), RouteID: "mssql.user.drop", Params: map[string]string{"database": "${resource.namespace}", "user": "${resource.name}"}, Confirm: true, ConfirmText: "Drop this database user?"},
 	}
 }

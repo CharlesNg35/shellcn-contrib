@@ -41,7 +41,7 @@ func Routes(provider Provider) []plugin.Route {
 		{ID: routeID(provider, "documents.list"), Method: plugin.MethodGet, Path: "/indexes/{index}/documents", Permission: provider.Protocol + ".documents.read", Risk: plugin.RiskSafe, AuditEvent: routeID(provider, "documents.list"), Handle: listDocuments},
 		{ID: routeID(provider, "document.read"), Method: plugin.MethodGet, Path: "/indexes/{index}/documents/{id}", Permission: provider.Protocol + ".documents.read", Risk: plugin.RiskSafe, AuditEvent: routeID(provider, "document.read"), Handle: readDocument},
 		{ID: routeID(provider, "document.create"), Method: plugin.MethodPost, Path: "/indexes/{index}/documents", Permission: provider.Protocol + ".documents.write", Risk: plugin.RiskWrite, AuditEvent: routeID(provider, "document.create"), Input: documentCreateSchema(), Handle: createDocument},
-		{ID: routeID(provider, "document.update"), Method: plugin.MethodPut, Path: "/indexes/{index}/documents/{id}", Permission: provider.Protocol + ".documents.write", Risk: plugin.RiskWrite, AuditEvent: routeID(provider, "document.update"), Handle: updateDocument},
+		{ID: routeID(provider, "document.update"), Method: plugin.MethodPut, Path: "/indexes/{index}/documents/{id}", Permission: provider.Protocol + ".documents.write", Risk: plugin.RiskWrite, AuditEvent: routeID(provider, "document.update"), Input: documentUpdateSchema(), Handle: updateDocument},
 		{ID: routeID(provider, "document.delete"), Method: plugin.MethodDelete, Path: "/indexes/{index}/documents/{id}", Permission: provider.Protocol + ".documents.delete", Risk: plugin.RiskDestructive, AuditEvent: routeID(provider, "document.delete"), Handle: deleteDocument},
 		{ID: routeID(provider, "documents.delete_by_query"), Method: plugin.MethodPost, Path: "/indexes/{index}/delete_by_query", Permission: provider.Protocol + ".documents.delete", Risk: plugin.RiskDestructive, AuditEvent: routeID(provider, "documents.delete_by_query"), Input: deleteByQuerySchema(), Handle: deleteByQuery},
 		{ID: routeID(provider, "reindex"), Method: plugin.MethodPost, Path: "/reindex", Permission: provider.Protocol + ".indexes.write", Risk: plugin.RiskWrite, AuditEvent: routeID(provider, "reindex"), Input: reindexSchema(), Handle: reindex},
@@ -69,6 +69,12 @@ func documentCreateSchema() *plugin.Schema {
 	return &plugin.Schema{Groups: []plugin.Group{{Name: "Document", Fields: []plugin.Field{
 		{Key: "id", Label: "Document ID", Type: plugin.FieldText},
 		{Key: "document", Label: "Document", Type: plugin.FieldJSON, Required: true},
+	}}}}
+}
+
+func documentUpdateSchema() *plugin.Schema {
+	return &plugin.Schema{Groups: []plugin.Group{{Name: "Document", Fields: []plugin.Field{
+		{Key: "content", Label: "Document", Type: plugin.FieldJSON, Required: true},
 	}}}}
 }
 
@@ -196,7 +202,11 @@ func deleteIndex(rc *plugin.RequestContext) (any, error) {
 	if err := ensureWritable(s); err != nil {
 		return nil, err
 	}
-	err = s.client.Do(rc.Ctx, http.MethodDelete, pathIndex(indexParam(rc)), nil, nil, nil)
+	index, err := validateIndex(indexParam(rc))
+	if err != nil {
+		return nil, err
+	}
+	err = s.client.Do(rc.Ctx, http.MethodDelete, pathIndex(index), nil, nil, nil)
 	return actionResult{OK: err == nil}, err
 }
 
@@ -205,7 +215,11 @@ func refreshIndex(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = s.client.Do(rc.Ctx, http.MethodPost, pathIndex(indexParam(rc))+"/_refresh", nil, nil, nil)
+	index, err := validateIndex(indexParam(rc))
+	if err != nil {
+		return nil, err
+	}
+	err = s.client.Do(rc.Ctx, http.MethodPost, pathIndex(index)+"/_refresh", nil, nil, nil)
 	return actionResult{OK: err == nil}, err
 }
 
@@ -217,7 +231,11 @@ func flushIndex(rc *plugin.RequestContext) (any, error) {
 	if err := ensureWritable(s); err != nil {
 		return nil, err
 	}
-	err = s.client.Do(rc.Ctx, http.MethodPost, pathIndex(indexParam(rc))+"/_flush", nil, nil, nil)
+	index, err := validateIndex(indexParam(rc))
+	if err != nil {
+		return nil, err
+	}
+	err = s.client.Do(rc.Ctx, http.MethodPost, pathIndex(index)+"/_flush", nil, nil, nil)
 	return actionResult{OK: err == nil}, err
 }
 
@@ -229,7 +247,11 @@ func closeIndex(rc *plugin.RequestContext) (any, error) {
 	if err := ensureWritable(s); err != nil {
 		return nil, err
 	}
-	err = s.client.Do(rc.Ctx, http.MethodPost, pathIndex(indexParam(rc))+"/_close", nil, nil, nil)
+	index, err := validateIndex(indexParam(rc))
+	if err != nil {
+		return nil, err
+	}
+	err = s.client.Do(rc.Ctx, http.MethodPost, pathIndex(index)+"/_close", nil, nil, nil)
 	return actionResult{OK: err == nil}, err
 }
 
@@ -241,7 +263,11 @@ func openIndex(rc *plugin.RequestContext) (any, error) {
 	if err := ensureWritable(s); err != nil {
 		return nil, err
 	}
-	err = s.client.Do(rc.Ctx, http.MethodPost, pathIndex(indexParam(rc))+"/_open", nil, nil, nil)
+	index, err := validateIndex(indexParam(rc))
+	if err != nil {
+		return nil, err
+	}
+	err = s.client.Do(rc.Ctx, http.MethodPost, pathIndex(index)+"/_open", nil, nil, nil)
 	return actionResult{OK: err == nil}, err
 }
 
@@ -263,13 +289,20 @@ func updateMapping(rc *plugin.RequestContext) (any, error) {
 	if err := ensureWritable(s); err != nil {
 		return nil, err
 	}
+	index, err := validateIndex(indexParam(rc))
+	if err != nil {
+		return nil, err
+	}
 	var req struct {
 		Mapping map[string]any `json:"mapping"`
 	}
 	if err := rc.Bind(&req); err != nil {
 		return nil, err
 	}
-	err = s.client.Do(rc.Ctx, http.MethodPut, pathIndex(indexParam(rc))+"/_mapping", nil, req.Mapping, nil)
+	if len(req.Mapping) == 0 {
+		return nil, fmt.Errorf("%w: mapping body is required", plugin.ErrInvalidInput)
+	}
+	err = s.client.Do(rc.Ctx, http.MethodPut, pathIndex(index)+"/_mapping", nil, req.Mapping, nil)
 	return actionResult{OK: err == nil}, err
 }
 
@@ -406,6 +439,10 @@ func createAlias(rc *plugin.RequestContext) (any, error) {
 	if err := ensureWritable(s); err != nil {
 		return nil, err
 	}
+	index, err := validateIndex(indexParam(rc))
+	if err != nil {
+		return nil, err
+	}
 	var req struct {
 		Name   string         `json:"name"`
 		Filter map[string]any `json:"filter"`
@@ -421,7 +458,7 @@ func createAlias(rc *plugin.RequestContext) (any, error) {
 	if len(req.Filter) > 0 {
 		body = map[string]any{"filter": req.Filter}
 	}
-	err = s.client.Do(rc.Ctx, http.MethodPut, pathIndex(indexParam(rc))+"/_alias/"+url.PathEscape(name), nil, body, nil)
+	err = s.client.Do(rc.Ctx, http.MethodPut, pathIndex(index)+"/_alias/"+url.PathEscape(name), nil, body, nil)
 	return actionResult{OK: err == nil}, err
 }
 
@@ -433,11 +470,15 @@ func deleteAlias(rc *plugin.RequestContext) (any, error) {
 	if err := ensureWritable(s); err != nil {
 		return nil, err
 	}
+	index, err := validateIndex(indexParam(rc))
+	if err != nil {
+		return nil, err
+	}
 	alias := strings.TrimSpace(rc.Param("alias"))
 	if alias == "" {
 		return nil, fmt.Errorf("%w: alias is required", plugin.ErrInvalidInput)
 	}
-	err = s.client.Do(rc.Ctx, http.MethodDelete, pathIndex(indexParam(rc))+"/_alias/"+url.PathEscape(alias), nil, nil, nil)
+	err = s.client.Do(rc.Ctx, http.MethodDelete, pathIndex(index)+"/_alias/"+url.PathEscape(alias), nil, nil, nil)
 	return actionResult{OK: err == nil}, err
 }
 
@@ -518,6 +559,10 @@ func createDocument(rc *plugin.RequestContext) (any, error) {
 	if err := ensureWritable(s); err != nil {
 		return nil, err
 	}
+	index, err := validateIndex(indexParam(rc))
+	if err != nil {
+		return nil, err
+	}
 	var req struct {
 		ID       string         `json:"id"`
 		Document map[string]any `json:"document"`
@@ -525,10 +570,13 @@ func createDocument(rc *plugin.RequestContext) (any, error) {
 	if err := rc.Bind(&req); err != nil {
 		return nil, err
 	}
-	path := pathIndex(indexParam(rc)) + "/_doc"
+	if len(req.Document) == 0 {
+		return nil, fmt.Errorf("%w: document body is required", plugin.ErrInvalidInput)
+	}
+	path := pathIndex(index) + "/_doc"
 	method := http.MethodPost
 	if strings.TrimSpace(req.ID) != "" {
-		path = pathDoc(indexParam(rc), req.ID)
+		path = pathDoc(index, req.ID)
 		method = http.MethodPut
 	}
 	var out map[string]any
@@ -544,6 +592,10 @@ func updateDocument(rc *plugin.RequestContext) (any, error) {
 	if err := ensureWritable(s); err != nil {
 		return nil, err
 	}
+	index, err := validateIndex(indexParam(rc))
+	if err != nil {
+		return nil, err
+	}
 	var req struct {
 		Content string `json:"content"`
 	}
@@ -557,8 +609,11 @@ func updateDocument(rc *plugin.RequestContext) (any, error) {
 	if src, ok := doc["_source"].(map[string]any); ok {
 		doc = src
 	}
+	if len(doc) == 0 {
+		return nil, fmt.Errorf("%w: document body is required", plugin.ErrInvalidInput)
+	}
 	var out map[string]any
-	err = s.client.Do(rc.Ctx, http.MethodPut, pathDoc(indexParam(rc), docIDParam(rc)), nil, doc, &out)
+	err = s.client.Do(rc.Ctx, http.MethodPut, pathDoc(index, docIDParam(rc)), nil, doc, &out)
 	return out, err
 }
 
@@ -570,7 +625,11 @@ func deleteDocument(rc *plugin.RequestContext) (any, error) {
 	if err := ensureWritable(s); err != nil {
 		return nil, err
 	}
-	err = s.client.Do(rc.Ctx, http.MethodDelete, pathDoc(indexParam(rc), docIDParam(rc)), nil, nil, nil)
+	index, err := validateIndex(indexParam(rc))
+	if err != nil {
+		return nil, err
+	}
+	err = s.client.Do(rc.Ctx, http.MethodDelete, pathDoc(index, docIDParam(rc)), nil, nil, nil)
 	return actionResult{OK: err == nil}, err
 }
 
@@ -591,7 +650,15 @@ func reindex(rc *plugin.RequestContext) (any, error) {
 	if err := rc.Bind(&req); err != nil {
 		return nil, err
 	}
-	body := map[string]any{"source": map[string]any{"index": req.Source}, "dest": map[string]any{"index": req.Destination}}
+	source, err := validateIndex(req.Source)
+	if err != nil {
+		return nil, err
+	}
+	destination, err := validateIndex(req.Destination)
+	if err != nil {
+		return nil, err
+	}
+	body := map[string]any{"source": map[string]any{"index": source}, "dest": map[string]any{"index": destination}}
 	if len(req.Query) > 0 {
 		body["source"].(map[string]any)["query"] = req.Query
 	}

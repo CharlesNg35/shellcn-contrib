@@ -52,10 +52,6 @@ github.com/oklog/run v1.1.0/go.mod h1:sVPdnTZT1zYwAJeCMu2Th4T21pA3FPOQRfWjQlk7DV
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRIccs7FGNTlIRMkT8wgtp5eCXdBlqhYGL6U=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/reiver/go-oi v1.0.0 h1:nvECWD7LF+vOs8leNGV/ww+F2iZKf3EYjYZ527turzM=
-github.com/reiver/go-oi v1.0.0/go.mod h1:RrDBct90BAhoDTxB1fenZwfykqeGvhI6LsNfStJoEkI=
-github.com/reiver/go-telnet v0.0.0-20250617105250-7da9ad70a2b2 h1:JEUKAwQCLsAnXmAvrgVe54dk57gZFKJx0oAJNrEuvlo=
-github.com/reiver/go-telnet v0.0.0-20250617105250-7da9ad70a2b2/go.mod h1:84c/Kc3ylxVkRUmwlNmOUmZeMAdD0PsVdeAiXeJoI4E=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.7.2/go.mod h1:R6va5+xMeoiuVRoj+gSkQ7d3FALtqAAGI1FQKckRals=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=

@@ -58,9 +58,9 @@ func tree() []plugin.TreeGroup {
 		{Key: "databases", Label: "Databases", Icon: icon("database"), Source: plugin.DataSource{RouteID: "cockroachdb.databases.tree"}, Ref: &plugin.ResourceRef{Kind: "server", Name: "Databases", UID: "server"}},
 		{Key: "nodes", Label: "Nodes", Icon: icon("server"), Source: plugin.DataSource{RouteID: "cockroachdb.nodes.tree"}, ResourceKind: "node"},
 		{Key: "ranges", Label: "Ranges", Icon: icon("blocks"), Source: plugin.DataSource{RouteID: "cockroachdb.ranges.tree"}, ResourceKind: "range"},
-		{Key: "jobs", Label: "Jobs", Icon: icon("briefcase-business"), ResourceKind: "job"},
-		{Key: "sessions", Label: "Sessions", Icon: icon("activity"), ResourceKind: "session"},
-		{Key: "queries", Label: "Queries", Icon: icon("search-code"), ResourceKind: "query"},
+		{Key: "jobs", Label: "Jobs", Icon: icon("briefcase-business"), Source: plugin.DataSource{RouteID: "cockroachdb.jobs.tree"}, ResourceKind: "job"},
+		{Key: "sessions", Label: "Sessions", Icon: icon("activity"), Source: plugin.DataSource{RouteID: "cockroachdb.sessions.tree"}, ResourceKind: "session"},
+		{Key: "queries", Label: "Queries", Icon: icon("search-code"), Source: plugin.DataSource{RouteID: "cockroachdb.queries.tree"}, ResourceKind: "query"},
 		{Key: "users", Label: "Users", Icon: icon("users"), Source: plugin.DataSource{RouteID: "cockroachdb.users.tree"}, ResourceKind: "user"},
 		{Key: "schemas", Label: "Schemas", Icon: icon("folder-tree"), Source: plugin.DataSource{RouteID: "cockroachdb.schemas.tree"}, ResourceKind: "schema"},
 		{Key: "functions", Label: "Functions", Icon: icon("function-square"), Source: plugin.DataSource{RouteID: "cockroachdb.functions.tree"}, ResourceKind: "function"},
@@ -403,7 +403,7 @@ func actions() []plugin.Action {
 		{ID: "cockroachdb.session.cancel", Label: "Cancel session", Icon: icon("circle-stop"), RouteID: "cockroachdb.session.cancel", Params: map[string]string{"id": "${resource.uid}"}, Confirm: true, ConfirmText: "Cancel this session? Its active query is stopped and the session ends."},
 		{ID: "cockroachdb.query.cancel.id", Label: "Cancel query", Icon: icon("circle-stop"), RouteID: "cockroachdb.query.cancel.id", Params: map[string]string{"id": "${resource.uid}"}, Confirm: true, ConfirmText: "Cancel this query? It will be stopped."},
 		{ID: "cockroachdb.user.create", Label: "Create user", Icon: icon("user-plus"), RouteID: "cockroachdb.user.create"},
-		{ID: "cockroachdb.user.grant", Label: "Grant", Icon: icon("shield-plus"), RouteID: "cockroachdb.user.grant", Params: map[string]string{"user": "${resource.uid}"}},
+		{ID: "cockroachdb.user.grant", Label: "Grant", Icon: icon("shield-plus"), RouteID: "cockroachdb.user.grant", Params: map[string]string{"user": "${resource.uid}"}, Confirm: true, ConfirmText: "Grant privileges to this user?"},
 		{ID: "cockroachdb.user.drop", Label: "Drop user", Icon: icon("user-minus"), RouteID: "cockroachdb.user.drop", Params: map[string]string{"user": "${resource.uid}"}, Confirm: true, ConfirmText: "Drop this user? They lose access to the cluster."},
 	}
 }

@@ -335,14 +335,8 @@ func presignObject(rc *plugin.RequestContext) (any, error) {
 			return nil, mapAdminError(err)
 		}
 		return presignResult(req.URL, "GET", expiry), nil
-	case "put", "upload":
-		req, err := c.presign.PresignPutObject(rc.Ctx, &awss3.PutObjectInput{Bucket: aws.String(c.bucket), Key: aws.String(key)}, expires)
-		if err != nil {
-			return nil, mapAdminError(err)
-		}
-		return presignResult(req.URL, "PUT", expiry), nil
 	default:
-		return nil, fmt.Errorf("%w: method must be get or put", plugin.ErrInvalidInput)
+		return nil, fmt.Errorf("%w: method must be get", plugin.ErrInvalidInput)
 	}
 }
 
