@@ -6,6 +6,10 @@ func icon(name string) plugin.Icon { return plugin.Icon{Type: plugin.IconLucide,
 
 func rid(suffix string) string { return protocolName + "." + suffix }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Ref: &plugin.ResourceRef{Kind: "server", Name: "Qdrant", UID: "server"}},
@@ -18,7 +22,7 @@ func resources() []plugin.ResourceType {
 		{
 			Kind: "server", Title: "Qdrant", List: plugin.DataSource{RouteID: rid("overview")},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("overview")}},
+				{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("overview")}, Config: objectDetailConfig()},
 				{Key: "collections", Label: "Collections", Icon: icon("database"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("collections.list")}, Config: plugin.TableConfig{Columns: collectionColumns(), Exportable: true}},
 			}},
 		},
@@ -31,7 +35,7 @@ func resources() []plugin.ResourceType {
 				Detail:  []string{rid("point.upsert"), rid("payload.index.create"), rid("alias.create"), rid("snapshot.create"), rid("collection.delete")},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("collection.read"), Params: collectionParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("collection.read"), Params: collectionParams()}, Config: objectDetailConfig()},
 				{Key: "points", Label: "Points", Icon: icon("braces"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("points.list"), Params: collectionParams()}, Config: plugin.TableConfig{Columns: pointColumns(), RowActionIDs: []string{rid("point.delete")}, Exportable: true}},
 				{Key: "query", Label: "Query", Icon: icon("search"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: rid("query"), Method: plugin.MethodWS, Params: collectionParams()}, Config: queryConfig()},
 				{Key: "aliases", Label: "Aliases", Icon: icon("tags"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("collection.aliases"), Params: collectionParams()}, Config: plugin.TableConfig{Columns: aliasColumns(), RowActionIDs: []string{rid("alias.delete")}, Exportable: true}},
@@ -107,7 +111,7 @@ func aliasColumns() []plugin.Column {
 func snapshotColumns() []plugin.Column {
 	return []plugin.Column{
 		{Key: "name", Label: "Snapshot", Sortable: true},
-		{Key: "creation_time", Label: "Created", Type: plugin.ColumnDateTime, Sortable: true},
+		{Key: "creation_time", Label: "Created", Type: plugin.ColumnRelativeTime, Sortable: true},
 		{Key: "size", Label: "Size", Type: plugin.ColumnBytes, Sortable: true},
 	}
 }

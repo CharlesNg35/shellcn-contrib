@@ -45,6 +45,14 @@ func icon(name string) plugin.Icon {
 	return plugin.Icon{Type: plugin.IconLucide, Value: name}
 }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "schemas", Label: "Schemas", Icon: icon("folder-tree"), Source: plugin.DataSource{RouteID: "oracle.schemas.tree"}, Ref: &plugin.ResourceRef{Kind: "server", Name: "Schemas", UID: "server"}},
@@ -91,9 +99,9 @@ func schemaResource() plugin.ResourceType {
 		List:    plugin.DataSource{RouteID: "oracle.schemas.list"},
 		Columns: schemaColumns(),
 		Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "oracle.schema.overview", Params: map[string]string{"schema": "${resource.name}"}}},
+			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "oracle.schema.overview", Params: map[string]string{"schema": "${resource.name}"}}, Config: objectDetailConfig()},
 			{Key: "tables", Label: "Tables", Icon: icon("table-2"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "oracle.tables.list", Params: map[string]string{"schema": "${resource.name}"}}, Config: plugin.TableConfig{Columns: tableColumns(), ActionIDs: []string{"oracle.table.create"}, RowActionIDs: []string{"oracle.table.truncate", "oracle.table.drop"}}},
-			{Key: "relations", Label: "Relationships", Icon: icon("workflow"), Type: plugin.PanelGraph, Source: &plugin.DataSource{RouteID: "oracle.relations.graph", Params: map[string]string{"schema": "${resource.name}"}}, Config: plugin.GraphConfig{Layout: plugin.GraphLayoutGrid, FitView: true}},
+			{Key: "relations", Label: "Relationships", Icon: icon("workflow"), Type: plugin.PanelGraph, Source: &plugin.DataSource{RouteID: "oracle.relations.graph", Params: map[string]string{"schema": "${resource.name}"}}, Config: plugin.GraphConfig{Layout: plugin.GraphLayoutGrid, FitView: true, Exportable: boolPtr(true)}},
 			{Key: "views", Label: "Views", Icon: icon("panel-top"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "oracle.views.list", Params: map[string]string{"schema": "${resource.name}"}}, Config: plugin.TableConfig{Columns: viewColumns(), RowActionIDs: []string{"oracle.view.drop"}}},
 			{Key: "procedures", Label: "Procedures", Icon: icon("function-square"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "oracle.procedures.list", Params: map[string]string{"schema": "${resource.name}"}}, Config: plugin.TableConfig{Columns: procedureColumns()}},
 			{Key: "packages", Label: "Packages", Icon: icon("package"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "oracle.packages.list", Params: map[string]string{"schema": "${resource.name}"}}, Config: plugin.TableConfig{Columns: packageColumns()}},
@@ -164,7 +172,7 @@ func sequenceResource() plugin.ResourceType {
 		List:    plugin.DataSource{RouteID: "oracle.sequences.list"},
 		Columns: []plugin.Column{{Key: "name", Label: "Sequence", Sortable: true}, {Key: "owner", Label: "Owner", Sortable: true}, {Key: "min_value", Label: "Min", Type: plugin.ColumnNumber}, {Key: "max_value", Label: "Max", Type: plugin.ColumnNumber}, {Key: "increment_by", Label: "Increment", Type: plugin.ColumnNumber}, {Key: "last_number", Label: "Last", Type: plugin.ColumnNumber}, {Key: "cache_size", Label: "Cache", Type: plugin.ColumnNumber}},
 		Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "oracle.sequence.overview", Params: objectParams()}},
+			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "oracle.sequence.overview", Params: objectParams()}, Config: objectDetailConfig()},
 		}},
 	}
 }
@@ -179,7 +187,7 @@ func userResource() plugin.ResourceType {
 			Detail: []string{"oracle.user.grant", "oracle.user.lock", "oracle.user.unlock", "oracle.user.drop"},
 		},
 		Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "oracle.user.overview", Params: map[string]string{"user": "${resource.name}"}}},
+			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "oracle.user.overview", Params: map[string]string{"user": "${resource.name}"}}, Config: objectDetailConfig()},
 		}},
 	}
 }
@@ -190,7 +198,7 @@ func tablespaceResource() plugin.ResourceType {
 		List:    plugin.DataSource{RouteID: "oracle.tablespaces.list"},
 		Columns: []plugin.Column{{Key: "name", Label: "Tablespace", Sortable: true}, {Key: "status", Label: "Status"}, {Key: "contents", Label: "Contents"}, {Key: "extent_management", Label: "Extents"}, {Key: "bigfile", Label: "Bigfile", Type: plugin.ColumnBool}},
 		Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "oracle.tablespace.overview", Params: map[string]string{"tablespace": "${resource.name}"}}},
+			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "oracle.tablespace.overview", Params: map[string]string{"tablespace": "${resource.name}"}}, Config: objectDetailConfig()},
 		}},
 	}
 }
@@ -205,7 +213,7 @@ func sessionResource() plugin.ResourceType {
 			Detail: []string{"oracle.session.kill"},
 		},
 		Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "Session ${resource.name}"}, Tabs: []plugin.Panel{
-			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "oracle.session.overview", Params: map[string]string{"id": "${resource.uid}"}}},
+			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "oracle.session.overview", Params: map[string]string{"id": "${resource.uid}"}}, Config: objectDetailConfig()},
 		}},
 	}
 }
@@ -276,7 +284,7 @@ func constraintColumns() []plugin.Column {
 
 func actions() []plugin.Action {
 	return []plugin.Action{
-		{ID: "oracle.schema.create", Label: "Create schema", Icon: icon("folder-plus"), RouteID: "oracle.schema.create", OnSuccess: &plugin.ActionSuccess{SelectTab: "schemas"}},
+		{ID: "oracle.schema.create", Label: "Create schema", Icon: icon("folder-plus"), RouteID: "oracle.schema.create", Confirm: true, ConfirmText: "Create this schema user? It can own objects and may receive database privileges.", OnSuccess: &plugin.ActionSuccess{SelectTab: "schemas"}},
 		{ID: "oracle.schema.drop", Label: "Drop schema", Icon: icon("trash-2"), RouteID: "oracle.schema.drop", Params: map[string]string{"schema": "${resource.name}"}, Confirm: true, ConfirmText: "Drop this schema (user)? The user and every object it owns are permanently deleted.", OnSuccess: &plugin.ActionSuccess{SelectTab: "schemas"}},
 		{ID: "oracle.table.create", Label: "Create table", Icon: icon("plus"), RouteID: "oracle.table.create", Params: map[string]string{"schema": "${resource.name}"}, OnSuccess: &plugin.ActionSuccess{SelectTab: "tables"}},
 		{ID: "oracle.table.rename", Label: "Rename table", Icon: icon("pencil"), RouteID: "oracle.table.rename", Params: objectParams()},
@@ -294,7 +302,7 @@ func actions() []plugin.Action {
 		{ID: "oracle.session.kill", Label: "Kill session", Icon: icon("circle-x"), RouteID: "oracle.session.kill", Params: map[string]string{"id": "${resource.uid}"}, Confirm: true, ConfirmText: "Kill this session? In-flight work is rolled back and the connection is terminated immediately."},
 		{ID: "oracle.user.lock", Label: "Lock account", Icon: icon("lock"), RouteID: "oracle.user.lock", Params: map[string]string{"user": "${resource.name}"}},
 		{ID: "oracle.user.unlock", Label: "Unlock account", Icon: icon("lock-open"), RouteID: "oracle.user.unlock", Params: map[string]string{"user": "${resource.name}"}},
-		{ID: "oracle.user.grant", Label: "Grant roles/privileges", Icon: icon("shield-plus"), RouteID: "oracle.user.grant", Params: map[string]string{"user": "${resource.name}"}},
+		{ID: "oracle.user.grant", Label: "Grant roles/privileges", Icon: icon("shield-plus"), RouteID: "oracle.user.grant", Params: map[string]string{"user": "${resource.name}"}, Confirm: true, ConfirmText: "Grant roles or privileges to this user? This can expand access across schemas, objects, or administrative operations."},
 		{ID: "oracle.user.drop", Label: "Drop user", Icon: icon("trash-2"), RouteID: "oracle.user.drop", Params: map[string]string{"user": "${resource.name}"}, Confirm: true, ConfirmText: "Drop this user? The user and every object it owns are permanently deleted."},
 	}
 }

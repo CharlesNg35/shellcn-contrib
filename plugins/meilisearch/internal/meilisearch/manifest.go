@@ -17,6 +17,10 @@ func icon(name string) plugin.Icon {
 
 func rid(suffix string) string { return "meilisearch." + suffix }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "indexes", Label: "Indexes", Icon: icon("database"), Source: plugin.DataSource{RouteID: rid("indexes.tree")}, ResourceKind: "index"},
@@ -38,11 +42,11 @@ func resources() []plugin.ResourceType {
 				},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("index.overview"), Params: indexParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("index.overview"), Params: indexParams()}, Config: objectDetailConfig()},
 				{Key: "documents", Label: "Documents", Icon: icon("file-json"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("documents.list"), Params: indexParams()}, Config: plugin.TableConfig{Columns: documentColumns(), ActionIDs: []string{rid("document.upsert")}, RowActionIDs: []string{rid("document.delete")}, Exportable: true}},
 				{Key: "search", Label: "Search", Icon: icon("search"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: rid("search.query"), Method: plugin.MethodWS, Params: indexParams()}, Config: searchConfig()},
 				{Key: "settings", Label: "Settings", Icon: icon("settings"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("settings.read"), Params: indexParams()}},
-				{Key: "stats", Label: "Stats", Icon: icon("chart-column"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("index.stats"), Params: indexParams()}},
+				{Key: "stats", Label: "Stats", Icon: icon("chart-column"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("index.stats"), Params: indexParams()}, Config: objectDetailConfig()},
 				{Key: "tasks", Label: "Tasks", Icon: icon("list-checks"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("tasks.list"), Params: indexParams()}, Config: plugin.TableConfig{Columns: taskColumns(), RowActionIDs: []string{rid("task.cancel"), rid("task.delete")}, Exportable: true}},
 			}},
 		},
@@ -66,7 +70,7 @@ func resources() []plugin.ResourceType {
 				Detail: []string{rid("task.cancel"), rid("task.delete")},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "Task ${resource.name}", StatusField: "status", Severities: taskStatusSeverities}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("task.read"), Params: taskParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("task.read"), Params: taskParams()}, Config: objectDetailConfig()},
 			}},
 		},
 		{
@@ -78,7 +82,7 @@ func resources() []plugin.ResourceType {
 				Detail:  []string{rid("key.update"), rid("key.delete")},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("key-round"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("key.read"), Params: keyParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("key-round"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("key.read"), Params: keyParams()}, Config: objectDetailConfig()},
 			}},
 		},
 	}
@@ -129,8 +133,8 @@ func indexColumns() []plugin.Column {
 		{Key: "primaryKey", Label: "Primary key", Sortable: true},
 		{Key: "numberOfDocuments", Label: "Documents", Type: plugin.ColumnNumber, Sortable: true},
 		{Key: "isIndexing", Label: "Indexing", Type: plugin.ColumnBool},
-		{Key: "createdAt", Label: "Created", Type: plugin.ColumnDateTime, Sortable: true},
-		{Key: "updatedAt", Label: "Updated", Type: plugin.ColumnDateTime, Sortable: true},
+		{Key: "createdAt", Label: "Created", Type: plugin.ColumnRelativeTime, Sortable: true},
+		{Key: "updatedAt", Label: "Updated", Type: plugin.ColumnRelativeTime, Sortable: true},
 	}
 }
 
@@ -149,9 +153,9 @@ func taskColumns() []plugin.Column {
 		{Key: "type", Label: "Type", Sortable: true},
 		{Key: "indexUid", Label: "Index", Sortable: true},
 		{Key: "duration", Label: "Duration"},
-		{Key: "enqueuedAt", Label: "Enqueued", Type: plugin.ColumnDateTime, Sortable: true},
-		{Key: "startedAt", Label: "Started", Type: plugin.ColumnDateTime},
-		{Key: "finishedAt", Label: "Finished", Type: plugin.ColumnDateTime},
+		{Key: "enqueuedAt", Label: "Enqueued", Type: plugin.ColumnRelativeTime, Sortable: true},
+		{Key: "startedAt", Label: "Started", Type: plugin.ColumnRelativeTime},
+		{Key: "finishedAt", Label: "Finished", Type: plugin.ColumnRelativeTime},
 	}
 }
 

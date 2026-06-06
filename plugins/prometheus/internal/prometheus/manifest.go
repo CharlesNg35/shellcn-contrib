@@ -22,6 +22,10 @@ func icon(name string) plugin.Icon { return plugin.Icon{Type: plugin.IconLucide,
 
 func rid(suffix string) string { return protocolName + "." + suffix }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Ref: &plugin.ResourceRef{Kind: "server", Name: "Prometheus", UID: "server"}},
@@ -44,7 +48,7 @@ func resources() []plugin.ResourceType {
 			Actions: plugin.ResourceActions{Detail: []string{rid("snapshot.create"), rid("tombstones.clean"), rid("config.reload")}},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
 				{Key: "query", Label: "PromQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: rid("query"), Method: plugin.MethodWS}, Config: queryConfig()},
-				{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("overview")}},
+				{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("overview")}, Config: objectDetailConfig()},
 				{Key: "live", Label: "Live", Icon: icon("activity"), Type: plugin.PanelMetrics, Source: &plugin.DataSource{RouteID: rid("metrics.live"), Method: plugin.MethodWS}, Config: liveMetricsConfig()},
 				{Key: "targets", Label: "Targets", Icon: icon("crosshair"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("targets.list")}, Config: plugin.TableConfig{Columns: targetColumns(), Exportable: true}},
 				{Key: "alerts", Label: "Alerts", Icon: icon("bell"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("alerts.list")}, Config: plugin.TableConfig{Columns: alertColumns(), Exportable: true}},
@@ -55,14 +59,14 @@ func resources() []plugin.ResourceType {
 			Kind: "status", Title: "Status", List: plugin.DataSource{RouteID: rid("status.list")},
 			Columns: statusColumns(),
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("status.read"), Params: statusParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("status.read"), Params: statusParams()}, Config: objectDetailConfig()},
 			}},
 		},
 		{
 			Kind: "target", Title: "Targets", List: plugin.DataSource{RouteID: rid("targets.list")},
 			Columns: targetColumns(),
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("crosshair"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("target.read"), Params: targetParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("crosshair"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("target.read"), Params: targetParams()}, Config: objectDetailConfig()},
 				{Key: "metadata", Label: "Metadata", Icon: icon("database-zap"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("target.metadata"), Params: targetParams()}, Config: plugin.TableConfig{Columns: targetMetadataColumns(), Exportable: true}},
 			}},
 		},
@@ -70,14 +74,14 @@ func resources() []plugin.ResourceType {
 			Kind: "alert", Title: "Alerts", List: plugin.DataSource{RouteID: rid("alerts.list")},
 			Columns: alertColumns(),
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("bell"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("alert.read"), Params: alertParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("bell"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("alert.read"), Params: alertParams()}, Config: objectDetailConfig()},
 			}},
 		},
 		{
 			Kind: "rule", Title: "Rules", List: plugin.DataSource{RouteID: rid("rules.list")},
 			Columns: ruleColumns(),
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("list-checks"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("rule.read"), Params: ruleParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("list-checks"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("rule.read"), Params: ruleParams()}, Config: objectDetailConfig()},
 			}},
 		},
 		{
@@ -85,7 +89,7 @@ func resources() []plugin.ResourceType {
 			Columns: metricColumns(),
 			Actions: plugin.ResourceActions{Detail: []string{rid("series.delete")}},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "metadata", Label: "Metadata", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("metric.read"), Params: metricParams()}},
+				{Key: "metadata", Label: "Metadata", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("metric.read"), Params: metricParams()}, Config: objectDetailConfig()},
 				{Key: "series", Label: "Series", Icon: icon("list-tree"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("metric.series"), Params: metricParams()}, Config: plugin.TableConfig{Columns: seriesColumns(), Exportable: true}},
 				{Key: "query", Label: "PromQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: rid("query"), Method: plugin.MethodWS}, Config: metricQueryConfig()},
 			}},
@@ -171,7 +175,7 @@ func targetColumns() []plugin.Column {
 		{Key: "health", Label: "Health", Type: plugin.ColumnBadge, Sortable: true, Severities: healthSeverities},
 		{Key: "state", Label: "State", Type: plugin.ColumnBadge, Sortable: true, Severities: targetStateSeverities},
 		{Key: "scrapePool", Label: "Pool", Sortable: true},
-		{Key: "lastScrape", Label: "Last scrape", Type: plugin.ColumnDateTime, Sortable: true},
+		{Key: "lastScrape", Label: "Last scrape", Type: plugin.ColumnRelativeTime, Sortable: true},
 		{Key: "lastError", Label: "Last error"},
 	}
 }
@@ -181,7 +185,7 @@ func targetMetadataColumns() []plugin.Column {
 }
 
 func alertColumns() []plugin.Column {
-	return []plugin.Column{{Key: "alertname", Label: "Alert", Sortable: true}, {Key: "state", Label: "State", Type: plugin.ColumnBadge, Sortable: true, Severities: alertStateSeverities}, {Key: "activeAt", Label: "Active at", Type: plugin.ColumnDateTime, Sortable: true}, {Key: "value", Label: "Value"}, {Key: "labels", Label: "Labels", Type: plugin.ColumnJSON}}
+	return []plugin.Column{{Key: "alertname", Label: "Alert", Sortable: true}, {Key: "state", Label: "State", Type: plugin.ColumnBadge, Sortable: true, Severities: alertStateSeverities}, {Key: "activeAt", Label: "Active at", Type: plugin.ColumnRelativeTime, Sortable: true}, {Key: "value", Label: "Value"}, {Key: "labels", Label: "Labels", Type: plugin.ColumnJSON}}
 }
 
 func ruleColumns() []plugin.Column {

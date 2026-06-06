@@ -50,6 +50,10 @@ func icon(name string) plugin.Icon {
 	return plugin.Icon{Type: plugin.IconLucide, Value: name}
 }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "queues", Label: "Queues", Icon: icon("list"), Source: plugin.DataSource{RouteID: "rabbitmq.queues.tree"}, ResourceKind: "queue"},
@@ -68,7 +72,7 @@ func resources() []plugin.ResourceType {
 				Detail:  []string{"rabbitmq.queue.publish", "rabbitmq.queue.purge", "rabbitmq.queue.delete"},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.namespace}/${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "rabbitmq.queue.overview", Params: queueParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "rabbitmq.queue.overview", Params: queueParams()}, Config: objectDetailConfig()},
 				{Key: "messages", Label: "Messages", Icon: icon("mail"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "rabbitmq.queue.messages", Params: queueParams()}, Config: plugin.TableConfig{Columns: messageColumns(), ActionIDs: []string{"rabbitmq.queue.publish"}, Exportable: true}},
 				{Key: "bindings", Label: "Bindings", Icon: icon("link"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "rabbitmq.bindings.list", Params: queueParams()}, Config: plugin.TableConfig{Columns: bindingColumns(), ActionIDs: []string{"rabbitmq.binding.create"}, RowActionIDs: []string{"rabbitmq.binding.delete"}, Exportable: true}},
 				{Key: "consumers", Label: "Consumers", Icon: icon("users"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "rabbitmq.consumers.list", Params: queueParams()}, Config: plugin.TableConfig{Columns: consumerColumns(), Exportable: true}},
@@ -83,7 +87,7 @@ func resources() []plugin.ResourceType {
 				Detail:  []string{"rabbitmq.message.publish", "rabbitmq.exchange.delete"},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.namespace}/${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "rabbitmq.exchange.overview", Params: exchangeParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "rabbitmq.exchange.overview", Params: exchangeParams()}, Config: objectDetailConfig()},
 				{Key: "bindings", Label: "Bindings", Icon: icon("link"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "rabbitmq.exchange.bindings", Params: exchangeParams()}, Config: plugin.TableConfig{Columns: bindingColumns(), RowActionIDs: []string{"rabbitmq.binding.delete"}, Exportable: true}},
 			}},
 		},

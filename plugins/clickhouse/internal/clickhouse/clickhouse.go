@@ -45,6 +45,10 @@ func icon(name string) plugin.Icon {
 	return plugin.Icon{Type: plugin.IconLucide, Value: name}
 }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "databases", Label: "Databases", Icon: icon("database"), Source: plugin.DataSource{RouteID: "clickhouse.databases.tree"}, Ref: &plugin.ResourceRef{Kind: "server", Name: "Databases", UID: "server"}},
@@ -106,7 +110,7 @@ func databaseResource() plugin.ResourceType {
 		Detail: plugin.DetailView{
 			Header: plugin.HeaderSpec{Title: "${resource.name}"},
 			Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "clickhouse.database.overview", Params: map[string]string{"database": "${resource.uid}"}}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "clickhouse.database.overview", Params: map[string]string{"database": "${resource.uid}"}}, Config: objectDetailConfig()},
 				{Key: "tables", Label: "Tables", Icon: icon("table-2"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "clickhouse.tables.list", Params: map[string]string{"database": "${resource.uid}"}}, Config: plugin.TableConfig{Columns: tableColumns(), ActionIDs: []string{"clickhouse.table.create"}, RowActionIDs: []string{"clickhouse.table.truncate", "clickhouse.table.drop"}}},
 				{Key: "views", Label: "Views", Icon: icon("panel-top"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "clickhouse.views.list", Params: map[string]string{"database": "${resource.uid}"}}, Config: plugin.TableConfig{Columns: viewColumns(), RowActionIDs: []string{"clickhouse.view.drop"}}},
 				{Key: "dictionaries", Label: "Dictionaries", Icon: icon("book-open"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "clickhouse.dictionaries.list", Params: map[string]string{"database": "${resource.uid}"}}, Config: plugin.TableConfig{Columns: dictionaryColumns()}},
@@ -163,7 +167,7 @@ func dictionaryResource() plugin.ResourceType {
 		List:    plugin.DataSource{RouteID: "clickhouse.dictionaries.list"},
 		Columns: dictionaryColumns(),
 		Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.namespace}.${resource.name}"}, Tabs: []plugin.Panel{
-			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "clickhouse.dictionary.overview", Params: tableParams()}},
+			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "clickhouse.dictionary.overview", Params: tableParams()}, Config: objectDetailConfig()},
 		}},
 	}
 }
@@ -178,7 +182,7 @@ func mutationResource() plugin.ResourceType {
 			Detail: []string{"clickhouse.mutation.kill"},
 		},
 		Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "clickhouse.mutation.overview", Params: map[string]string{"id": "${resource.uid}"}}},
+			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "clickhouse.mutation.overview", Params: map[string]string{"id": "${resource.uid}"}}, Config: objectDetailConfig()},
 		}},
 	}
 }
@@ -192,7 +196,7 @@ func mergeResource() plugin.ResourceType {
 			Detail: []string{"clickhouse.merge.stop", "clickhouse.merge.start"},
 		},
 		Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "clickhouse.merge.overview", Params: map[string]string{"id": "${resource.uid}"}}},
+			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "clickhouse.merge.overview", Params: map[string]string{"id": "${resource.uid}"}}, Config: objectDetailConfig()},
 		}},
 	}
 }
@@ -207,7 +211,7 @@ func processResource() plugin.ResourceType {
 			Detail: []string{"clickhouse.process.kill"},
 		},
 		Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "clickhouse.process.overview", Params: map[string]string{"id": "${resource.uid}"}}},
+			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "clickhouse.process.overview", Params: map[string]string{"id": "${resource.uid}"}}, Config: objectDetailConfig()},
 		}},
 	}
 }
@@ -227,7 +231,7 @@ func userResource() plugin.ResourceType {
 			Detail:  []string{"clickhouse.user.grant", "clickhouse.user.drop"},
 		},
 		Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "clickhouse.user.overview", Params: map[string]string{"user": "${resource.name}"}}},
+			{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "clickhouse.user.overview", Params: map[string]string{"user": "${resource.name}"}}, Config: objectDetailConfig()},
 		}},
 	}
 }
@@ -282,7 +286,7 @@ func dictionaryColumns() []plugin.Column {
 }
 
 func mutationColumns() []plugin.Column {
-	return []plugin.Column{{Key: "mutation_id", Label: "Mutation", Sortable: true}, {Key: "database", Label: "Database"}, {Key: "table", Label: "Table"}, {Key: "command", Label: "Command"}, {Key: "create_time", Label: "Created", Type: plugin.ColumnDateTime}, {Key: "is_done", Label: "Done", Type: plugin.ColumnBool}, {Key: "latest_fail_reason", Label: "Last failure"}}
+	return []plugin.Column{{Key: "mutation_id", Label: "Mutation", Sortable: true}, {Key: "database", Label: "Database"}, {Key: "table", Label: "Table"}, {Key: "command", Label: "Command"}, {Key: "create_time", Label: "Created", Type: plugin.ColumnRelativeTime}, {Key: "is_done", Label: "Done", Type: plugin.ColumnBool}, {Key: "latest_fail_reason", Label: "Last failure"}}
 }
 
 func mergeColumns() []plugin.Column {
@@ -326,7 +330,7 @@ func actions() []plugin.Action {
 		{ID: "clickhouse.merge.stop", Label: "Stop merges", Icon: icon("pause"), RouteID: "clickhouse.merge.stop", Params: map[string]string{"database": "${resource.namespace}", "table": "${resource.scope}"}, Confirm: true, ConfirmText: "Stop background merges for this table? Parts stop merging until merges are started again."},
 		{ID: "clickhouse.merge.start", Label: "Start merges", Icon: icon("play"), RouteID: "clickhouse.merge.start", Params: map[string]string{"database": "${resource.namespace}", "table": "${resource.scope}"}},
 		{ID: "clickhouse.user.create", Label: "Create user", Icon: icon("user-plus"), RouteID: "clickhouse.user.create"},
-		{ID: "clickhouse.user.grant", Label: "Grant privilege", Icon: icon("key-round"), RouteID: "clickhouse.user.grant", Params: map[string]string{"user": "${resource.name}"}},
+		{ID: "clickhouse.user.grant", Label: "Grant privilege", Icon: icon("key-round"), RouteID: "clickhouse.user.grant", Params: map[string]string{"user": "${resource.name}"}, Confirm: true, ConfirmText: "Grant privileges to this user? This can expand access to databases, tables, or cluster-level operations."},
 		{ID: "clickhouse.user.drop", Label: "Drop user", Icon: icon("trash-2"), RouteID: "clickhouse.user.drop", Params: map[string]string{"user": "${resource.name}"}, Confirm: true, ConfirmText: "Drop this user? They can no longer connect.", OnSuccess: &plugin.ActionSuccess{Navigate: plugin.NavigateList}},
 	}
 }

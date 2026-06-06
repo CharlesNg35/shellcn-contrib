@@ -42,6 +42,10 @@ func icon(name string) plugin.Icon {
 	return plugin.Icon{Type: plugin.IconLucide, Value: name}
 }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "streams", Label: "Streams", Icon: icon("waves"), Source: plugin.DataSource{RouteID: "nats.streams.tree"}, ResourceKind: "stream"},
@@ -59,7 +63,7 @@ func resources() []plugin.ResourceType {
 				Detail:  []string{"nats.message.publish", "nats.stream.update", "nats.stream.purge", "nats.stream.delete"},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "nats.stream.overview", Params: map[string]string{"stream": "${resource.name}"}}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "nats.stream.overview", Params: map[string]string{"stream": "${resource.name}"}}, Config: objectDetailConfig()},
 				{Key: "messages", Label: "Messages", Icon: icon("mail"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "nats.messages.list", Params: map[string]string{"stream": "${resource.name}"}}, Config: plugin.TableConfig{Columns: messageColumns(), ActionIDs: []string{"nats.message.publish"}, RowActionIDs: []string{"nats.message.delete"}, Exportable: true}},
 				{Key: "consumers", Label: "Consumers", Icon: icon("users"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "nats.consumers.list", Params: map[string]string{"stream": "${resource.name}"}}, Config: plugin.TableConfig{Columns: consumerColumns(), ActionIDs: []string{"nats.consumer.create"}, RowActionIDs: []string{"nats.consumer.delete"}, Exportable: true}},
 			}},
@@ -72,7 +76,7 @@ func resources() []plugin.ResourceType {
 				Detail: []string{"nats.consumer.delete"},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.namespace}/${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "nats.consumer.overview", Params: map[string]string{"stream": "${resource.namespace}", "consumer": "${resource.name}"}}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "nats.consumer.overview", Params: map[string]string{"stream": "${resource.namespace}", "consumer": "${resource.name}"}}, Config: objectDetailConfig()},
 			}},
 		},
 	}
@@ -99,7 +103,7 @@ func streamColumns() []plugin.Column {
 		{Key: "bytes", Label: "Bytes", Type: plugin.ColumnBytes, Sortable: true},
 		{Key: "consumers", Label: "Consumers", Type: plugin.ColumnNumber, Sortable: true},
 		{Key: "storage", Label: "Storage", Type: plugin.ColumnBadge},
-		{Key: "created", Label: "Created", Type: plugin.ColumnDateTime, Sortable: true},
+		{Key: "created", Label: "Created", Type: plugin.ColumnRelativeTime, Sortable: true},
 	}
 }
 
@@ -111,7 +115,7 @@ func consumerColumns() []plugin.Column {
 		{Key: "ack_policy", Label: "Ack policy", Type: plugin.ColumnNumber},
 		{Key: "pending", Label: "Pending", Type: plugin.ColumnNumber, Sortable: true},
 		{Key: "ack_pending", Label: "Ack pending", Type: plugin.ColumnNumber},
-		{Key: "created", Label: "Created", Type: plugin.ColumnDateTime, Sortable: true},
+		{Key: "created", Label: "Created", Type: plugin.ColumnRelativeTime, Sortable: true},
 	}
 }
 
@@ -119,7 +123,7 @@ func messageColumns() []plugin.Column {
 	return []plugin.Column{
 		{Key: "sequence", Label: "Sequence", Type: plugin.ColumnNumber, Sortable: true},
 		{Key: "subject", Label: "Subject", Sortable: true},
-		{Key: "time", Label: "Time", Type: plugin.ColumnDateTime, Sortable: true},
+		{Key: "time", Label: "Time", Type: plugin.ColumnRelativeTime, Sortable: true},
 		{Key: "headers", Label: "Headers", Type: plugin.ColumnJSON},
 		{Key: "data", Label: "Data"},
 	}

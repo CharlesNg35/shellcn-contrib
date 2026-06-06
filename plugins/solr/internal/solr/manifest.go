@@ -11,6 +11,10 @@ var healthSeverities = map[string]plugin.Severity{
 
 func rid(suffix string) string { return protocolName + "." + suffix }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "cores", Label: "Collections / Cores", Icon: icon("database"), Source: plugin.DataSource{RouteID: rid("cores.tree")}, ResourceKind: "core"},
@@ -30,13 +34,13 @@ func resources() []plugin.ResourceType {
 				},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("core.overview"), Params: coreParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("core.overview"), Params: coreParams()}, Config: objectDetailConfig()},
 				{Key: "documents", Label: "Documents", Icon: icon("file-json"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("documents.list"), Params: coreParams()}, Config: plugin.TableConfig{Columns: documentColumns(), ActionIDs: []string{rid("document.upsert"), rid("documents.delete_query")}, RowActionIDs: []string{rid("document.delete")}, Exportable: true}},
 				{Key: "search", Label: "Search", Icon: icon("search"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: rid("search.query"), Method: plugin.MethodWS, Params: coreParams()}, Config: searchConfig()},
 				{Key: "schema", Label: "Schema", Icon: icon("braces"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("schema.read"), Params: coreParams()}},
 				{Key: "fields", Label: "Fields", Icon: icon("columns-3"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("schema.fields"), Params: coreParams()}, Config: plugin.TableConfig{Columns: fieldColumns(), ActionIDs: []string{rid("schema.field.add")}, RowActionIDs: []string{rid("schema.field.replace"), rid("schema.field.delete")}, Exportable: true}},
 				{Key: "config", Label: "Config", Icon: icon("settings"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("config.read"), Params: coreParams()}},
-				{Key: "ping", Label: "Ping", Icon: icon("activity"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("core.ping"), Params: coreParams()}},
+				{Key: "ping", Label: "Ping", Icon: icon("activity"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("core.ping"), Params: coreParams()}, Config: objectDetailConfig()},
 			}},
 		},
 		{
@@ -59,7 +63,7 @@ func resources() []plugin.ResourceType {
 				Detail: []string{rid("schema.field.replace"), rid("schema.field.delete")},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.namespace}/${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("columns-3"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("schema.field.read"), Params: fieldParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("columns-3"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("schema.field.read"), Params: fieldParams()}, Config: objectDetailConfig()},
 			}},
 		},
 	}

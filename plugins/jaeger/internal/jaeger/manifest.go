@@ -6,6 +6,10 @@ func icon(name string) plugin.Icon { return plugin.Icon{Type: plugin.IconLucide,
 
 func rid(suffix string) string { return protocolName + "." + suffix }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Ref: &plugin.ResourceRef{Kind: "server", Name: "Jaeger", UID: "server"}},
@@ -18,7 +22,7 @@ func resources() []plugin.ResourceType {
 		{
 			Kind: "server", Title: "Jaeger", List: plugin.DataSource{RouteID: rid("overview")},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("overview")}},
+				{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("overview")}, Config: objectDetailConfig()},
 				{Key: "services", Label: "Services", Icon: icon("boxes"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("services.list")}, Config: plugin.TableConfig{Columns: serviceColumns(), Exportable: true}},
 			}},
 		},

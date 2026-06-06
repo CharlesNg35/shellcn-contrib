@@ -10,6 +10,10 @@ var statusSeverities = map[string]plugin.Severity{
 	"archived": plugin.SeveritySecondary, "deleted": plugin.SeveritySecondary, "disabled": plugin.SeveritySecondary,
 }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "tables", Label: "Tables", Icon: icon("table-2"), Source: plugin.DataSource{RouteID: rid("tables.tree")}, ResourceKind: "table"},
@@ -39,11 +43,11 @@ func tableResource() plugin.ResourceType {
 		Detail: plugin.DetailView{
 			Header: plugin.HeaderSpec{Title: "${resource.name}"},
 			Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("table.read"), Params: tableParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("table.read"), Params: tableParams()}, Config: objectDetailConfig()},
 				{Key: "items", Label: "Items", Icon: icon("braces"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("items.list"), Params: tableParams()}, Config: plugin.TableConfig{Exportable: true, ActionIDs: []string{rid("item.put")}, RowActionIDs: []string{rid("item.delete")}, EmptyText: "No items found."}},
 				{Key: "indexes", Label: "Indexes", Icon: icon("list-tree"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("indexes.list"), Params: tableParams()}, Config: plugin.TableConfig{Columns: indexColumns(), Exportable: true, ActionIDs: []string{rid("gsi.create")}, RowActionIDs: []string{rid("gsi.delete")}}},
-				{Key: "capacity", Label: "Capacity", Icon: icon("gauge"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("table.capacity"), Params: tableParams()}},
-				{Key: "ttl", Label: "TTL", Icon: icon("timer"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("ttl.read"), Params: tableParams()}},
+				{Key: "capacity", Label: "Capacity", Icon: icon("gauge"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("table.capacity"), Params: tableParams()}, Config: objectDetailConfig()},
+				{Key: "ttl", Label: "TTL", Icon: icon("timer"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("ttl.read"), Params: tableParams()}, Config: objectDetailConfig()},
 				{Key: "tags", Label: "Tags", Icon: icon("tags"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("tags.list"), Params: tableParams()}, Config: plugin.TableConfig{Columns: tagColumns(), Exportable: true}},
 				{Key: "backups", Label: "Backups", Icon: icon("archive"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("backups.list"), Params: tableParams()}, Config: plugin.TableConfig{Columns: backupColumns(), Exportable: true, ActionIDs: []string{rid("backup.create")}, RowActionIDs: []string{rid("backup.delete")}}},
 				{Key: "partiql", Label: "PartiQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: rid("partiql"), Method: plugin.MethodWS, Params: tableParams()}, Config: queryConfig(`SELECT * FROM "${resource.name}"`)},
@@ -64,7 +68,7 @@ func indexResource() plugin.ResourceType {
 		Detail: plugin.DetailView{
 			Header: plugin.HeaderSpec{Title: "${resource.namespace}.${resource.name}"},
 			Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("index.read"), Params: indexParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("index.read"), Params: indexParams()}, Config: objectDetailConfig()},
 			},
 		},
 	}
@@ -101,7 +105,7 @@ func backupResource() plugin.ResourceType {
 		Detail: plugin.DetailView{
 			Header: plugin.HeaderSpec{Title: "${resource.name}"},
 			Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("backup.read"), Params: map[string]string{"backup": "${resource.uid}"}}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("backup.read"), Params: map[string]string{"backup": "${resource.uid}"}}, Config: objectDetailConfig()},
 			},
 		},
 	}
@@ -146,7 +150,7 @@ func tableColumns() []plugin.Column {
 		{Key: "billing_mode", Label: "Billing", Type: plugin.ColumnBadge, Sortable: true},
 		{Key: "items", Label: "Items", Type: plugin.ColumnNumber, Sortable: true},
 		{Key: "size", Label: "Size", Type: plugin.ColumnBytes, Sortable: true},
-		{Key: "created", Label: "Created", Type: plugin.ColumnDateTime, Sortable: true},
+		{Key: "created", Label: "Created", Type: plugin.ColumnRelativeTime, Sortable: true},
 	}
 }
 
@@ -169,7 +173,7 @@ func backupColumns() []plugin.Column {
 		{Key: "table", Label: "Table", Sortable: true},
 		{Key: "status", Label: "Status", Type: plugin.ColumnBadge, Sortable: true, Severities: statusSeverities},
 		{Key: "size", Label: "Size", Type: plugin.ColumnBytes, Sortable: true},
-		{Key: "created", Label: "Created", Type: plugin.ColumnDateTime, Sortable: true},
+		{Key: "created", Label: "Created", Type: plugin.ColumnRelativeTime, Sortable: true},
 	}
 }
 
