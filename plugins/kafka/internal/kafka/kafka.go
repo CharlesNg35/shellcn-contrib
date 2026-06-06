@@ -31,11 +31,24 @@ func (p *Plugin) Manifest() plugin.Manifest {
 		Category:            plugin.CategoryMessaging,
 		Config:              configSchema(),
 		Capabilities:        []plugin.Capability{"topics", "partitions", "consumer_groups", "messages", "produce"},
-		SupportedTransports: []plugin.Transport{plugin.TransportDirect},
-		Layout:              plugin.LayoutSidebarTree,
-		Tree:                tree(),
-		Resources:           resources(),
-		Actions:             actions(),
+		SupportedTransports: []plugin.Transport{plugin.TransportDirect, plugin.TransportAgent},
+		Agent: &plugin.AgentProfile{
+			Proxy: plugin.ProxyTarget{
+				Mode:    plugin.AgentTCP,
+				Address: "127.0.0.1:9092",
+				Risk:    plugin.RiskPrivileged,
+				Forward: true,
+			},
+			Install: []plugin.InstallArtifact{{
+				Label:    "Docker",
+				Kind:     "docker",
+				Template: "docker run -d --network host shellcn/agent --connect {{.ConnectURL}} --token {{.Token}}",
+			}},
+		},
+		Layout:    plugin.LayoutSidebarTree,
+		Tree:      tree(),
+		Resources: resources(),
+		Actions:   actions(),
 	}
 }
 

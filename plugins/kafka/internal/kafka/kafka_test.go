@@ -16,6 +16,7 @@ import (
 
 func TestKafkaManifestValidates(t *testing.T) {
 	p := New()
+	m := p.Manifest()
 	proj := plugintest.Projection(t, p)
 	if proj.Category.Key != plugin.CategoryMessaging {
 		t.Fatalf("category: got %q want %q", proj.Category.Key, plugin.CategoryMessaging)
@@ -25,6 +26,12 @@ func TestKafkaManifestValidates(t *testing.T) {
 	}
 	if len(proj.Resources) != 2 {
 		t.Fatalf("resources: got %d", len(proj.Resources))
+	}
+	if len(m.SupportedTransports) != 2 || m.SupportedTransports[0] != plugin.TransportDirect || m.SupportedTransports[1] != plugin.TransportAgent {
+		t.Fatalf("unexpected transports: %+v", m.SupportedTransports)
+	}
+	if m.Agent == nil || m.Agent.Proxy.Mode != plugin.AgentTCP || !m.Agent.Proxy.Forward {
+		t.Fatalf("kafka agent profile must use forwarded TCP proxy: %+v", m.Agent)
 	}
 }
 
