@@ -105,7 +105,7 @@ func databasesList(rc *plugin.RequestContext) (any, error) {
 		return broker.PageRows(rc, rows)
 	}
 	// The administrative `system` database rejects data queries (MATCH), so it is
-	// not a browsable data database — leave it out of the catalogue.
+	// not a browsable data database; leave it out of the catalogue.
 	out := make([]row, 0, len(rows))
 	for _, r := range rows {
 		name := fmt.Sprint(r["name"])

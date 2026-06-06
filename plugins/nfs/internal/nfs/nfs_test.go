@@ -1,13 +1,30 @@
 package nfs
 
 import (
+	"context"
+	"errors"
 	"testing"
 
+	"github.com/charlesng35/shellcn/sdk/plugin"
 	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
 
 func TestManifestValidates(t *testing.T) {
 	plugintest.ValidatePlugin(t, New())
+}
+
+func TestManifestDeclaresDirectTransportOnly(t *testing.T) {
+	transports := New().Manifest().SupportedTransports
+	if len(transports) != 1 || transports[0] != plugin.TransportDirect {
+		t.Fatalf("unexpected transports: %+v", transports)
+	}
+}
+
+func TestConnectRejectsAgentTransportBeforeDial(t *testing.T) {
+	_, err := New().Connect(context.Background(), plugin.ConnectConfig{Transport: plugin.TransportAgent})
+	if !errors.Is(err, plugin.ErrNotSupported) {
+		t.Fatalf("Connect error = %v, want %v", err, plugin.ErrNotSupported)
+	}
 }
 
 func TestClientResolveConfinesPathsToRoot(t *testing.T) {

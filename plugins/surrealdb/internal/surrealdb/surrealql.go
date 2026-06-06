@@ -2,7 +2,9 @@ package surrealdb
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -90,8 +92,7 @@ func queryOne[T any](ctx context.Context, db *surrealdb.DB, sql string, vars map
 	return r.Result, nil
 }
 
-// dbClient resolves the active table param (validated) and the live DB handle —
-// the common preamble for every table-scoped handler.
+// tableClient resolves the active table param and the live DB handle.
 func tableClient(rc *plugin.RequestContext) (*surrealdb.DB, string, error) {
 	table, err := requireIdent(rc.Param("table"))
 	if err != nil {
@@ -140,4 +141,145 @@ func parseCursor(c string) (int, error) {
 		return 0, err
 	}
 	return strconv.Atoi(string(b))
+}
+
+type readOnlyError struct{ message string }
+
+func (e readOnlyError) Error() string { return e.message }
+
+func splitSurrealStatements(query string) []string {
+	var out []string
+	var b strings.Builder
+	var quote byte
+	escaped := false
+	lineComment := false
+	blockComment := false
+	for i := 0; i < len(query); i++ {
+		c := query[i]
+		next := byte(0)
+		if i+1 < len(query) {
+			next = query[i+1]
+		}
+		b.WriteByte(c)
+
+		if lineComment {
+			if c == '\n' {
+				lineComment = false
+			}
+			continue
+		}
+		if blockComment {
+			if c == '*' && next == '/' {
+				i++
+				b.WriteByte(next)
+				blockComment = false
+			}
+			continue
+		}
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if c == '\\' && quote != '`' {
+				escaped = true
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch {
+		case c == '-' && next == '-':
+			lineComment = true
+			i++
+			b.WriteByte(next)
+		case c == '/' && next == '/':
+			lineComment = true
+			i++
+			b.WriteByte(next)
+		case c == '/' && next == '*':
+			blockComment = true
+			i++
+			b.WriteByte(next)
+		case c == '\'', c == '"', c == '`':
+			quote = c
+		case c == ';':
+			stmt := strings.TrimSpace(b.String())
+			if stmt != "" {
+				out = append(out, stmt)
+			}
+			b.Reset()
+		}
+	}
+	if stmt := strings.TrimSpace(b.String()); stmt != "" {
+		out = append(out, stmt)
+	}
+	return out
+}
+
+func isReadOnlySurrealQL(statement string) bool {
+	switch firstKeyword(statement) {
+	case "SELECT", "INFO", "RETURN", "SHOW":
+		return true
+	default:
+		return false
+	}
+}
+
+func firstKeyword(statement string) string {
+	s := stripLeadingComments(statement)
+	for _, f := range strings.Fields(s) {
+		f = strings.Trim(f, ";")
+		if f != "" {
+			return strings.ToUpper(f)
+		}
+	}
+	return ""
+}
+
+func stripLeadingComments(statement string) string {
+	s := strings.TrimSpace(statement)
+	for {
+		switch {
+		case strings.HasPrefix(s, "--"), strings.HasPrefix(s, "//"):
+			if i := strings.IndexByte(s, '\n'); i >= 0 {
+				s = strings.TrimSpace(s[i+1:])
+				continue
+			}
+			return ""
+		case strings.HasPrefix(s, "/*"):
+			if i := strings.Index(s, "*/"); i >= 0 {
+				s = strings.TrimSpace(s[i+2:])
+				continue
+			}
+			return ""
+		default:
+			return s
+		}
+	}
+}
+
+func queryAuditParams(query string, statements []string, readOnly bool, rows, elapsed int64) map[string]string {
+	params := map[string]string{
+		"query_sha256":    queryHash(query),
+		"statement_count": strconv.Itoa(len(statements)),
+		"read_only_mode":  strconv.FormatBool(readOnly),
+	}
+	if len(statements) > 0 {
+		params["first_statement"] = firstKeyword(statements[0])
+	}
+	if rows > 0 {
+		params["row_count"] = strconv.FormatInt(rows, 10)
+	}
+	if elapsed > 0 {
+		params["elapsed_ms"] = strconv.FormatInt(elapsed, 10)
+	}
+	return params
+}
+
+func queryHash(query string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(query)))
+	return hex.EncodeToString(sum[:])
 }

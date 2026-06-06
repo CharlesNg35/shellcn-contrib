@@ -1,9 +1,13 @@
 package surrealdb
 
-import "github.com/charlesng35/shellcn/sdk/plugin"
+import (
+	"fmt"
+
+	"github.com/charlesng35/shellcn/sdk/plugin"
+)
 
 func routes() []plugin.Route {
-	return []plugin.Route{
+	out := []plugin.Route{
 		// --- tree ------------------------------------------------------------
 		{
 			ID: "surrealdb.tree.tables", Method: plugin.MethodGet, Path: "/tree/tables",
@@ -179,5 +183,24 @@ func routes() []plugin.Route {
 			Permission: "surrealdb.proxy.open", Risk: plugin.RiskSafe, AuditEvent: "surrealdb.proxy.url",
 			Handle: proxyURL,
 		},
+	}
+	for i := range out {
+		if out[i].Handle == nil {
+			continue
+		}
+		switch out[i].Risk {
+		case plugin.RiskWrite, plugin.RiskDestructive:
+			out[i].Handle = readOnlyGuard(out[i].Handle)
+		}
+	}
+	return out
+}
+
+func readOnlyGuard(next plugin.Handler) plugin.Handler {
+	return func(rc *plugin.RequestContext) (any, error) {
+		if sess(rc).opts.readOnly {
+			return nil, fmt.Errorf("%w: read-only mode blocks write operations", plugin.ErrForbidden)
+		}
+		return next(rc)
 	}
 }

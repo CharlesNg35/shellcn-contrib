@@ -4,17 +4,20 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
 const (
-	defaultHost = "127.0.0.1"
-	defaultPort = 8000
+	defaultHost         = "127.0.0.1"
+	defaultPort         = 8000
+	defaultQueryTimeout = 30 * time.Second
+	defaultRowLimit     = 100
 )
 
 // options is the validated, runtime view of a connection's config. Schema
-// defaults are UI hints only — every fallback is applied here in code.
+// defaults are UI hints only; every fallback is applied here in code.
 type options struct {
 	scheme    string // "http" or "https"
 	host      string
@@ -23,6 +26,9 @@ type options struct {
 	database  string
 	username  string
 	password  string
+	readOnly  bool
+	timeout   time.Duration
+	rowLimit  int
 }
 
 // addr is the upstream host:port the gateway dials on the plugin's behalf.
@@ -43,6 +49,9 @@ func parseOptions(cfg plugin.ConnectConfig) (options, error) {
 		database:  strings.TrimSpace(cfg.String("database")),
 		username:  strings.TrimSpace(cfg.String("username")),
 		password:  cfg.String("password"),
+		readOnly:  boolValue(cfg.Config["read_only"], true),
+		timeout:   durationValue(cfg.Config["query_timeout"], defaultQueryTimeout),
+		rowLimit:  intValue(cfg.Config["row_limit"], defaultRowLimit, 1, plugin.MaxPageLimit),
 	}
 	if o.host == "" {
 		o.host = defaultHost
@@ -58,7 +67,7 @@ func parseOptions(cfg plugin.ConnectConfig) (options, error) {
 	}
 
 	// A reusable credential, if selected, supplies the secret (and optionally the
-	// username) — the plugin never sees ciphertext or persists a secret.
+	// username). The plugin never sees ciphertext or persists a secret.
 	if id := cfg.CredentialIdentityFor(plugin.CredentialField); id != "" {
 		o.username = id
 	}
@@ -92,6 +101,25 @@ func configSchema() plugin.Schema {
 			},
 		},
 		{
+			Name: "Safety",
+			Fields: []plugin.Field{
+				{
+					Key: "read_only", Label: "Read-only mode", Type: plugin.FieldToggle, Default: true,
+					Help: "Blocks write, delete, DEFINE, REMOVE, UPDATE, CREATE, RELATE, and other mutating SurrealQL.",
+				},
+				{
+					Key: "query_timeout", Label: "Query timeout", Type: plugin.FieldDuration, Default: defaultQueryTimeout.String(),
+				},
+				{
+					Key: "row_limit", Label: "Query row limit", Type: plugin.FieldNumber, Default: defaultRowLimit,
+					Validators: []plugin.Validator{
+						{Type: plugin.ValidatorMin, Value: 1},
+						{Type: plugin.ValidatorMax, Value: plugin.MaxPageLimit},
+					},
+				},
+			},
+		},
+		{
 			Name: "Authentication",
 			Fields: []plugin.Field{
 				{Key: "username", Label: "Username", Type: plugin.FieldText, Default: "root"},
@@ -109,6 +137,46 @@ func configSchema() plugin.Schema {
 			},
 		},
 	}}
+}
+
+func boolValue(v any, fallback bool) bool {
+	if b, ok := v.(bool); ok {
+		return b
+	}
+	return fallback
+}
+
+func durationValue(v any, fallback time.Duration) time.Duration {
+	switch x := v.(type) {
+	case time.Duration:
+		if x > 0 {
+			return x
+		}
+	case string:
+		if d, err := time.ParseDuration(strings.TrimSpace(x)); err == nil && d > 0 {
+			return d
+		}
+	}
+	return fallback
+}
+
+func intValue(v any, fallback, min, max int) int {
+	n := 0
+	switch x := v.(type) {
+	case int:
+		n = x
+	case int64:
+		n = int(x)
+	case float64:
+		n = int(x)
+	}
+	if n < min {
+		n = fallback
+	}
+	if n > max {
+		n = max
+	}
+	return n
 }
 
 // createRecordSchema validates the "New record" form (and the create route).

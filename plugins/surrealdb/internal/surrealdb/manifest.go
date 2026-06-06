@@ -81,7 +81,6 @@ func tableColumns() []plugin.Column {
 		{Key: "mode", Label: "Mode", Type: plugin.ColumnBadge, Severities: map[string]plugin.Severity{
 			"schemafull": plugin.SeverityInfo, "schemaless": plugin.SeveritySecondary,
 		}},
-		{Key: "records", Label: "Records", Type: plugin.ColumnNumber},
 	}
 }
 
@@ -107,7 +106,7 @@ func resources() []plugin.ResourceType {
 }
 
 // databaseResource is the connection-level view: overview, table and DB-object
-// lists, and a console — opened from the tree roots.
+// lists, and a console opened from the tree roots.
 func databaseResource() plugin.ResourceType {
 	return plugin.ResourceType{
 		Kind: "database", Title: "Database",
@@ -120,7 +119,7 @@ func databaseResource() plugin.ResourceType {
 				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "surrealdb.db.overview"}, Config: objectDetailConfig()},
 				{Key: "tables", Label: "Tables", Icon: icon("table-2"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "surrealdb.tables.list"}, Config: plugin.TableConfig{
 					Columns: tableColumns(), ActionIDs: []string{"surrealdb.table.define"}, RowActionIDs: []string{"surrealdb.table.remove"},
-					EmptyText: "No tables yet — define one to get started.",
+					EmptyText: "No tables yet. Define one to get started.",
 				}},
 			}, append(objectPanels(),
 				plugin.Panel{Key: "query", Label: "Query", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: "surrealdb.query", Method: plugin.MethodWS}, Config: queryConfig("INFO FOR DB;")},

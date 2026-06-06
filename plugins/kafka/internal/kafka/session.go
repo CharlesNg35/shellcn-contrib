@@ -13,14 +13,18 @@ type Session struct {
 	client sarama.Client
 	admin  sarama.ClusterAdmin
 	opts   options
+	net    plugin.NetTransport
 }
 
 func connect(ctx context.Context, cfg plugin.ConnectConfig) (plugin.Session, error) {
+	if cfg.Net == nil {
+		return nil, fmt.Errorf("%w: network transport is unavailable", plugin.ErrUnavailable)
+	}
 	opts, err := parseOptions(cfg)
 	if err != nil {
 		return nil, err
 	}
-	saramaCfg := saramaConfig(opts)
+	saramaCfg := saramaConfig(opts, cfg.Net)
 	client, err := sarama.NewClient(opts.Brokers, saramaCfg)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", plugin.ErrUnavailable, err)
@@ -30,7 +34,7 @@ func connect(ctx context.Context, cfg plugin.ConnectConfig) (plugin.Session, err
 		_ = client.Close()
 		return nil, fmt.Errorf("%w: %v", plugin.ErrUnavailable, err)
 	}
-	s := &Session{client: client, admin: admin, opts: opts}
+	s := &Session{client: client, admin: admin, opts: opts, net: cfg.Net}
 	return s, s.HealthCheck(ctx)
 }
 

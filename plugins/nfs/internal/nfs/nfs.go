@@ -52,6 +52,9 @@ func (p *Plugin) Routes() []plugin.Route {
 }
 
 func (p *Plugin) Connect(_ context.Context, cfg plugin.ConnectConfig) (plugin.Session, error) {
+	if cfg.Transport != "" && cfg.Transport != plugin.TransportDirect {
+		return nil, fmt.Errorf("%w: nfs currently supports direct transport only", plugin.ErrNotSupported)
+	}
 	opts, err := parseOptions(cfg)
 	if err != nil {
 		return nil, err

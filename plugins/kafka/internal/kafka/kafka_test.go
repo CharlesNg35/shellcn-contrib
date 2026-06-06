@@ -1,8 +1,14 @@
 package kafka
 
 import (
+	"context"
 	"errors"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
 	"github.com/charlesng35/shellcn/sdk/plugintest"
@@ -106,6 +112,66 @@ func TestStructuredMapFields(t *testing.T) {
 	}
 }
 
+func TestSaramaConfigUsesConnectConfigNet(t *testing.T) {
+	transport := &recordingNetTransport{}
+	cfg := saramaConfig(options{Timeout: time.Second}, transport)
+	if !cfg.Net.Proxy.Enable {
+		t.Fatal("sarama proxy dialer is not enabled")
+	}
+	ctxDialer, ok := cfg.Net.Proxy.Dialer.(interface {
+		DialContext(context.Context, string, string) (net.Conn, error)
+	})
+	if !ok {
+		t.Fatalf("sarama proxy dialer does not support context-aware dialing: %T", cfg.Net.Proxy.Dialer)
+	}
+	conn, err := cfg.Net.Proxy.Dialer.Dial("tcp", "broker-1:9092")
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	_ = conn.Close()
+	conn, err = ctxDialer.DialContext(context.Background(), "tcp", "broker-2:9092")
+	if err != nil {
+		t.Fatalf("dial context: %v", err)
+	}
+	_ = conn.Close()
+	if got := strings.Join(transport.callSnapshot(), ","); got != "tcp broker-1:9092,tcp broker-2:9092" {
+		t.Fatalf("transport calls: got %q", got)
+	}
+}
+
+func TestConnectUsesConnectConfigNet(t *testing.T) {
+	transport := &recordingNetTransport{err: errors.New("blocked by test transport")}
+	_, err := connect(context.Background(), plugin.ConnectConfig{
+		Config: map[string]any{
+			"brokers":   "broker-1:9092",
+			"auth":      "none",
+			"tls_mode":  "disable",
+			"timeout":   "50ms",
+			"read_only": true,
+		},
+		Net: transport,
+	})
+	if !errors.Is(err, plugin.ErrUnavailable) {
+		t.Fatalf("connect error: got %v want ErrUnavailable", err)
+	}
+	if len(transport.callSnapshot()) == 0 {
+		t.Fatal("connect did not use cfg.Net")
+	}
+}
+
+func TestConnectRequiresNetTransport(t *testing.T) {
+	_, err := connect(context.Background(), plugin.ConnectConfig{
+		Config: map[string]any{
+			"brokers":  "broker-1:9092",
+			"auth":     "none",
+			"tls_mode": "disable",
+		},
+	})
+	if !errors.Is(err, plugin.ErrUnavailable) {
+		t.Fatalf("connect error: got %v want ErrUnavailable", err)
+	}
+}
+
 func routeField(t *testing.T, p plugin.Plugin, routeID, fieldKey string) *plugin.Field {
 	t.Helper()
 	for _, r := range p.Routes() {
@@ -132,4 +198,32 @@ func fieldMap(schema plugin.Schema) map[string]bool {
 		}
 	}
 	return out
+}
+
+type recordingNetTransport struct {
+	mu    sync.Mutex
+	calls []string
+	err   error
+}
+
+func (t *recordingNetTransport) DialContext(_ context.Context, network, addr string) (net.Conn, error) {
+	t.mu.Lock()
+	t.calls = append(t.calls, network+" "+addr)
+	t.mu.Unlock()
+	if t.err != nil {
+		return nil, t.err
+	}
+	client, server := net.Pipe()
+	_ = server.Close()
+	return client, nil
+}
+
+func (t *recordingNetTransport) HTTP() (string, http.RoundTripper, bool) {
+	return "", nil, false
+}
+
+func (t *recordingNetTransport) callSnapshot() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.calls...)
 }
