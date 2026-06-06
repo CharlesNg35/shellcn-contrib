@@ -2,7 +2,6 @@ package telnet
 
 import (
 	"io"
-	"net/url"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
@@ -15,7 +14,7 @@ func terminalSchema() *plugin.Schema {
 }
 
 func shell(rc *plugin.RequestContext, client plugin.ClientStream) error {
-	ch, err := rc.Session.OpenChannel(rc.Ctx, plugin.ChannelRequest{Kind: plugin.StreamTerminal, Params: terminalParams(rc.Query())})
+	ch, err := rc.Session.OpenChannel(rc.Ctx, plugin.ChannelRequest{Kind: plugin.StreamTerminal, Params: terminalParams(rc)})
 	if err != nil {
 		return err
 	}
@@ -40,10 +39,14 @@ func shell(rc *plugin.RequestContext, client plugin.ClientStream) error {
 	}
 }
 
-func terminalParams(q url.Values) map[string]string {
+func terminalParams(rc *plugin.RequestContext) map[string]string {
 	params := map[string]string{}
 	for _, key := range []string{"cols", "rows"} {
-		if v := q.Get(key); v != "" {
+		if v := rc.Param(key); v != "" {
+			params[key] = v
+			continue
+		}
+		if v := rc.Query().Get("p." + key); v != "" {
 			params[key] = v
 		}
 	}

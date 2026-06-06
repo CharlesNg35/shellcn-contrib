@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
@@ -141,6 +142,14 @@ func TestHealthCheckReportsDialFailure(t *testing.T) {
 	}
 }
 
+func TestTerminalParamsUseRouteParamsAndQueryFallback(t *testing.T) {
+	rc := plugin.NewRequestContext(context.Background(), plugin.User{}, nil, map[string]string{"cols": "100"}, url.Values{"p.rows": []string{"30"}}, nil)
+	got := terminalParams(rc)
+	if got["cols"] != "100" || got["rows"] != "30" {
+		t.Fatalf("terminal params = %+v, want cols route param and rows query fallback", got)
+	}
+}
+
 func TestTelnetDataConnEscapesAndFiltersProtocolBytes(t *testing.T) {
 	raw := &scriptedNetConn{reader: bytes.NewReader([]byte{'a', 255, 251, 1, 'b', 255, 255, 'c', 255, 250, 1, 'x', 255, 240, 'd'})}
 	conn := newTelnetDataConn(raw)
@@ -157,8 +166,107 @@ func TestTelnetDataConnEscapesAndFiltersProtocolBytes(t *testing.T) {
 	if n, err := conn.Write([]byte{'x', 255, 'y'}); err != nil || n != 3 {
 		t.Fatalf("write telnet data: n=%d err=%v", n, err)
 	}
-	if want := []byte{'x', 255, 255, 'y'}; !bytes.Equal(raw.writer.Bytes(), want) {
+	if want := []byte{255, 253, 1, 'x', 255, 255, 'y'}; !bytes.Equal(raw.writer.Bytes(), want) {
 		t.Fatalf("escaped bytes = %v, want %v", raw.writer.Bytes(), want)
+	}
+}
+
+func TestTelnetDataConnNormalizesTerminalNewline(t *testing.T) {
+	raw := &scriptedNetConn{reader: bytes.NewReader(nil)}
+	conn := newTelnetDataConn(raw)
+	defer conn.Close()
+
+	if n, err := conn.Write([]byte("whoami\r")); err != nil || n != 7 {
+		t.Fatalf("write CR line: n=%d err=%v", n, err)
+	}
+	if want := []byte("whoami\r\n"); !bytes.Equal(raw.writer.Bytes(), want) {
+		t.Fatalf("newline bytes = %v, want %v", raw.writer.Bytes(), want)
+	}
+
+	raw.writer.Reset()
+	if n, err := conn.Write([]byte("whoami\r\n")); err != nil || n != 8 {
+		t.Fatalf("write CRLF line: n=%d err=%v", n, err)
+	}
+	if want := []byte("whoami\r\n"); !bytes.Equal(raw.writer.Bytes(), want) {
+		t.Fatalf("CRLF bytes = %v, want %v", raw.writer.Bytes(), want)
+	}
+}
+
+func TestTelnetDataConnNegotiatesBeforePrompt(t *testing.T) {
+	raw := &scriptedNetConn{reader: bytes.NewReader([]byte{
+		255, 253, 31,
+		255, 253, 24,
+		255, 251, 1,
+		255, 250, 24, 1, 255, 240,
+		'L',
+	})}
+	conn := newTelnetDataConn(raw)
+	defer conn.Close()
+
+	if err := conn.Resize(80, 24); err != nil {
+		t.Fatalf("resize: %v", err)
+	}
+	buf := make([]byte, 1)
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		t.Fatalf("read prompt byte: %v", err)
+	}
+	if buf[0] != 'L' {
+		t.Fatalf("prompt byte = %q, want L", buf[0])
+	}
+
+	want := []byte{
+		255, 251, 31,
+		255, 250, 31, 0, 80, 0, 24, 255, 240,
+		255, 251, 24,
+		255, 253, 1,
+		255, 250, 24, 0,
+		'x', 't', 'e', 'r', 'm', '-', '2', '5', '6', 'c', 'o', 'l', 'o', 'r',
+		255, 240,
+	}
+	if !bytes.Equal(raw.writer.Bytes(), want) {
+		t.Fatalf("negotiation bytes = %v, want %v", raw.writer.Bytes(), want)
+	}
+}
+
+func TestTelnetDataConnReadReturnsAvailablePromptBeforeClose(t *testing.T) {
+	client, server := net.Pipe()
+	conn := newTelnetDataConn(client)
+	defer conn.Close()
+	defer server.Close()
+
+	errc := make(chan error, 1)
+	go func() {
+		_, err := server.Write([]byte("login: "))
+		errc <- err
+	}()
+
+	buf := make([]byte, 1024)
+	done := make(chan int, 1)
+	go func() {
+		n, err := conn.Read(buf)
+		if err != nil {
+			t.Errorf("read prompt: %v", err)
+			done <- 0
+			return
+		}
+		done <- n
+	}()
+
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Fatalf("server write: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("server write blocked")
+	}
+	select {
+	case n := <-done:
+		if got := string(buf[:n]); got != "login: " {
+			t.Fatalf("read = %q, want login prompt", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("read blocked despite available prompt bytes")
 	}
 }
 

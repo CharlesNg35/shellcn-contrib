@@ -111,6 +111,9 @@ func (s *Session) OpenChannel(ctx context.Context, req plugin.ChannelRequest) (p
 		return nil, fmt.Errorf("%w: telnet connect %s: %v", plugin.ErrUnavailable, s.addr, err)
 	}
 	ch := &terminalChannel{conn: conn}
+	if cols, rows := terminalSize(req.Params); cols > 0 && rows > 0 {
+		_ = ch.Resize(cols, rows)
+	}
 	ch.release = func() {
 		s.remove(ch)
 	}
@@ -154,6 +157,18 @@ func (s *Session) remove(ch *terminalChannel) {
 	s.mu.Unlock()
 }
 
+func terminalSize(params map[string]string) (int, int) {
+	if len(params) == 0 {
+		return 0, 0
+	}
+	cols, _ := strconv.Atoi(strings.TrimSpace(params["cols"]))
+	rows, _ := strconv.Atoi(strings.TrimSpace(params["rows"]))
+	if cols <= 0 || rows <= 0 {
+		return 0, 0
+	}
+	return cols, rows
+}
+
 type terminalChannel struct {
 	conn    telnetConn
 	once    sync.Once
@@ -170,6 +185,14 @@ func (c *terminalChannel) Write(p []byte) (int, error) {
 	return c.conn.Write(p)
 }
 
+func (c *terminalChannel) Resize(cols, rows int) error {
+	resizer, ok := c.conn.(interface{ Resize(int, int) error })
+	if !ok {
+		return nil
+	}
+	return resizer.Resize(cols, rows)
+}
+
 func (c *terminalChannel) Close() error {
 	var err error
 	c.once.Do(func() {
@@ -184,6 +207,11 @@ func (c *terminalChannel) Close() error {
 type telnetDataConn struct {
 	conn   net.Conn
 	reader *bufio.Reader
+	mu     sync.Mutex
+	cols   int
+	rows   int
+	naws   bool
+	ttype  bool
 }
 
 func newTelnetDataConn(conn net.Conn) *telnetDataConn {
@@ -192,9 +220,10 @@ func newTelnetDataConn(conn net.Conn) *telnetDataConn {
 
 func (c *telnetDataConn) Read(p []byte) (int, error) {
 	const (
-		iac  = 255
-		se   = 240
-		sb   = 250
+		iac = 255
+		se  = 240
+		sb  = 250
+
 		will = 251
 		wont = 252
 		do   = 253
@@ -213,6 +242,9 @@ func (c *telnetDataConn) Read(p []byte) (int, error) {
 		if b != iac {
 			p[n] = b
 			n++
+			if c.reader.Buffered() == 0 {
+				return n, nil
+			}
 			continue
 		}
 
@@ -228,14 +260,28 @@ func (c *telnetDataConn) Read(p []byte) (int, error) {
 			p[n] = iac
 			n++
 		case will, wont, do, dont:
-			if _, err := c.reader.ReadByte(); err != nil {
+			opt, err := c.reader.ReadByte()
+			if err != nil {
+				if n > 0 {
+					return n, nil
+				}
+				return n, err
+			}
+			if err := c.negotiate(cmd, opt); err != nil {
 				if n > 0 {
 					return n, nil
 				}
 				return n, err
 			}
 		case sb:
-			if err := c.discardSubnegotiation(iac, se); err != nil {
+			data, err := c.readSubnegotiation(iac, se)
+			if err != nil {
+				if n > 0 {
+					return n, nil
+				}
+				return n, err
+			}
+			if err := c.handleSubnegotiation(data); err != nil {
 				if n > 0 {
 					return n, nil
 				}
@@ -243,42 +289,181 @@ func (c *telnetDataConn) Read(p []byte) (int, error) {
 			}
 		default:
 		}
+		if n > 0 && c.reader.Buffered() == 0 {
+			return n, nil
+		}
 	}
 	return n, nil
 }
 
-func (c *telnetDataConn) discardSubnegotiation(iac, se byte) error {
+func (c *telnetDataConn) negotiate(cmd, opt byte) error {
+	const (
+		will = 251
+		wont = 252
+		do   = 253
+		dont = 254
+
+		echo            = 1
+		suppressGoAhead = 3
+		terminalType    = 24
+		windowSize      = 31
+	)
+
+	switch cmd {
+	case will:
+		if opt == echo || opt == suppressGoAhead {
+			return c.sendCommand(do, opt)
+		}
+		return c.sendCommand(dont, opt)
+	case wont:
+		return c.sendCommand(dont, opt)
+	case do:
+		switch opt {
+		case suppressGoAhead:
+			return c.sendCommand(will, opt)
+		case terminalType:
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			c.ttype = true
+			return c.writeRawLocked([]byte{255, will, opt})
+		case windowSize:
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			c.naws = true
+			if err := c.writeRawLocked([]byte{255, will, opt}); err != nil {
+				return err
+			}
+			return c.sendWindowSizeLocked()
+		default:
+			return c.sendCommand(wont, opt)
+		}
+	case dont:
+		c.mu.Lock()
+		if opt == terminalType {
+			c.ttype = false
+		}
+		if opt == windowSize {
+			c.naws = false
+		}
+		c.mu.Unlock()
+		return c.sendCommand(wont, opt)
+	}
+	return nil
+}
+
+func (c *telnetDataConn) readSubnegotiation(iac, se byte) ([]byte, error) {
+	var data []byte
 	for {
 		b, err := c.reader.ReadByte()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if b != iac {
+			data = append(data, b)
 			continue
 		}
 		next, err := c.reader.ReadByte()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if next == se {
-			return nil
+			return data, nil
+		}
+		if next == iac {
+			data = append(data, iac)
 		}
 	}
+}
+
+func (c *telnetDataConn) handleSubnegotiation(data []byte) error {
+	const (
+		iac          = 255
+		se           = 240
+		sb           = 250
+		terminalType = 24
+		ttypeIs      = 0
+		ttypeSend    = 1
+	)
+	c.mu.Lock()
+	ttype := c.ttype
+	c.mu.Unlock()
+	if len(data) < 2 || data[0] != terminalType || data[1] != ttypeSend || !ttype {
+		return nil
+	}
+	payload := []byte{iac, sb, terminalType, ttypeIs}
+	payload = append(payload, []byte("xterm-256color")...)
+	payload = append(payload, iac, se)
+	return c.writeRaw(payload)
+}
+
+func (c *telnetDataConn) Resize(cols, rows int) error {
+	if cols <= 0 || rows <= 0 {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cols, c.rows = cols, rows
+	if !c.naws {
+		return nil
+	}
+	return c.sendWindowSizeLocked()
+}
+
+func (c *telnetDataConn) sendCommand(cmd, opt byte) error {
+	const iac = 255
+	return c.writeRaw([]byte{iac, cmd, opt})
+}
+
+func (c *telnetDataConn) sendWindowSizeLocked() error {
+	const (
+		iac        = 255
+		se         = 240
+		sb         = 250
+		windowSize = 31
+	)
+	if c.cols <= 0 || c.rows <= 0 {
+		return nil
+	}
+	cols, rows := uint16(c.cols), uint16(c.rows)
+	return c.writeRawLocked([]byte{
+		iac, sb, windowSize,
+		byte(cols >> 8), byte(cols),
+		byte(rows >> 8), byte(rows),
+		iac, se,
+	})
 }
 
 func (c *telnetDataConn) Write(p []byte) (int, error) {
 	const iac = 255
 	escaped := bytes.NewBuffer(make([]byte, 0, len(p)))
-	for _, b := range p {
-		escaped.WriteByte(b)
-		if b == iac {
+	for i, b := range p {
+		switch b {
+		case iac:
 			escaped.WriteByte(iac)
+			escaped.WriteByte(iac)
+		case '\r':
+			escaped.WriteByte('\r')
+			if i+1 >= len(p) || (p[i+1] != '\n' && p[i+1] != 0) {
+				escaped.WriteByte('\n')
+			}
+		default:
+			escaped.WriteByte(b)
 		}
 	}
-	if err := writeAll(c.conn, escaped.Bytes()); err != nil {
+	if err := c.writeRaw(escaped.Bytes()); err != nil {
 		return 0, err
 	}
 	return len(p), nil
+}
+
+func (c *telnetDataConn) writeRaw(p []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.writeRawLocked(p)
+}
+
+func (c *telnetDataConn) writeRawLocked(p []byte) error {
+	return writeAll(c.conn, p)
 }
 
 func writeAll(w io.Writer, p []byte) error {
