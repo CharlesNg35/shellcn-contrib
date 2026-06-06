@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -24,7 +25,7 @@ func TestKafkaPluginIntegration(t *testing.T) {
 	defer cancel()
 
 	cfg := kafkaIntegrationConfig(ctx, t)
-	sess, err := connect(ctx, plugin.ConnectConfig{Config: cfg})
+	sess, err := connect(ctx, plugin.ConnectConfig{Config: cfg, Net: kafkaDirectNetTransport{}})
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -219,7 +220,7 @@ func startRedpandaContainer(ctx context.Context, t *testing.T) string {
 	cfg := map[string]any{"brokers": brokers, "client_id": "shellcn-integration", "auth": "none", "tls_mode": "disable", "read_only": false, "message_limit": 100, "timeout": "10s"}
 	deadline := time.Now().Add(60 * time.Second)
 	for {
-		sess, err := connect(ctx, plugin.ConnectConfig{Config: cfg})
+		sess, err := connect(ctx, plugin.ConnectConfig{Config: cfg, Net: kafkaDirectNetTransport{}})
 		if err == nil {
 			_ = sess.Close()
 			return brokers
@@ -229,6 +230,17 @@ func startRedpandaContainer(ctx context.Context, t *testing.T) string {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+}
+
+type kafkaDirectNetTransport struct{}
+
+func (kafkaDirectNetTransport) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, network, addr)
+}
+
+func (kafkaDirectNetTransport) HTTP() (string, http.RoundTripper, bool) {
+	return "", nil, false
 }
 
 func freePort(t *testing.T) string {

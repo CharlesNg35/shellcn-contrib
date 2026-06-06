@@ -102,7 +102,7 @@ func routes() []plugin.Route {
 		{ID: "cockroachdb.user.overview", Method: plugin.MethodGet, Path: "/users/{user}/overview", Permission: "cockroachdb.users.read", Risk: plugin.RiskSafe, AuditEvent: "cockroachdb.user.overview", Handle: userOverview},
 		{ID: "cockroachdb.user.create", Method: plugin.MethodPost, Path: "/users", Permission: "cockroachdb.users.write", Risk: plugin.RiskWrite, AuditEvent: "cockroachdb.user.create", Input: userCreateSchema(), Handle: createUser},
 		{ID: "cockroachdb.user.drop", Method: plugin.MethodDelete, Path: "/users/{user}", Permission: "cockroachdb.users.delete", Risk: plugin.RiskDestructive, AuditEvent: "cockroachdb.user.drop", Handle: dropUser},
-		{ID: "cockroachdb.user.grant", Method: plugin.MethodPost, Path: "/users/{user}/grant", Permission: "cockroachdb.users.write", Risk: plugin.RiskWrite, AuditEvent: "cockroachdb.user.grant", Input: userGrantSchema(), Handle: grantUser},
+		{ID: "cockroachdb.user.grant", Method: plugin.MethodPost, Path: "/users/{user}/grant", Permission: "cockroachdb.users.write", Risk: plugin.RiskPrivileged, AuditEvent: "cockroachdb.user.grant", Input: userGrantSchema(), Handle: grantUser},
 	}
 }
 

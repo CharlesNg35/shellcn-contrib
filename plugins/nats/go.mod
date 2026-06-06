@@ -6,7 +6,7 @@ replace github.com/charlesng35/shellcn-contrib/shared => ../../shared
 
 require (
 	github.com/charlesng35/shellcn-contrib/shared v0.0.0-00010101000000-000000000000
-	github.com/charlesng35/shellcn/sdk v0.1.4
+	github.com/charlesng35/shellcn/sdk v0.1.5
 	github.com/nats-io/nats.go v1.52.0
 )
 

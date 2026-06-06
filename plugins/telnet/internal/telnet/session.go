@@ -1,14 +1,16 @@
 package telnet
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"strconv"
+	"strings"
 	"sync"
-
-	gotelnet "github.com/reiver/go-telnet"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
@@ -19,24 +21,27 @@ type telnetConn interface {
 
 type dialFunc func(context.Context, string) (telnetConn, error)
 
-var dialTelnet dialFunc = func(ctx context.Context, addr string) (telnetConn, error) {
-	type result struct {
-		conn telnetConn
-		err  error
+type directNetTransport struct{}
+
+func (directNetTransport) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, network, addr)
+}
+
+func (directNetTransport) HTTP() (string, http.RoundTripper, bool) {
+	return "", nil, false
+}
+
+func dialTelnet(netTransport plugin.NetTransport) dialFunc {
+	if netTransport == nil {
+		netTransport = directNetTransport{}
 	}
-	done := make(chan result, 1)
-	go func() {
-		conn, err := gotelnet.DialTo(addr)
-		if ctx.Err() != nil && conn != nil {
-			_ = conn.Close()
+	return func(ctx context.Context, addr string) (telnetConn, error) {
+		conn, err := netTransport.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			return nil, err
 		}
-		done <- result{conn: conn, err: err}
-	}()
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case res := <-done:
-		return res.conn, res.err
+		return newTelnetDataConn(conn), nil
 	}
 }
 
@@ -51,7 +56,7 @@ type Session struct {
 }
 
 func Connect(_ context.Context, cfg plugin.ConnectConfig) (plugin.Session, error) {
-	host := cfg.String("host")
+	host := strings.TrimSpace(cfg.String("host"))
 	if host == "" {
 		return nil, fmt.Errorf("%w: host is required", plugin.ErrInvalidInput)
 	}
@@ -62,12 +67,12 @@ func Connect(_ context.Context, cfg plugin.ConnectConfig) (plugin.Session, error
 	if port < 1 || port > 65535 {
 		return nil, fmt.Errorf("%w: port must be between 1 and 65535", plugin.ErrInvalidInput)
 	}
-	return NewSession(net.JoinHostPort(host, strconv.Itoa(port)), dialTelnet), nil
+	return NewSession(net.JoinHostPort(host, strconv.Itoa(port)), dialTelnet(cfg.Net)), nil
 }
 
 func NewSession(addr string, dial dialFunc) *Session {
 	if dial == nil {
-		dial = dialTelnet
+		dial = dialTelnet(nil)
 	}
 	return &Session{addr: addr, dial: dial, channels: map[*terminalChannel]struct{}{}}
 }
@@ -174,4 +179,122 @@ func (c *terminalChannel) Close() error {
 		}
 	})
 	return err
+}
+
+type telnetDataConn struct {
+	conn   net.Conn
+	reader *bufio.Reader
+}
+
+func newTelnetDataConn(conn net.Conn) *telnetDataConn {
+	return &telnetDataConn{conn: conn, reader: bufio.NewReader(conn)}
+}
+
+func (c *telnetDataConn) Read(p []byte) (int, error) {
+	const (
+		iac  = 255
+		se   = 240
+		sb   = 250
+		will = 251
+		wont = 252
+		do   = 253
+		dont = 254
+	)
+
+	n := 0
+	for n < len(p) {
+		b, err := c.reader.ReadByte()
+		if err != nil {
+			if n > 0 {
+				return n, nil
+			}
+			return n, err
+		}
+		if b != iac {
+			p[n] = b
+			n++
+			continue
+		}
+
+		cmd, err := c.reader.ReadByte()
+		if err != nil {
+			if n > 0 {
+				return n, nil
+			}
+			return n, err
+		}
+		switch cmd {
+		case iac:
+			p[n] = iac
+			n++
+		case will, wont, do, dont:
+			if _, err := c.reader.ReadByte(); err != nil {
+				if n > 0 {
+					return n, nil
+				}
+				return n, err
+			}
+		case sb:
+			if err := c.discardSubnegotiation(iac, se); err != nil {
+				if n > 0 {
+					return n, nil
+				}
+				return n, err
+			}
+		default:
+		}
+	}
+	return n, nil
+}
+
+func (c *telnetDataConn) discardSubnegotiation(iac, se byte) error {
+	for {
+		b, err := c.reader.ReadByte()
+		if err != nil {
+			return err
+		}
+		if b != iac {
+			continue
+		}
+		next, err := c.reader.ReadByte()
+		if err != nil {
+			return err
+		}
+		if next == se {
+			return nil
+		}
+	}
+}
+
+func (c *telnetDataConn) Write(p []byte) (int, error) {
+	const iac = 255
+	escaped := bytes.NewBuffer(make([]byte, 0, len(p)))
+	for _, b := range p {
+		escaped.WriteByte(b)
+		if b == iac {
+			escaped.WriteByte(iac)
+		}
+	}
+	if err := writeAll(c.conn, escaped.Bytes()); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func writeAll(w io.Writer, p []byte) error {
+	for len(p) > 0 {
+		n, err := w.Write(p)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+		p = p[n:]
+	}
+	return nil
+}
+
+func (c *telnetDataConn) Close() error {
+	return c.conn.Close()
 }

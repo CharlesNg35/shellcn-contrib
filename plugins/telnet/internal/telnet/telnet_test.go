@@ -1,11 +1,14 @@
 package telnet
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
 	"github.com/charlesng35/shellcn/sdk/plugintest"
@@ -24,8 +27,11 @@ func TestManifestExposesTerminalRecording(t *testing.T) {
 	if len(m.CredentialKinds) != 0 {
 		t.Fatalf("telnet should not declare credentials: %+v", m.CredentialKinds)
 	}
-	if len(m.Tabs) != 1 || m.Tabs[0].Type != plugin.PanelTerminal || m.Tabs[0].Source.RouteID != "telnet.shell" {
+	if len(m.Tabs) != 1 || m.Tabs[0].Type != plugin.PanelTerminalGrid || m.Tabs[0].Source.RouteID != "telnet.shell" {
 		t.Fatalf("terminal tab not wired to telnet.shell: %+v", m.Tabs)
+	}
+	if cfg, ok := m.Tabs[0].Config.(plugin.TerminalGridConfig); !ok || cfg.MaxPanes != 6 || cfg.DefaultPanes != 1 || !cfg.Zoom || !cfg.Search {
+		t.Fatalf("terminal grid config not declared: %+v", m.Tabs[0].Config)
 	}
 	if len(m.Streams) != 1 || m.Streams[0].Kind != plugin.StreamTerminal || m.Streams[0].RouteID != "telnet.shell" {
 		t.Fatalf("terminal stream not declared: %+v", m.Streams)
@@ -36,7 +42,7 @@ func TestManifestExposesTerminalRecording(t *testing.T) {
 }
 
 func TestConnectBuildsDefaultAddress(t *testing.T) {
-	sess, err := Connect(context.Background(), plugin.ConnectConfig{Config: map[string]any{"host": "example.com"}})
+	sess, err := Connect(context.Background(), plugin.ConnectConfig{Config: map[string]any{"host": " example.com "}})
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -44,6 +50,25 @@ func TestConnectBuildsDefaultAddress(t *testing.T) {
 	want := net.JoinHostPort("example.com", "23")
 	if got != want {
 		t.Fatalf("addr: got %q want %q", got, want)
+	}
+}
+
+func TestConnectUsesConfiguredTransport(t *testing.T) {
+	client, server := net.Pipe()
+	defer server.Close()
+	transport := &fakeNetTransport{conn: client}
+	sess, err := Connect(context.Background(), plugin.ConnectConfig{
+		Config: map[string]any{"host": "example.com", "port": 2323},
+		Net:    transport,
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if err := sess.HealthCheck(context.Background()); err != nil {
+		t.Fatalf("health check: %v", err)
+	}
+	if transport.network != "tcp" || transport.addr != "example.com:2323" {
+		t.Fatalf("dialed %s %s, want tcp example.com:2323", transport.network, transport.addr)
 	}
 }
 
@@ -114,6 +139,87 @@ func TestHealthCheckReportsDialFailure(t *testing.T) {
 	if err := sess.HealthCheck(context.Background()); !errors.Is(err, plugin.ErrUnavailable) {
 		t.Fatalf("health check error = %v, want ErrUnavailable", err)
 	}
+}
+
+func TestTelnetDataConnEscapesAndFiltersProtocolBytes(t *testing.T) {
+	raw := &scriptedNetConn{reader: bytes.NewReader([]byte{'a', 255, 251, 1, 'b', 255, 255, 'c', 255, 250, 1, 'x', 255, 240, 'd'})}
+	conn := newTelnetDataConn(raw)
+	defer conn.Close()
+
+	buf := make([]byte, 5)
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		t.Fatalf("read telnet data: %v", err)
+	}
+	if want := []byte{'a', 'b', 255, 'c', 'd'}; !bytes.Equal(buf, want) {
+		t.Fatalf("read bytes = %v, want %v", buf, want)
+	}
+
+	if n, err := conn.Write([]byte{'x', 255, 'y'}); err != nil || n != 3 {
+		t.Fatalf("write telnet data: n=%d err=%v", n, err)
+	}
+	if want := []byte{'x', 255, 255, 'y'}; !bytes.Equal(raw.writer.Bytes(), want) {
+		t.Fatalf("escaped bytes = %v, want %v", raw.writer.Bytes(), want)
+	}
+}
+
+type scriptedNetConn struct {
+	reader *bytes.Reader
+	writer bytes.Buffer
+	closed bool
+}
+
+func (c *scriptedNetConn) Read(p []byte) (int, error) {
+	return c.reader.Read(p)
+}
+
+func (c *scriptedNetConn) Write(p []byte) (int, error) {
+	return c.writer.Write(p)
+}
+
+func (c *scriptedNetConn) Close() error {
+	c.closed = true
+	return nil
+}
+
+func (c *scriptedNetConn) LocalAddr() net.Addr {
+	return dummyAddr("local")
+}
+
+func (c *scriptedNetConn) RemoteAddr() net.Addr {
+	return dummyAddr("remote")
+}
+
+func (c *scriptedNetConn) SetDeadline(time.Time) error {
+	return nil
+}
+
+func (c *scriptedNetConn) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (c *scriptedNetConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+type dummyAddr string
+
+func (d dummyAddr) Network() string { return "test" }
+func (d dummyAddr) String() string  { return string(d) }
+
+type fakeNetTransport struct {
+	network string
+	addr    string
+	conn    net.Conn
+}
+
+func (f *fakeNetTransport) DialContext(_ context.Context, network, addr string) (net.Conn, error) {
+	f.network = network
+	f.addr = addr
+	return f.conn, nil
+}
+
+func (f *fakeNetTransport) HTTP() (string, http.RoundTripper, bool) {
+	return "", nil, false
 }
 
 type fakeConn struct {

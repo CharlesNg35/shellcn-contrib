@@ -57,7 +57,7 @@ func routes() []plugin.Route {
 		{ID: "mssql.job.enable", Method: plugin.MethodPost, Path: "/jobs/{name}/enable", Permission: "mssql.jobs.write", Risk: plugin.RiskWrite, AuditEvent: "mssql.job.enable", Handle: enableJob},
 		{ID: "mssql.job.disable", Method: plugin.MethodPost, Path: "/jobs/{name}/disable", Permission: "mssql.jobs.write", Risk: plugin.RiskWrite, AuditEvent: "mssql.job.disable", Handle: disableJob},
 		{ID: "mssql.user.create", Method: plugin.MethodPost, Path: "/users", Permission: "mssql.users.write", Risk: plugin.RiskWrite, AuditEvent: "mssql.user.create", Input: userCreateSchema(), Handle: createUser},
-		{ID: "mssql.user.grant", Method: plugin.MethodPost, Path: "/users/{database}/{user}/grant", Permission: "mssql.users.write", Risk: plugin.RiskWrite, AuditEvent: "mssql.user.grant", Input: userGrantSchema(), Handle: grantUser},
+		{ID: "mssql.user.grant", Method: plugin.MethodPost, Path: "/users/{database}/{user}/grant", Permission: "mssql.users.write", Risk: plugin.RiskPrivileged, AuditEvent: "mssql.user.grant", Input: userGrantSchema(), Handle: grantUser},
 		{ID: "mssql.user.drop", Method: plugin.MethodDelete, Path: "/users/{database}/{user}", Permission: "mssql.users.delete", Risk: plugin.RiskDestructive, AuditEvent: "mssql.user.drop", Handle: dropUser},
 		{ID: "mssql.table.rows", Method: plugin.MethodGet, Path: "/objects/{id}/rows", Permission: "mssql.tables.data.read", Risk: plugin.RiskSafe, AuditEvent: "mssql.table.rows", Handle: tableRows},
 		{ID: "mssql.view.rows", Method: plugin.MethodGet, Path: "/objects/{id}/view-rows", Permission: "mssql.views.data.read", Risk: plugin.RiskSafe, AuditEvent: "mssql.view.rows", Handle: tableRows},

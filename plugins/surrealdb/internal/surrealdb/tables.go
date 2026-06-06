@@ -28,16 +28,14 @@ func section(info map[string]any, key string) map[string]any {
 }
 
 type tableRow struct {
-	Name    string             `json:"name"`
-	Mode    string             `json:"mode"`
-	Records int64              `json:"records"`
-	Ref     plugin.ResourceRef `json:"ref"`
+	Name string             `json:"name"`
+	Mode string             `json:"mode"`
+	Ref  plugin.ResourceRef `json:"ref"`
 }
 
 // listTables backs the Tables list, the database resource list, and the tree.
 // SurrealDB exposes the schema via INFO FOR DB, whose "tables" field maps table
-// name -> DEFINE statement; the mode (schemafull/schemaless) and a record count
-// come from that definition and a per-table count() query.
+// name -> DEFINE statement; the mode comes from that definition.
 func listTables(rc *plugin.RequestContext) (any, error) {
 	db, err := sess(rc).client(rc.Ctx)
 	if err != nil {
@@ -69,13 +67,8 @@ func listTables(rc *plugin.RequestContext) (any, error) {
 		if def, _ := defs[name].(string); strings.Contains(strings.ToUpper(def), "SCHEMAFULL") {
 			mode = "schemafull"
 		}
-		var count int64
-		if c, err := queryOne[[]map[string]any](rc.Ctx, db,
-			fmt.Sprintf("SELECT count() FROM %s GROUP ALL", name), nil); err == nil && len(c) > 0 {
-			count = toInt64(c[0]["count"])
-		}
 		rows = append(rows, tableRow{
-			Name: name, Mode: mode, Records: count,
+			Name: name, Mode: mode,
 			Ref: plugin.ResourceRef{Kind: "table", Name: name, UID: name},
 		})
 	}
@@ -467,7 +460,7 @@ func parseFieldType(def string) string {
 
 // validType allows a SurrealQL type expression: identifiers plus the bracket,
 // angle, pipe, and comma characters used in composite types (array<int>,
-// option<string>, "a"|"b" is not allowed — only structural type syntax).
+// option<string>, "a"|"b" is not allowed; only structural type syntax).
 func validType(s string) bool {
 	for _, r := range s {
 		switch {

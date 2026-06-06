@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -51,6 +52,9 @@ func (p *Plugin) Routes() []plugin.Route {
 }
 
 func (p *Plugin) Connect(_ context.Context, cfg plugin.ConnectConfig) (plugin.Session, error) {
+	if cfg.Transport != "" && cfg.Transport != plugin.TransportDirect {
+		return nil, fmt.Errorf("%w: nfs currently supports direct transport only", plugin.ErrNotSupported)
+	}
 	opts, err := parseOptions(cfg)
 	if err != nil {
 		return nil, err
@@ -161,7 +165,32 @@ func (c *Client) Home(context.Context) (string, error) {
 	return c.root, nil
 }
 
+func (c *Client) resolve(p string) (string, error) {
+	root := path.Clean(strings.TrimSpace(c.root))
+	if root == "." {
+		root = "/"
+	}
+	clean := path.Clean(strings.TrimSpace(p))
+	if clean == "." {
+		clean = "/"
+	}
+	if !strings.HasPrefix(root, "/") {
+		root = "/" + root
+	}
+	if !strings.HasPrefix(clean, "/") {
+		clean = "/" + clean
+	}
+	if root == "/" || clean == root || strings.HasPrefix(clean, root+"/") {
+		return clean, nil
+	}
+	return path.Join(root, strings.TrimPrefix(clean, "/")), nil
+}
+
 func (c *Client) ReadDir(_ context.Context, p string) ([]os.FileInfo, error) {
+	p, err := c.resolve(p)
+	if err != nil {
+		return nil, err
+	}
 	entries, err := c.target.ReadDirPlus(p)
 	if err != nil {
 		return nil, err
@@ -174,15 +203,27 @@ func (c *Client) ReadDir(_ context.Context, p string) ([]os.FileInfo, error) {
 }
 
 func (c *Client) Stat(_ context.Context, p string) (os.FileInfo, error) {
+	p, err := c.resolve(p)
+	if err != nil {
+		return nil, err
+	}
 	info, _, err := c.target.Lookup(p)
 	return namedInfo{name: pathBase(p), FileInfo: info}, err
 }
 
 func (c *Client) Open(_ context.Context, p string) (io.ReadCloser, error) {
+	p, err := c.resolve(p)
+	if err != nil {
+		return nil, err
+	}
 	return c.target.Open(p)
 }
 
 func (c *Client) OpenSeeker(_ context.Context, p string) (io.ReadSeekCloser, error) {
+	p, err := c.resolve(p)
+	if err != nil {
+		return nil, err
+	}
 	f, err := c.target.Open(p)
 	if err != nil {
 		return nil, err
@@ -191,6 +232,10 @@ func (c *Client) OpenSeeker(_ context.Context, p string) (io.ReadSeekCloser, err
 }
 
 func (c *Client) Write(_ context.Context, p string, r io.Reader) error {
+	p, err := c.resolve(p)
+	if err != nil {
+		return err
+	}
 	f, err := c.target.OpenFile(p, 0o644)
 	if err != nil {
 		return err
@@ -204,15 +249,31 @@ func (c *Client) Write(_ context.Context, p string, r io.Reader) error {
 }
 
 func (c *Client) Mkdir(_ context.Context, p string) error {
-	_, err := c.target.Mkdir(p, 0o755)
+	p, err := c.resolve(p)
+	if err != nil {
+		return err
+	}
+	_, err = c.target.Mkdir(p, 0o755)
 	return err
 }
 
 func (c *Client) Rename(_ context.Context, from, to string) error {
+	from, err := c.resolve(from)
+	if err != nil {
+		return err
+	}
+	to, err = c.resolve(to)
+	if err != nil {
+		return err
+	}
 	return c.target.Rename(from, to)
 }
 
 func (c *Client) Remove(_ context.Context, p string, isDir bool) error {
+	p, err := c.resolve(p)
+	if err != nil {
+		return err
+	}
 	if isDir {
 		return c.target.RmDir(p)
 	}
@@ -220,6 +281,14 @@ func (c *Client) Remove(_ context.Context, p string, isDir bool) error {
 }
 
 func (c *Client) Move(_ context.Context, src, dst string) error {
+	src, err := c.resolve(src)
+	if err != nil {
+		return err
+	}
+	dst, err = c.resolve(dst)
+	if err != nil {
+		return err
+	}
 	return c.target.Rename(src, dst)
 }
 

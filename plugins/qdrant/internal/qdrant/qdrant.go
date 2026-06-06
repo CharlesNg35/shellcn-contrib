@@ -49,7 +49,7 @@ func (Plugin) Manifest() plugin.Manifest {
 	return plugin.Manifest{
 		APIVersion:          plugin.CurrentAPIVersion,
 		Name:                protocolName,
-		Version:             "0.1.1",
+		Version:             "0.1.0",
 		Title:               "Qdrant",
 		Description:         "Qdrant vector database cockpit with collections, collection details, point browsing, payload inspection, and JSON vector queries.",
 		Icon:                plugin.Icon{Type: plugin.IconSVG, Value: iconSVG},

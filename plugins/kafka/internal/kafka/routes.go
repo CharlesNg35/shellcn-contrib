@@ -362,7 +362,7 @@ func produceMessage(rc *plugin.RequestContext) (any, error) {
 			return nil, fmt.Errorf("%w: value is not valid base64", plugin.ErrInvalidInput)
 		}
 	}
-	cfg := saramaConfig(s.opts)
+	cfg := saramaConfig(s.opts, s.net)
 	producer, err := sarama.NewSyncProducerFromClient(s.client)
 	if err != nil {
 		producer, err = sarama.NewSyncProducer(s.opts.Brokers, cfg)

@@ -6,6 +6,10 @@ func icon(name string) plugin.Icon { return plugin.Icon{Type: plugin.IconLucide,
 
 func rid(suffix string) string { return protocolName + "." + suffix }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Ref: &plugin.ResourceRef{Kind: "server", Name: "Loki", UID: "server"}},
@@ -21,10 +25,10 @@ func resources() []plugin.ResourceType {
 			Actions: plugin.ResourceActions{Detail: []string{rid("query.format"), rid("delete.create")}},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
 				{Key: "query", Label: "LogQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: rid("query"), Method: plugin.MethodWS}, Config: queryConfig()},
-				{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("overview")}},
+				{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("overview")}, Config: objectDetailConfig()},
 				{Key: "labels", Label: "Labels", Icon: icon("tag"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("labels.list")}, Config: plugin.TableConfig{Columns: labelColumns(), Exportable: true}},
 				{Key: "streams", Label: "Streams", Icon: icon("list-tree"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("streams.list")}, Config: plugin.TableConfig{Columns: streamColumns(), Exportable: true}},
-				{Key: "stats", Label: "Stats", Icon: icon("chart-no-axes-combined"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("stats.read")}},
+				{Key: "stats", Label: "Stats", Icon: icon("chart-no-axes-combined"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("stats.read")}, Config: objectDetailConfig()},
 				{Key: "volume", Label: "Volume", Icon: icon("chart-column"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("volume.list")}, Config: plugin.TableConfig{Columns: volumeColumns(), Exportable: true}},
 				{Key: "rules", Label: "Rules", Icon: icon("list-checks"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("rules.list")}, Config: plugin.TableConfig{Columns: ruleColumns(), Exportable: true}},
 				{Key: "deletes", Label: "Deletes", Icon: icon("eraser"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("deletes.list")}, Config: plugin.TableConfig{Columns: deleteColumns(), RowActionIDs: []string{rid("delete.cancel")}, Exportable: true}},
@@ -83,7 +87,7 @@ func streamColumns() []plugin.Column {
 }
 
 func logColumns() []plugin.Column {
-	return []plugin.Column{{Key: "timestamp", Label: "Time", Type: plugin.ColumnDateTime, Sortable: true}, {Key: "line", Label: "Line"}, {Key: "labels", Label: "Labels", Type: plugin.ColumnJSON}}
+	return []plugin.Column{{Key: "timestamp", Label: "Time", Type: plugin.ColumnRelativeTime, Sortable: true}, {Key: "line", Label: "Line"}, {Key: "labels", Label: "Labels", Type: plugin.ColumnJSON}}
 }
 
 func volumeColumns() []plugin.Column {
@@ -108,7 +112,7 @@ func deleteColumns() []plugin.Column {
 		{Key: "request_id", Label: "Request ID", Sortable: true},
 		{Key: "query", Label: "Query"},
 		{Key: "status", Label: "Status", Type: plugin.ColumnBadge, Sortable: true},
-		{Key: "start_time", Label: "Start", Type: plugin.ColumnDateTime, Sortable: true},
-		{Key: "end_time", Label: "End", Type: plugin.ColumnDateTime, Sortable: true},
+		{Key: "start_time", Label: "Start", Type: plugin.ColumnRelativeTime, Sortable: true},
+		{Key: "end_time", Label: "End", Type: plugin.ColumnRelativeTime, Sortable: true},
 	}
 }

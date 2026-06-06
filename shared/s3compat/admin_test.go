@@ -2,6 +2,7 @@ package s3compat
 
 import (
 	"errors"
+	"net/url"
 	"testing"
 	"time"
 
@@ -74,6 +75,20 @@ func TestPresignKey(t *testing.T) {
 		if _, err := presignKey(c, in); !errors.Is(err, plugin.ErrInvalidInput) {
 			t.Errorf("presignKey(%q) err = %v; want ErrInvalidInput", in, err)
 		}
+	}
+}
+
+func TestPresignObjectRejectsWriteMethods(t *testing.T) {
+	rc := plugin.NewRequestContext(
+		t.Context(),
+		plugin.User{},
+		&Session{fs: &Client{bucket: "b", prefix: "team/"}},
+		map[string]string{"path": "/docs/report.pdf"},
+		url.Values{"method": {"put"}},
+		nil,
+	)
+	if _, err := presignObject(rc); !errors.Is(err, plugin.ErrInvalidInput) {
+		t.Fatalf("presignObject PUT err = %v, want ErrInvalidInput", err)
 	}
 }
 

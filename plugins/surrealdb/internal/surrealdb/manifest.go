@@ -13,11 +13,15 @@ const surrealIconSvg = `<svg fill=none height=1728 viewBox="0 0 1486 1728"width=
 
 func icon(name string) plugin.Icon { return plugin.Icon{Type: plugin.IconLucide, Value: name} }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
 func (p *Plugin) Manifest() plugin.Manifest {
 	return plugin.Manifest{
 		APIVersion:  plugin.CurrentAPIVersion,
 		Name:        "surrealdb",
-		Version:     "0.2.0",
+		Version:     "0.1.0",
 		Title:       "SurrealDB",
 		Description: "Explore, query, and manage a SurrealDB namespace/database.",
 		Icon:        plugin.Icon{Type: plugin.IconSVG, Value: surrealIconSvg},
@@ -77,7 +81,6 @@ func tableColumns() []plugin.Column {
 		{Key: "mode", Label: "Mode", Type: plugin.ColumnBadge, Severities: map[string]plugin.Severity{
 			"schemafull": plugin.SeverityInfo, "schemaless": plugin.SeveritySecondary,
 		}},
-		{Key: "records", Label: "Records", Type: plugin.ColumnNumber},
 	}
 }
 
@@ -103,7 +106,7 @@ func resources() []plugin.ResourceType {
 }
 
 // databaseResource is the connection-level view: overview, table and DB-object
-// lists, and a console — opened from the tree roots.
+// lists, and a console opened from the tree roots.
 func databaseResource() plugin.ResourceType {
 	return plugin.ResourceType{
 		Kind: "database", Title: "Database",
@@ -113,10 +116,10 @@ func databaseResource() plugin.ResourceType {
 			Header:     plugin.HeaderSpec{Title: "Database"},
 			DefaultTab: "overview",
 			Tabs: append([]plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "surrealdb.db.overview"}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: "surrealdb.db.overview"}, Config: objectDetailConfig()},
 				{Key: "tables", Label: "Tables", Icon: icon("table-2"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "surrealdb.tables.list"}, Config: plugin.TableConfig{
 					Columns: tableColumns(), ActionIDs: []string{"surrealdb.table.define"}, RowActionIDs: []string{"surrealdb.table.remove"},
-					EmptyText: "No tables yet — define one to get started.",
+					EmptyText: "No tables yet. Define one to get started.",
 				}},
 			}, append(objectPanels(),
 				plugin.Panel{Key: "query", Label: "Query", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: "surrealdb.query", Method: plugin.MethodWS}, Config: queryConfig("INFO FOR DB;")},

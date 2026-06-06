@@ -3,6 +3,7 @@ package neo4j
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"testing"
 
@@ -29,6 +30,24 @@ func TestManifestRegistersDirectOnlyAndCredentialKinds(t *testing.T) {
 	}
 	if plugintest.CredentialKindSupported(m.Config, plugin.CredentialTLSClientCert) {
 		t.Fatal("Neo4j should not advertise TLS client certificate credentials")
+	}
+}
+
+func TestConnectRejectsAgentTransportBeforeDial(t *testing.T) {
+	p := New()
+	called := false
+	_, err := p.Connect(context.Background(), plugin.ConnectConfig{
+		Transport: plugin.TransportAgent,
+		Net: plugintest.TransportFunc(func(context.Context, string, string) (net.Conn, error) {
+			called = true
+			return nil, errors.New("dial should not be reached")
+		}),
+	})
+	if !errors.Is(err, plugin.ErrNotSupported) {
+		t.Fatalf("expected unsupported transport error, got %v", err)
+	}
+	if called {
+		t.Fatal("agent transport rejection must happen before any network dial")
 	}
 }
 
@@ -193,6 +212,31 @@ func TestManifestReferencesResolve(t *testing.T) {
 	}
 }
 
+func TestCreateActionsUseContextSpecificDatabaseParams(t *testing.T) {
+	actions := map[string]plugin.Action{}
+	for _, action := range New().Manifest().Actions {
+		actions[action.ID] = action
+	}
+	tests := []struct {
+		id   string
+		want string
+	}{
+		{id: rid("node.create.database"), want: "${resource.uid}"},
+		{id: rid("node.create.label"), want: "${resource.namespace}"},
+		{id: rid("relationship.create.database"), want: "${resource.uid}"},
+		{id: rid("relationship.create.type"), want: "${resource.namespace}"},
+	}
+	for _, tt := range tests {
+		action, ok := actions[tt.id]
+		if !ok {
+			t.Fatalf("missing action %q", tt.id)
+		}
+		if got := action.Params["database"]; got != tt.want {
+			t.Fatalf("%s database param = %q, want %q", tt.id, got, tt.want)
+		}
+	}
+}
+
 func TestSetPropertiesQuery(t *testing.T) {
 	props := map[string]any{"name": "Ada", "code": "MATCH (n) DETACH DELETE n"}
 
@@ -203,7 +247,7 @@ func TestSetPropertiesQuery(t *testing.T) {
 	if params["id"] != "4:abc" {
 		t.Fatalf("id param not carried: %#v", params)
 	}
-	// Property values are parameterised, never interpolated into the statement —
+	// Property values are parameterised, never interpolated into the statement.
 	// a value that itself contains Cypher must not leak into the query text.
 	got, ok := params["props"].(map[string]any)
 	if !ok || got["code"] != props["code"] {

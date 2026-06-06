@@ -1,8 +1,10 @@
 package kafka
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -109,7 +111,25 @@ func parseOptions(cfg plugin.ConnectConfig) (options, error) {
 	return opts, nil
 }
 
-func saramaConfig(opts options) *sarama.Config {
+type saramaNetDialer struct {
+	net     plugin.NetTransport
+	timeout time.Duration
+}
+
+func (d saramaNetDialer) Dial(network, address string) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
+	defer cancel()
+	return d.DialContext(ctx, network, address)
+}
+
+func (d saramaNetDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	if d.net == nil {
+		return nil, fmt.Errorf("%w: network transport is unavailable", plugin.ErrUnavailable)
+	}
+	return d.net.DialContext(ctx, network, address)
+}
+
+func saramaConfig(opts options, netTransport plugin.NetTransport) *sarama.Config {
 	cfg := sarama.NewConfig()
 	cfg.ClientID = opts.ClientID
 	cfg.Version = sarama.V2_8_0_0
@@ -124,6 +144,8 @@ func saramaConfig(opts options) *sarama.Config {
 	cfg.Producer.Return.Errors = true
 	cfg.Consumer.Return.Errors = true
 	cfg.Consumer.Offsets.Initial = sarama.OffsetOldest
+	cfg.Net.Proxy.Enable = true
+	cfg.Net.Proxy.Dialer = saramaNetDialer{net: netTransport, timeout: opts.Timeout}
 	if opts.TLSConfig != nil {
 		cfg.Net.TLS.Enable = true
 		cfg.Net.TLS.Config = opts.TLSConfig

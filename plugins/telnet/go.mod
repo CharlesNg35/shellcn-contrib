@@ -2,10 +2,7 @@ module github.com/charlesng35/shellcn-contrib/plugins/telnet
 
 go 1.26.4
 
-require (
-	github.com/charlesng35/shellcn/sdk v0.1.4
-	github.com/reiver/go-telnet v0.0.0-20250617105250-7da9ad70a2b2
-)
+require github.com/charlesng35/shellcn/sdk v0.1.5
 
 require (
 	github.com/fatih/color v1.13.0 // indirect
@@ -21,7 +18,6 @@ require (
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/oklog/run v1.1.0 // indirect
-	github.com/reiver/go-oi v1.0.0 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect

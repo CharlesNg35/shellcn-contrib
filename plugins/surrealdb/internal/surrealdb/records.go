@@ -27,9 +27,16 @@ func listRecords(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	maxLimit := sess(rc).opts.rowLimit
+	if maxLimit <= 0 {
+		maxLimit = defaultRowLimit
+	}
 	limit := page.Limit
-	if limit <= 0 || limit > 200 {
-		limit = 50
+	if limit <= 0 {
+		limit = maxLimit
+	}
+	if limit > maxLimit {
+		limit = maxLimit
 	}
 	start := 0
 	if page.Cursor != "" {

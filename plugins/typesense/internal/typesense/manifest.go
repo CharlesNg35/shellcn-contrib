@@ -6,6 +6,10 @@ func icon(name string) plugin.Icon { return plugin.Icon{Type: plugin.IconLucide,
 
 func rid(suffix string) string { return "typesense." + suffix }
 
+func objectDetailConfig() plugin.ObjectDetailConfig {
+	return plugin.ObjectDetailConfig{RawToggle: true}
+}
+
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
 		{Key: "collections", Label: "Collections", Icon: icon("database"), Source: plugin.DataSource{RouteID: rid("collections.tree")}, ResourceKind: "collection"},
@@ -27,7 +31,7 @@ func resources() []plugin.ResourceType {
 				},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("collection.overview"), Params: collectionParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("info"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("collection.overview"), Params: collectionParams()}, Config: objectDetailConfig()},
 				{Key: "documents", Label: "Documents", Icon: icon("file-json"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("documents.list"), Params: collectionParams()}, Config: plugin.TableConfig{Columns: documentColumns(), ActionIDs: []string{rid("document.upsert"), rid("documents.import")}, RowActionIDs: []string{rid("document.delete")}, Exportable: true}},
 				{Key: "search", Label: "Search", Icon: icon("search"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: rid("search.query"), Method: plugin.MethodWS, Params: collectionParams()}, Config: searchConfig()},
 				{Key: "synonyms", Label: "Synonym sets", Icon: icon("replace"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: rid("synonyms.list")}, Config: plugin.TableConfig{Columns: synonymColumns(), ActionIDs: []string{rid("synonym.upsert")}, RowActionIDs: []string{rid("synonym.delete")}, Exportable: true}},
@@ -56,7 +60,7 @@ func resources() []plugin.ResourceType {
 				Detail:  []string{rid("alias.delete")},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("tag"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("alias.read"), Params: aliasParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("tag"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("alias.read"), Params: aliasParams()}, Config: objectDetailConfig()},
 			}},
 		},
 		{
@@ -68,7 +72,7 @@ func resources() []plugin.ResourceType {
 				Detail:  []string{rid("key.delete")},
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.name}"}, Tabs: []plugin.Panel{
-				{Key: "overview", Label: "Overview", Icon: icon("key-round"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("key.read"), Params: keyParams()}},
+				{Key: "overview", Label: "Overview", Icon: icon("key-round"), Type: plugin.PanelObjectDetail, Source: &plugin.DataSource{RouteID: rid("key.read"), Params: keyParams()}, Config: objectDetailConfig()},
 			}},
 		},
 	}

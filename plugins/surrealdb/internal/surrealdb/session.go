@@ -33,6 +33,9 @@ type session struct {
 // cfg.Net.DialContext means direct and agent connections share this one path and
 // the gateway stays the audited egress choke point.
 func newSession(ctx context.Context, cfg plugin.ConnectConfig) (*session, error) {
+	if cfg.Net == nil {
+		return nil, fmt.Errorf("%w: network transport is unavailable", plugin.ErrUnavailable)
+	}
 	opts, err := parseOptions(cfg)
 	if err != nil {
 		return nil, err
@@ -50,7 +53,7 @@ func newSession(ctx context.Context, cfg plugin.ConnectConfig) (*session, error)
 func (s *session) dial(ctx context.Context) (*surrealdb.DB, error) {
 	conf := connection.NewConfig(s.opts.baseURL())
 	// The default driver logger writes to stdout, which go-plugin reserves for the
-	// handshake — silence it so plugin logs never corrupt the control channel.
+	// handshake. Silence it so plugin logs never corrupt the control channel.
 	conf.Logger = logger.New(slog.DiscardHandler)
 
 	conn := shttp.New(conf)
@@ -82,7 +85,7 @@ func (s *session) dial(ctx context.Context) (*surrealdb.DB, error) {
 	return db, nil
 }
 
-// signIn tries the credential at root, then namespace, then database level — the
+// signIn tries the credential at root, then namespace, then database level. The
 // config doesn't say which kind of user it is, and SurrealDB scopes users to
 // exactly one level.
 func (s *session) signIn(ctx context.Context, db *surrealdb.DB) error {
@@ -138,11 +141,15 @@ func (s *session) OpenChannel(ctx context.Context, req plugin.ChannelRequest) (p
 	if req.Kind != plugin.StreamTerminal {
 		return nil, plugin.ErrNotSupported
 	}
+	return s.openREPL(ctx, nil)
+}
+
+func (s *session) openREPL(ctx context.Context, audit func(plugin.AuditResult, map[string]string, error)) (plugin.Channel, error) {
 	db, err := s.client(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return newREPL(db, s.opts), nil
+	return newREPL(db, s.opts, audit), nil
 }
 
 // Close tears the SurrealDB client down.

@@ -55,6 +55,9 @@ func (p *Plugin) Manifest() plugin.Manifest {
 func (p *Plugin) Routes() []plugin.Route { return routes() }
 
 func (p *Plugin) Connect(ctx context.Context, cfg plugin.ConnectConfig) (plugin.Session, error) {
+	if cfg.Transport != "" && cfg.Transport != plugin.TransportDirect {
+		return nil, fmt.Errorf("%w: Neo4j currently supports only direct transport", plugin.ErrNotSupported)
+	}
 	opts, err := parseOptions(cfg)
 	if err != nil {
 		return nil, err
