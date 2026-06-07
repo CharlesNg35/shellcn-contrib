@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.21
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.103.1
 	github.com/charlesng35/shellcn-contrib/shared v0.0.0-00010101000000-000000000000
-	github.com/charlesng35/shellcn/sdk v0.1.5
+	github.com/charlesng35/shellcn/sdk v0.1.6
 )
 
 require (

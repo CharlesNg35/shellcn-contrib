@@ -36,8 +36,8 @@ github.com/aws/aws-sdk-go-v2/service/sts v1.43.1 h1:r/vUkpLilfCA3sxbRnkHbJejaoVH
 github.com/aws/aws-sdk-go-v2/service/sts v1.43.1/go.mod h1:t01JURC8Fe5M+7R1K0vzIZ2NT04HqvZR+FjlHrHDT2A=
 github.com/aws/smithy-go v1.27.1 h1:4T340VFndXtADGF52gYa1POyL7s9E4Z1OeZ1hCscIw8=
 github.com/aws/smithy-go v1.27.1/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
-github.com/charlesng35/shellcn/sdk v0.1.5 h1:Dv1qFD0TiaL9dhggMuZdVUOM5lh8Lcxd/vjQ0LUbJIs=
-github.com/charlesng35/shellcn/sdk v0.1.5/go.mod h1:GBxjo/wD0racI5TCWOtlGTBdxXfN2xHZDZK2Lmea8a0=
+github.com/charlesng35/shellcn/sdk v0.1.6 h1:TRY5pWcqgfWZL/9G18NsDQaQpJM1AOCEXS/1AsNjQQ4=
+github.com/charlesng35/shellcn/sdk v0.1.6/go.mod h1:GBxjo/wD0racI5TCWOtlGTBdxXfN2xHZDZK2Lmea8a0=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/gabriel-vasile/mimetype v1.4.13 h1:46nXokslUBsAJE/wMsp5gtO500a4F3Nkz9Ufpk2AcUM=
