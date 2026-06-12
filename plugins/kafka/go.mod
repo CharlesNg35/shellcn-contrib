@@ -7,7 +7,7 @@ replace github.com/charlesng35/shellcn-contrib/shared => ../../shared
 require (
 	github.com/IBM/sarama v1.50.1
 	github.com/charlesng35/shellcn-contrib/shared v0.0.0-00010101000000-000000000000
-	github.com/charlesng35/shellcn/sdk v0.1.7
+	github.com/charlesng35/shellcn/sdk v0.1.8
 )
 
 require (
