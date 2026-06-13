@@ -6,7 +6,7 @@ replace github.com/charlesng35/shellcn-contrib/shared => ../../shared
 
 require (
 	github.com/charlesng35/shellcn-contrib/shared v0.0.0-00010101000000-000000000000
-	github.com/charlesng35/shellcn/sdk v0.1.8
+	github.com/charlesng35/shellcn/sdk v0.1.9
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 )
