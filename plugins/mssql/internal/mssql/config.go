@@ -66,7 +66,7 @@ func configSchema() plugin.Schema {
 			}},
 			{Key: "username", Label: "Username", Type: plugin.FieldText, Required: true, Placeholder: "sa", VisibleWhen: &passwordAuth},
 			{Key: credentialIDField, Label: "Stored password", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialDBPassword}, Protocols: []string{protocolName},
+				Kind: plugin.CredentialDBPassword, Protocols: []string{protocolName},
 			}, VisibleWhen: &credentialAuth, Help: "Reusable SQL Server password. The credential identity can also supply the username."},
 			{Key: "password", Label: "Password", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &passwordAuth},
 		}},
@@ -79,7 +79,7 @@ func configSchema() plugin.Schema {
 			}},
 			{Key: "ca_certificate", Label: "CA certificate", Type: plugin.FieldTextarea, Secret: true, VisibleWhen: &verifyTLS, Help: "PEM CA bundle used for verify-ca and verify-full."},
 			{Key: clientCertField, Label: "Client certificate", Type: plugin.FieldCredentialRef, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialTLSClientCert}, Protocols: []string{protocolName},
+				Kind: plugin.CredentialTLSClientCert, Protocols: []string{protocolName},
 			}, VisibleWhen: &tlsEnabled, Help: "Optional PEM containing the client certificate and private key for TLS client authentication."},
 		}},
 		{Name: "Safety", Fields: []plugin.Field{
@@ -135,7 +135,7 @@ func parseOptions(cfg plugin.ConnectConfig) (optionsData, error) {
 		Password:          auth.Password,
 		EncryptMode:       stringDefault(cfg.String("encrypt"), "require"),
 		CACertificate:     cfg.String("ca_certificate"),
-		ClientCertificate: dbcred.ResolvedSecret(cfg, clientCertField),
+		ClientCertificate: dbcred.ResolvedClientCertificate(cfg, clientCertField),
 		ReadOnly:          sqldb.BoolValue(cfg.Config["read_only"], true),
 		RequireConfirm:    sqldb.BoolValue(cfg.Config["require_destructive_confirmation"], true),
 		QueryTimeout:      sqldb.DurationValue(cfg.Config["query_timeout"], defaultTimeout),

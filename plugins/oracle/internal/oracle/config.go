@@ -74,10 +74,10 @@ func configSchema() plugin.Schema {
 			}},
 			{Key: "username", Label: "Username", Type: plugin.FieldText, Required: true, Placeholder: "SYSTEM", VisibleWhen: &passwordAuth},
 			{Key: credentialIDField, Label: "Stored password", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialDBPassword}, Protocols: []string{protocolName},
+				Kind: plugin.CredentialDBPassword, Protocols: []string{protocolName},
 			}, VisibleWhen: &credentialAuth, Help: "Reusable Oracle password. The credential identity can also supply the username."},
 			{Key: authCertField, Label: "Client certificate", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialTLSClientCert}, Protocols: []string{protocolName},
+				Kind: plugin.CredentialTLSClientCert, Protocols: []string{protocolName},
 			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: authClientCert}}}, Help: "Reusable client certificate and private key used for TCPS external authentication."},
 			{Key: "password", Label: "Password", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &passwordAuth},
 			{Key: "dba_privilege", Label: "DBA privilege", Type: plugin.FieldSelect, Default: "", Options: []plugin.Option{
@@ -95,7 +95,7 @@ func configSchema() plugin.Schema {
 			}},
 			{Key: "ca_certificate", Label: "CA certificate", Type: plugin.FieldTextarea, Secret: true, VisibleWhen: &verifyTLS, Help: "PEM CA bundle used for verify-ca and verify-full."},
 			{Key: clientCertField, Label: "Client certificate", Type: plugin.FieldCredentialRef, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialTLSClientCert}, Protocols: []string{protocolName},
+				Kind: plugin.CredentialTLSClientCert, Protocols: []string{protocolName},
 			}, VisibleWhen: &optionalClientCertificate, Help: "Optional PEM containing the client certificate and private key for TCPS client authentication."},
 		}},
 		{Name: "Safety", Fields: []plugin.Field{
@@ -128,8 +128,8 @@ func parseOptions(cfg plugin.ConnectConfig) (optionsData, error) {
 	}
 	tlsMode := stringDefault(cfg.String("tls_mode"), "disable")
 	auth := dbcred.ApplyPasswordCredential(cfg, cfg.String("username"), cfg.String("password"))
-	clientCertificate := dbcred.ResolvedSecret(cfg, clientCertField)
-	tcpsAuth := cfg.String("auth") == authClientCert || dbcred.ResolvedSecret(cfg, authCertField) != ""
+	clientCertificate := dbcred.ResolvedClientCertificate(cfg, clientCertField)
+	tcpsAuth := cfg.String("auth") == authClientCert || dbcred.ResolvedClientCertificate(cfg, authCertField) != ""
 	if tcpsAuth {
 		certAuth := dbcred.ApplyClientCertificateCredential(cfg, authCertField, "", tlsMode, "")
 		auth.Username = ""

@@ -22,9 +22,11 @@ import (
 )
 
 const (
-	credentialIDField = "credential_id"
-	defaultTimeout    = 10 * time.Second
-	defaultPageLimit  = 100
+	basicCredentialField  = "basic_credential_id"
+	apiKeyCredentialField = "api_key_credential_id"
+	bearerCredentialField = "bearer_credential_id"
+	defaultTimeout        = 10 * time.Second
+	defaultPageLimit      = 100
 )
 
 type Product string
@@ -165,24 +167,19 @@ func ParseOptions(cfg plugin.ConnectConfig, provider Provider) (Options, error) 
 	}
 	switch auth := broker.StringValue(cfg.Config, "auth", "none"); auth {
 	case "none":
-	case "basic", "credential":
-		if auth == "credential" {
-			switch cfg.CredentialKindFor(plugin.CredentialField) {
-			case plugin.CredentialAPIToken:
-				opts.Authorization = "ApiKey " + dbcred.ResolvedSecret(cfg, plugin.CredentialField)
-			case plugin.CredentialBearerToken:
-				opts.Authorization = "Bearer " + dbcred.ResolvedSecret(cfg, plugin.CredentialField)
-			default:
-				material := dbcred.ApplyPasswordCredential(cfg, cfg.String("username"), cfg.String("password"))
-				opts.Username, opts.Password = material.Username, material.Password
-			}
-			break
-		}
+	case "basic":
 		opts.Username, opts.Password = cfg.String("username"), cfg.String("password")
+	case "stored_basic":
+		opts.Username = dbcred.ResolvedIdentity(cfg, basicCredentialField)
+		opts.Password = dbcred.ResolvedSecret(cfg, basicCredentialField)
 	case "api_key":
 		opts.Authorization = "ApiKey " + cfg.String("api_key")
+	case "stored_api_key":
+		opts.Authorization = "ApiKey " + dbcred.ResolvedSecret(cfg, apiKeyCredentialField)
 	case "bearer":
 		opts.Authorization = "Bearer " + cfg.String("bearer_token")
+	case "stored_bearer":
+		opts.Authorization = "Bearer " + dbcred.ResolvedSecret(cfg, bearerCredentialField)
 	default:
 		return Options{}, fmt.Errorf("%w: unsupported authentication mode %q", plugin.ErrInvalidInput, auth)
 	}
@@ -256,15 +253,23 @@ func configSchema(provider Provider) plugin.Schema {
 				{Label: "Username and password", Value: "basic"},
 				{Label: "API key", Value: "api_key"},
 				{Label: "Bearer token", Value: "bearer"},
-				{Label: "Stored credential", Value: "credential"},
+				{Label: "Stored username and password", Value: "stored_basic"},
+				{Label: "Stored API key", Value: "stored_api_key"},
+				{Label: "Stored bearer token", Value: "stored_bearer"},
 			}},
 			{Key: "username", Label: "Username", Type: plugin.FieldText, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "basic"}}}},
 			{Key: "password", Label: "Password", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "basic"}}}},
 			{Key: "api_key", Label: "API key", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "api_key"}}}},
 			{Key: "bearer_token", Label: "Bearer token", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "bearer"}}}},
-			{Key: credentialIDField, Label: "Stored credential", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialBasicAuth, plugin.CredentialAPIToken, plugin.CredentialBearerToken}, Protocols: []string{provider.Protocol},
-			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "credential"}}}},
+			{Key: basicCredentialField, Label: "Stored username and password", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
+				Kind: plugin.CredentialBasicAuth, Protocols: []string{provider.Protocol},
+			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "stored_basic"}}}},
+			{Key: apiKeyCredentialField, Label: "Stored API key", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
+				Kind: plugin.CredentialAPIToken, Protocols: []string{provider.Protocol},
+			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "stored_api_key"}}}},
+			{Key: bearerCredentialField, Label: "Stored bearer token", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
+				Kind: plugin.CredentialBearerToken, Protocols: []string{provider.Protocol},
+			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "stored_bearer"}}}},
 		}},
 		{Name: "TLS", Fields: []plugin.Field{
 			{Key: "tls_mode", Label: "TLS mode", Type: plugin.FieldSelect, Required: true, Default: "disable", Options: []plugin.Option{

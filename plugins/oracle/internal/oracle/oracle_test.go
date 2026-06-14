@@ -30,10 +30,10 @@ func TestManifestRegistersAndStaysDirectOnly(t *testing.T) {
 
 func TestParseOptionsUsesTLSCredentialAsTCPSAuth(t *testing.T) {
 	opts, err := parseOptions(plugin.ConnectConfig{Config: map[string]any{
-		"host":                        "oracle.local",
-		"service":                     "FREEPDB1",
-		"auth":                        authClientCert,
-		"_auth_client_cert_id_secret": "pem-material",
+		"host":    "oracle.local",
+		"service": "FREEPDB1",
+		"auth":    authClientCert,
+		plugin.CredentialValuesKey(authCertField): map[string]string{"certificate": "pem-material"},
 	}})
 	if err != nil {
 		t.Fatalf("parse options: %v", err)
@@ -45,12 +45,12 @@ func TestParseOptionsUsesTLSCredentialAsTCPSAuth(t *testing.T) {
 
 func TestParseOptionsUsesTLSClientCertificateCredential(t *testing.T) {
 	opts, err := parseOptions(plugin.ConnectConfig{Config: map[string]any{
-		"host":                   "oracle.local",
-		"service":                "FREEPDB1",
-		"username":               "SYSTEM",
-		"password":               "secret",
-		"tls_mode":               "require",
-		"_client_cert_id_secret": "pem-material",
+		"host":     "oracle.local",
+		"service":  "FREEPDB1",
+		"username": "SYSTEM",
+		"password": "secret",
+		"tls_mode": "require",
+		plugin.CredentialValuesKey(clientCertField): map[string]string{"certificate": "pem-material"},
 	}})
 	if err != nil {
 		t.Fatalf("parse options: %v", err)

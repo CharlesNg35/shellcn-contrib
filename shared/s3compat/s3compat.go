@@ -139,11 +139,14 @@ func normalizeOptions(cfg plugin.ConnectConfig, opts *Options) error {
 	switch auth {
 	case "access_key":
 	case "credential":
-		if identity := cfg.CredentialIdentityFor(plugin.CredentialField); identity != "" {
-			opts.AccessKeyID = identity
+		if accessKeyID := cfg.CredentialValueFor(plugin.CredentialIDField, "access_key_id"); accessKeyID != "" {
+			opts.AccessKeyID = accessKeyID
 		}
-		if secret := cfg.CredentialSecretFor(plugin.CredentialField); secret != "" {
-			opts.SecretKey = secret
+		if secretAccessKey := cfg.CredentialValueFor(plugin.CredentialIDField, "secret_access_key"); secretAccessKey != "" {
+			opts.SecretKey = secretAccessKey
+		}
+		if sessionToken := cfg.CredentialValueFor(plugin.CredentialIDField, "session_token"); sessionToken != "" {
+			opts.SessionToken = sessionToken
 		}
 	default:
 		return fmt.Errorf("%w: unsupported authentication method %q", plugin.ErrInvalidInput, auth)
@@ -170,7 +173,7 @@ func AuthFields(protocol string) []plugin.Field {
 		{Key: "secret_access_key", Label: "Secret access key", Type: plugin.FieldPassword, Required: true, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "access_key"}}}},
 		{Key: "session_token", Label: "Session token", Type: plugin.FieldPassword, Secret: true, VisibleWhen: staticCredentials},
 		{Key: "credential_id", Label: "Access key credential", Type: plugin.FieldCredentialRef, Credential: &plugin.CredentialSelector{
-			Kinds: []plugin.CredentialKind{plugin.CredentialCloudAccessKey}, Protocols: []string{protocol}, Required: true,
+			Kind: plugin.CredentialCloudAccessKey, Protocols: []string{protocol}, Required: true,
 		}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "credential"}}}},
 	}
 }

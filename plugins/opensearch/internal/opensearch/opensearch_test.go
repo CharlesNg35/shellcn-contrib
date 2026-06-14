@@ -23,7 +23,7 @@ func TestOpenSearchManifestValidates(t *testing.T) {
 
 func TestOpenSearchConfigSchemaIsSearchSpecific(t *testing.T) {
 	fields := fieldMap(New().Manifest().Config)
-	for _, key := range []string{"endpoint", "auth", "username", "password", "api_key", "bearer_token", "credential_id", "tls_mode"} {
+	for _, key := range []string{"endpoint", "auth", "username", "password", "api_key", "bearer_token", "basic_credential_id", "api_key_credential_id", "bearer_credential_id", "tls_mode"} {
 		if !fields[key] {
 			t.Fatalf("missing field %q", key)
 		}

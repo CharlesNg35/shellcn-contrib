@@ -225,7 +225,7 @@ func configSchema() plugin.Schema {
 			{Key: "secret_access_key", Label: "Secret access key", Type: plugin.FieldPassword, Required: true, Secret: true, VisibleWhen: accessKey},
 			{Key: "session_token", Label: "Session token", Type: plugin.FieldPassword, Secret: true, VisibleWhen: staticCredentials},
 			{Key: credentialField, Label: "Stored access key", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialCloudAccessKey}, Protocols: []string{protocolName},
+				Kind: plugin.CredentialCloudAccessKey, Protocols: []string{protocolName},
 			}, VisibleWhen: stored},
 		}},
 		{Name: "TLS", Fields: []plugin.Field{

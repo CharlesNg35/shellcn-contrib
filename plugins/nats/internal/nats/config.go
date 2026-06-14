@@ -17,10 +17,11 @@ import (
 )
 
 const (
-	protocolName        = "nats"
-	credentialIDField   = "credential_id"
-	defaultTimeout      = 5 * time.Second
-	defaultMessageLimit = 100
+	protocolName         = "nats"
+	basicCredentialField = "basic_credential_id"
+	tokenCredentialField = "token_credential_id"
+	defaultTimeout       = 5 * time.Second
+	defaultMessageLimit  = 100
 )
 
 type options struct {
@@ -47,14 +48,18 @@ func configSchema() plugin.Schema {
 				{Label: "None", Value: "none"},
 				{Label: "Username and password", Value: "password"},
 				{Label: "Token", Value: "token"},
-				{Label: "Stored credential", Value: "credential"},
+				{Label: "Stored username and password", Value: "stored_password"},
+				{Label: "Stored token", Value: "stored_token"},
 			}},
 			{Key: "username", Label: "Username", Type: plugin.FieldText, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "password"}}}},
 			{Key: "password", Label: "Password", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "password"}}}},
 			{Key: "token", Label: "Token", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "token"}}}},
-			{Key: credentialIDField, Label: "Stored credential", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialBasicAuth, plugin.CredentialBearerToken}, Protocols: []string{protocolName},
-			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "credential"}}}},
+			{Key: basicCredentialField, Label: "Stored username and password", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
+				Kind: plugin.CredentialBasicAuth, Protocols: []string{protocolName},
+			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "stored_password"}}}},
+			{Key: tokenCredentialField, Label: "Stored token", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
+				Kind: plugin.CredentialBearerToken, Protocols: []string{protocolName},
+			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "stored_token"}}}},
 		}},
 		{Name: "TLS", Fields: []plugin.Field{
 			{Key: "tls_mode", Label: "TLS mode", Type: plugin.FieldSelect, Required: true, Default: "disable", Options: []plugin.Option{
@@ -93,13 +98,11 @@ func parseOptions(cfg plugin.ConnectConfig) (options, error) {
 		opts.Username, opts.Password = cfg.String("username"), cfg.String("password")
 	case "token":
 		opts.Token = cfg.String("token")
-	case "credential":
-		if cfg.CredentialKindFor(plugin.CredentialField) == plugin.CredentialBearerToken {
-			opts.Token = dbcred.ResolvedSecret(cfg, plugin.CredentialField)
-		} else {
-			material := dbcred.ApplyPasswordCredential(cfg, cfg.String("username"), cfg.String("password"))
-			opts.Username, opts.Password = material.Username, material.Password
-		}
+	case "stored_password":
+		opts.Username = dbcred.ResolvedIdentity(cfg, basicCredentialField)
+		opts.Password = dbcred.ResolvedSecret(cfg, basicCredentialField)
+	case "stored_token":
+		opts.Token = dbcred.ResolvedSecret(cfg, tokenCredentialField)
 	default:
 		return options{}, fmt.Errorf("%w: unsupported authentication mode %q", plugin.ErrInvalidInput, auth)
 	}

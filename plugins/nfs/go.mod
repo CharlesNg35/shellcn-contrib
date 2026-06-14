@@ -6,7 +6,7 @@ replace github.com/charlesng35/shellcn-contrib/shared => ../../shared
 
 require (
 	github.com/charlesng35/shellcn-contrib/shared v0.0.0-00010101000000-000000000000
-	github.com/charlesng35/shellcn/sdk v0.1.10
+	github.com/charlesng35/shellcn/sdk v0.1.11
 	github.com/willscott/go-nfs-client v0.0.0-20251022144359-801f10d98886
 )
 

@@ -10,7 +10,8 @@ func TestNormalizeOptionsValidatesAuthFields(t *testing.T) {
 	for name, cfg := range map[string]map[string]any{
 		"access key missing secret": {"bucket": "b", "auth": "access_key", "access_key_id": "ak"},
 		"credential missing secret": {
-			"bucket": "b", "auth": "credential", plugin.CredentialIdentity: "ak",
+			"bucket": "b", "auth": "credential",
+			plugin.CredentialValuesKey(plugin.CredentialIDField): map[string]string{"access_key_id": "ak"},
 		},
 		"unsupported auth": {"bucket": "b", "auth": "basic", "access_key_id": "ak", "secret_access_key": "sk"},
 	} {
@@ -38,7 +39,11 @@ func TestNormalizeOptionsValidatesAuthFields(t *testing.T) {
 	t.Run("stored cloud access key", func(t *testing.T) {
 		var opts Options
 		err := normalizeOptions(plugin.ConnectConfig{Config: map[string]any{
-			"bucket": "b", "auth": "credential", plugin.CredentialIdentity: "ak", plugin.CredentialSecret: "sk",
+			"bucket": "b", "auth": "credential",
+			plugin.CredentialValuesKey(plugin.CredentialIDField): map[string]string{
+				"access_key_id":     "ak",
+				"secret_access_key": "sk",
+			},
 		}}, &opts)
 		if err != nil {
 			t.Fatalf("stored access key should validate: %v", err)

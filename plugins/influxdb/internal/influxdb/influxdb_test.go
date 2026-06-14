@@ -21,10 +21,13 @@ func TestManifestRegistersAndStaysDirectOnly(t *testing.T) {
 	if len(m.SupportedTransports) != 1 || m.SupportedTransports[0] != plugin.TransportDirect {
 		t.Fatalf("unexpected transports: %+v", m.SupportedTransports)
 	}
-	for _, kind := range []plugin.CredentialKind{plugin.CredentialAPIToken, plugin.CredentialBearerToken, plugin.CredentialBasicAuth} {
+	for _, kind := range []plugin.CredentialKind{plugin.CredentialAPIToken, plugin.CredentialBasicAuth} {
 		if !plugintest.CredentialKindSupported(m.Config, kind) {
 			t.Fatalf("%s credential should support InfluxDB", kind)
 		}
+	}
+	if plugintest.CredentialKindSupported(m.Config, plugin.CredentialBearerToken) {
+		t.Fatal("InfluxDB should use API token credentials instead of bearer token credentials")
 	}
 	if plugintest.CredentialKindSupported(m.Config, plugin.CredentialDBPassword) {
 		t.Fatal("InfluxDB should not advertise database password credentials")

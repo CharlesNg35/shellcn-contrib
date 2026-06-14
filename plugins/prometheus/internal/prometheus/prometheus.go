@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	protocolName     = "prometheus"
-	defaultTimeout   = 15 * time.Second
-	defaultPageLimit = 100
-	defaultInterval  = 5 * time.Second
-	credentialField  = "credential_id"
+	protocolName          = "prometheus"
+	defaultTimeout        = 15 * time.Second
+	defaultPageLimit      = 100
+	defaultInterval       = 5 * time.Second
+	basicCredentialField  = "basic_credential_id"
+	bearerCredentialField = "bearer_credential_id"
 )
 
 const iconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><path d="M63.66 2.477c33.477.007 60.957 27.296 60.914 60.5-.043 33.703-27.41 60.617-61.613 60.593-33.441-.023-60.477-27.343-60.453-61.086C2.53 29.488 30.066 2.47 63.66 2.477zm-18.504 21.25c.766 3.777.024 7.3-1.113 10.765-.785 2.399-1.871 4.711-2.52 7.145-1.07 4.008-2.28 8.039-2.726 12.136-.64 5.895 1.676 11.086 5.64 16.25l-18.222-3.835c.031.574 0 .792.062.976 1.727 5.074 4.766 9.348 8.172 13.379.36.426 1.18.644 1.79.644 18.167.036 36.335.032 54.503.008.563 0 1.317-.105 1.66-.468 3.895-4.094 6.871-8.758 8.735-14.63l-19.29 3.778c1.274-2.496 2.723-4.688 3.56-7.098 2.855-8.242 1.671-16.21-2.427-23.726-3.289-6.031-6.324-12.035-4.683-19.305-3.473 3.434-4.809 7.8-5.656 12.3-.832 4.434-1.325 8.93-1.97 13.43-.093-.136-.21-.238-.23-.355a13.317 13.317 0 01-.168-1.422c-.394-7.367-1.832-14.465-4.87-21.246-1.786-3.988-3.758-8.07-1.915-12.832-1.246.66-2.375 1.313-3.183 2.246-2.41 2.785-3.407 6.13-3.664 9.793-.22 3.13-.52 6.274-1.102 9.352-.61 3.234-1.574 6.402-3.75 9.375-.875-6.348-.973-12.63-6.633-16.66zM92 86.75H35.016v9.898H92zm-45.684 15.016c-.046 8.242 8.348 14.382 18.723 13.937 8.602-.371 16.211-7.137 15.559-13.937zm0 0" fill="#e75225"/></svg>`
@@ -154,25 +155,18 @@ func parseAuth(cfg plugin.ConnectConfig) (authHeader, error) {
 			return authHeader{}, fmt.Errorf("%w: bearer token is required", plugin.ErrInvalidInput)
 		}
 		return authHeader{Header: "Authorization", Value: "Bearer " + token}, nil
-	case "credential":
-		switch kind := cfg.CredentialKindFor(plugin.CredentialField); kind {
-		case plugin.CredentialBasicAuth:
-			username := cfg.CredentialIdentityFor(plugin.CredentialField)
-			if username == "" {
-				return authHeader{}, fmt.Errorf("%w: Prometheus basic credentials require a username", plugin.ErrInvalidInput)
-			}
-			return basicAuth(username, cfg.CredentialSecretFor(plugin.CredentialField)), nil
-		case plugin.CredentialBearerToken:
-			token := dbcred.ResolvedSecret(cfg, plugin.CredentialField)
-			if token == "" {
-				return authHeader{}, fmt.Errorf("%w: Prometheus bearer credentials require a token", plugin.ErrInvalidInput)
-			}
-			return authHeader{Header: "Authorization", Value: "Bearer " + token}, nil
-		case "":
-			return authHeader{}, nil
-		default:
-			return authHeader{}, fmt.Errorf("%w: Prometheus stored credentials must be basic auth or bearer tokens", plugin.ErrInvalidInput)
+	case "stored_basic":
+		username := dbcred.ResolvedIdentity(cfg, basicCredentialField)
+		if username == "" {
+			return authHeader{}, fmt.Errorf("%w: Prometheus basic credentials require a username", plugin.ErrInvalidInput)
 		}
+		return basicAuth(username, dbcred.ResolvedSecret(cfg, basicCredentialField)), nil
+	case "stored_bearer":
+		token := dbcred.ResolvedSecret(cfg, bearerCredentialField)
+		if token == "" {
+			return authHeader{}, fmt.Errorf("%w: Prometheus bearer credentials require a token", plugin.ErrInvalidInput)
+		}
+		return authHeader{Header: "Authorization", Value: "Bearer " + token}, nil
 	default:
 		return authHeader{}, fmt.Errorf("%w: unsupported authentication mode %q", plugin.ErrInvalidInput, auth)
 	}
@@ -193,14 +187,18 @@ func configSchema() plugin.Schema {
 				{Label: "None", Value: "none"},
 				{Label: "Basic auth", Value: "basic"},
 				{Label: "Bearer token", Value: "bearer"},
-				{Label: "Stored credential", Value: "credential"},
+				{Label: "Stored basic auth", Value: "stored_basic"},
+				{Label: "Stored bearer token", Value: "stored_bearer"},
 			}},
 			{Key: "username", Label: "Username", Type: plugin.FieldText, Required: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "basic"}}}},
 			{Key: "password", Label: "Password", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "basic"}}}},
 			{Key: "bearer_token", Label: "Bearer token", Type: plugin.FieldPassword, Required: true, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "bearer"}}}},
-			{Key: credentialField, Label: "Stored credential", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialBasicAuth, plugin.CredentialBearerToken}, Protocols: []string{protocolName},
-			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "credential"}}}},
+			{Key: basicCredentialField, Label: "Stored basic auth", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
+				Kind: plugin.CredentialBasicAuth, Protocols: []string{protocolName},
+			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "stored_basic"}}}},
+			{Key: bearerCredentialField, Label: "Stored bearer token", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
+				Kind: plugin.CredentialBearerToken, Protocols: []string{protocolName},
+			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "stored_bearer"}}}},
 		}},
 		{Name: "TLS", Fields: []plugin.Field{
 			{Key: "tls_mode", Label: "TLS mode", Type: plugin.FieldSelect, Required: true, Default: "disable", Options: []plugin.Option{

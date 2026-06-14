@@ -79,7 +79,7 @@ func configSchema() plugin.Schema {
 			}},
 			{Key: "username", Label: "Username", Type: plugin.FieldText, VisibleWhen: &passwordAuth},
 			{Key: credentialIDField, Label: "Stored password", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialDBPassword}, Protocols: []string{protocolName},
+				Kind: plugin.CredentialDBPassword, Protocols: []string{protocolName},
 			}, VisibleWhen: &credentialAuth, Help: "Reusable Cassandra password. The credential identity can also supply the username."},
 			{Key: "password", Label: "Password", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &passwordAuth},
 		}},
@@ -92,7 +92,7 @@ func configSchema() plugin.Schema {
 			}},
 			{Key: "ca_certificate", Label: "CA certificate", Type: plugin.FieldTextarea, Secret: true, VisibleWhen: &verifyTLS, Help: "PEM CA bundle used for verify-ca and verify-full."},
 			{Key: clientCertField, Label: "Client certificate", Type: plugin.FieldCredentialRef, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialTLSClientCert}, Protocols: []string{protocolName},
+				Kind: plugin.CredentialTLSClientCert, Protocols: []string{protocolName},
 			}, VisibleWhen: &tlsEnabled, Help: "Optional PEM containing the client certificate and private key for mTLS."},
 		}},
 		{Name: "Safety", Fields: []plugin.Field{
@@ -141,7 +141,7 @@ func parseOptions(cfg plugin.ConnectConfig) (options, error) {
 		return options{}, err
 	}
 	tlsMode := stringDefault(cfg.String("tls_mode"), "disable")
-	clientCertificate := dbcred.ResolvedSecret(cfg, clientCertField)
+	clientCertificate := dbcred.ResolvedClientCertificate(cfg, clientCertField)
 	if clientCertificate != "" && tlsMode == "disable" {
 		return options{}, fmt.Errorf("%w: client certificate requires TLS", plugin.ErrInvalidInput)
 	}

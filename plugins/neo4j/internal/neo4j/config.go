@@ -95,13 +95,13 @@ func configSchema() plugin.Schema {
 			}},
 			{Key: "username", Label: "Username", Type: plugin.FieldText, Default: "neo4j", VisibleWhen: passwordAuth},
 			{Key: credentialIDField, Label: "Stored password", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialDBPassword}, Protocols: []string{protocolName},
+				Kind: plugin.CredentialDBPassword, Protocols: []string{protocolName},
 			}, VisibleWhen: credentialAuth, Help: "Reusable Neo4j password. The credential identity can also supply the username."},
 			{Key: "password", Label: "Password", Type: plugin.FieldPassword, Secret: true, VisibleWhen: passwordAuth},
 			{Key: "realm", Label: "Realm", Type: plugin.FieldText, VisibleWhen: passwordAuth},
 			{Key: "bearer_token", Label: "Bearer token", Type: plugin.FieldPassword, Secret: true, VisibleWhen: bearerAuth},
 			{Key: bearerCredentialField, Label: "Stored bearer token", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kinds: []plugin.CredentialKind{plugin.CredentialBearerToken}, Protocols: []string{protocolName},
+				Kind: plugin.CredentialBearerToken, Protocols: []string{protocolName},
 			}, VisibleWhen: storedBearerAuth},
 		}},
 		{Name: "TLS", Fields: []plugin.Field{
@@ -163,7 +163,7 @@ func parseOptions(cfg plugin.ConnectConfig) (options, error) {
 		}
 		bearer = dbcred.ResolvedSecret(cfg, bearerCredentialField)
 		if bearer == "" {
-			bearer = cfg.CredentialSecretFor(plugin.CredentialField)
+			bearer = dbcred.ResolvedSecret(cfg, plugin.CredentialIDField)
 		}
 	default:
 		return options{}, fmt.Errorf("%w: unsupported authentication method %q", plugin.ErrInvalidInput, authMode)

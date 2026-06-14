@@ -104,7 +104,7 @@ func TestNATSManifestValidates(t *testing.T) {
 func TestNATSConfigSchemaIsSpecific(t *testing.T) {
 	m := New().Manifest()
 	fields := fieldMap(m.Config)
-	for _, key := range []string{"urls", "name", "auth", "username", "password", "token", "credential_id"} {
+	for _, key := range []string{"urls", "name", "auth", "username", "password", "token", "basic_credential_id", "token_credential_id"} {
 		if !fields[key] {
 			t.Fatalf("missing field %q", key)
 		}

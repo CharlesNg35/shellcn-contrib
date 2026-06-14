@@ -43,12 +43,14 @@ func TestParseOptionsDefaultsToNoAuth(t *testing.T) {
 
 func TestParseOptionsUsesPasswordCredentialAndTLSCredential(t *testing.T) {
 	opts, err := parseOptions(plugin.ConnectConfig{Config: map[string]any{
-		"hosts":                   "db1, db2",
-		"auth":                    authCredential,
-		plugin.CredentialIdentity: "cassandra",
-		plugin.CredentialSecret:   "secret",
-		"tls_mode":                "require",
-		"_client_cert_id_secret":  "pem-material",
+		"hosts":    "db1, db2",
+		"auth":     authCredential,
+		"tls_mode": "require",
+		plugin.CredentialValuesKey(plugin.CredentialIDField): map[string]string{
+			"username": "cassandra",
+			"password": "secret",
+		},
+		plugin.CredentialValuesKey(clientCertField): map[string]string{"certificate": "pem-material"},
 	}})
 	if err != nil {
 		t.Fatalf("parse options: %v", err)

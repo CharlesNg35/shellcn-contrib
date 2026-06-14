@@ -66,12 +66,10 @@ func parseOptions(cfg plugin.ConnectConfig) (options, error) {
 		o.scheme = "https"
 	}
 
-	// A reusable credential, if selected, supplies the secret (and optionally the
-	// username). The plugin never sees ciphertext or persists a secret.
-	if id := cfg.CredentialIdentityFor(plugin.CredentialField); id != "" {
+	if id := cfg.CredentialValueFor(plugin.CredentialIDField, "username"); id != "" {
 		o.username = id
 	}
-	if secret := cfg.CredentialSecretFor(plugin.CredentialField); secret != "" {
+	if secret := cfg.CredentialValueFor(plugin.CredentialIDField, "password"); secret != "" {
 		o.password = secret
 	}
 
@@ -131,7 +129,7 @@ func configSchema() plugin.Schema {
 					Key: "credential", Label: "Credential", Type: plugin.FieldCredentialRef,
 					Help: "A reusable DB password credential (overrides the inline password).",
 					Credential: &plugin.CredentialSelector{
-						Kinds: []plugin.CredentialKind{plugin.CredentialDBPassword},
+						Kind: plugin.CredentialDBPassword,
 					},
 				},
 			},
