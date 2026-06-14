@@ -3,6 +3,7 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -63,7 +64,7 @@ func TestRabbitMQPluginIntegration(t *testing.T) {
 	var spec string
 	for _, b := range bres.(plugin.Page[row]).Items {
 		if b["source"] == "amq.direct" {
-			spec = b["ref"].(plugin.ResourceRef).UID
+			spec = fmt.Sprint(b["spec"])
 		}
 	}
 	if spec == "" {

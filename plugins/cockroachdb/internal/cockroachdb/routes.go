@@ -764,8 +764,8 @@ ORDER BY ordinal_position`, []any{schema, table})
 		return nil, err
 	}
 	for i := range rows {
-		name := fmt.Sprint(rows[i]["name"])
-		rows[i]["ref"] = plugin.ResourceRef{Kind: "column", Scope: schema, Namespace: table, Name: name, UID: schema + "." + table + "." + name}
+		rows[i]["schema"] = schema
+		rows[i]["table"] = table
 	}
 	return pageRows(rc, rows)
 }
@@ -785,8 +785,8 @@ func tableIndexes(rc *plugin.RequestContext) (any, error) {
 	}
 	rows := normalizeIndexRows(raw)
 	for i := range rows {
-		name := fmt.Sprint(rows[i]["name"])
-		rows[i]["ref"] = plugin.ResourceRef{Kind: "index", Scope: schema, Namespace: table, Name: name, UID: schema + "." + table + "." + name}
+		rows[i]["schema"] = schema
+		rows[i]["table"] = table
 	}
 	return pageRows(rc, rows)
 }
@@ -816,8 +816,8 @@ ORDER BY tc.constraint_name`, []any{schema, table})
 		return nil, err
 	}
 	for i := range rows {
-		name := fmt.Sprint(rows[i]["name"])
-		rows[i]["ref"] = plugin.ResourceRef{Kind: "constraint", Scope: schema, Namespace: table, Name: name, UID: schema + "." + table + "." + name}
+		rows[i]["schema"] = schema
+		rows[i]["table"] = table
 	}
 	return pageRows(rc, rows)
 }

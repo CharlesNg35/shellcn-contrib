@@ -39,18 +39,18 @@ func objectLister(sectionKey string) plugin.Handler {
 		}
 		term := strings.ToLower(page.Search())
 		defs := section(info, sectionKey)
-		rows := make([]defRow, 0, len(defs))
+		rows := make([]objectRow, 0, len(defs))
 		for _, name := range sortedKeys(defs) {
 			if term != "" && !strings.Contains(strings.ToLower(name), term) {
 				continue
 			}
 			def, _ := defs[name].(string)
-			rows = append(rows, defRow{
+			rows = append(rows, objectRow{
 				Name: name, Definition: def,
 				Ref: plugin.ResourceRef{Kind: kind, Name: name, UID: name},
 			})
 		}
-		return plugin.Page[defRow]{Items: rows}, nil
+		return plugin.Page[objectRow]{Items: rows}, nil
 	}
 }
 

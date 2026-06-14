@@ -265,7 +265,7 @@ func actions() []plugin.Action {
 		},
 		{
 			ID: "surrealdb.field.remove", Label: "Remove", Icon: icon("trash-2"), RouteID: "surrealdb.field.remove",
-			Params: map[string]string{"table": "${resource.scope}", "name": "${resource.name}"}, Confirm: true,
+			Params: map[string]string{"table": "${record.table}", "name": "${record.name}"}, Confirm: true,
 			ConfirmText: "Remove this field definition?",
 		},
 		{
@@ -274,7 +274,7 @@ func actions() []plugin.Action {
 		},
 		{
 			ID: "surrealdb.index.remove", Label: "Remove", Icon: icon("trash-2"), RouteID: "surrealdb.index.remove",
-			Params: map[string]string{"table": "${resource.scope}", "name": "${resource.name}"}, Confirm: true,
+			Params: map[string]string{"table": "${record.table}", "name": "${record.name}"}, Confirm: true,
 			ConfirmText: "Remove this index?",
 		},
 		{

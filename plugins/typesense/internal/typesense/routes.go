@@ -516,7 +516,7 @@ func listSynonyms(rc *plugin.RequestContext) (any, error) {
 	items := rowsFrom(decoded, "synonym_sets")
 	for _, item := range items {
 		id := synonymName(item)
-		item["ref"] = plugin.ResourceRef{Kind: "synonym", Name: id, UID: id}
+		item["name"] = id
 	}
 	return broker.PageRows(rc, items)
 }
@@ -565,7 +565,7 @@ func listOverrides(rc *plugin.RequestContext) (any, error) {
 	items := rowsFrom(decoded, "curation_sets")
 	for _, item := range items {
 		id := synonymName(item)
-		item["ref"] = plugin.ResourceRef{Kind: "override", Name: id, UID: id}
+		item["name"] = id
 	}
 	return broker.PageRows(rc, items)
 }

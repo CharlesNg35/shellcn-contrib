@@ -177,16 +177,22 @@ func tableInfo(rc *plugin.RequestContext, db *surrealdb.DB, table string) (map[s
 }
 
 type defRow struct {
+	Name       string `json:"name"`
+	Definition string `json:"definition"`
+	Table      string `json:"table"`
+}
+
+type objectRow struct {
 	Name       string             `json:"name"`
 	Definition string             `json:"definition"`
 	Ref        plugin.ResourceRef `json:"ref"`
 }
 
 type fieldRow struct {
-	Name       string             `json:"name"`
-	Type       string             `json:"type"`
-	Definition string             `json:"definition"`
-	Ref        plugin.ResourceRef `json:"ref"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Definition string `json:"definition"`
+	Table      string `json:"table"`
 }
 
 // tableFields lists a table's defined fields (schemafull) with their parsed type.
@@ -204,8 +210,7 @@ func tableFields(rc *plugin.RequestContext) (any, error) {
 	for _, name := range sortedKeys(defs) {
 		def, _ := defs[name].(string)
 		rows = append(rows, fieldRow{
-			Name: name, Type: parseFieldType(def), Definition: def,
-			Ref: plugin.ResourceRef{Kind: "field", Scope: table, Name: name, UID: table + "." + name},
+			Name: name, Type: parseFieldType(def), Definition: def, Table: table,
 		})
 	}
 	return plugin.Page[fieldRow]{Items: rows}, nil
@@ -243,16 +248,16 @@ func tableColumnsRoute(rc *plugin.RequestContext) (any, error) {
 }
 
 func tableIndexes(rc *plugin.RequestContext) (any, error) {
-	return tableDefSection(rc, "indexes", "index")
+	return tableDefSection(rc, "indexes")
 }
 
 func tableEvents(rc *plugin.RequestContext) (any, error) {
-	return tableDefSection(rc, "events", "event")
+	return tableDefSection(rc, "events")
 }
 
 // tableDefSection lists one INFO FOR TABLE section (indexes/events) as name +
 // definition rows.
-func tableDefSection(rc *plugin.RequestContext, sectionKey, refKind string) (any, error) {
+func tableDefSection(rc *plugin.RequestContext, sectionKey string) (any, error) {
 	db, table, err := tableClient(rc)
 	if err != nil {
 		return nil, err
@@ -266,8 +271,7 @@ func tableDefSection(rc *plugin.RequestContext, sectionKey, refKind string) (any
 	for _, name := range sortedKeys(defs) {
 		def, _ := defs[name].(string)
 		rows = append(rows, defRow{
-			Name: name, Definition: def,
-			Ref: plugin.ResourceRef{Kind: refKind, Scope: table, Name: name, UID: table + "." + name},
+			Name: name, Definition: def, Table: table,
 		})
 	}
 	return plugin.Page[defRow]{Items: rows}, nil

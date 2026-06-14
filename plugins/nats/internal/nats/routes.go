@@ -483,12 +483,12 @@ func consumerRow(info *natsclient.ConsumerInfo) row {
 func messageRow(stream string, msg *natsclient.RawStreamMsg) row {
 	headers := map[string][]string(msg.Header)
 	return row{
+		"stream":   stream,
 		"sequence": msg.Sequence,
 		"subject":  msg.Subject,
 		"time":     msg.Time,
 		"headers":  headers,
 		"data":     string(msg.Data),
-		"ref":      plugin.ResourceRef{Kind: "message", Namespace: stream, Name: strconv.FormatUint(msg.Sequence, 10), UID: stream + "/" + strconv.FormatUint(msg.Sequence, 10)},
 	}
 }
 

@@ -241,7 +241,6 @@ func listDeletes(rc *plugin.RequestContext) (any, error) {
 			id = stableRowID(item)
 		}
 		item["request_id"] = id
-		item["ref"] = plugin.ResourceRef{Kind: "delete_request", Name: id, UID: id}
 	}
 	return broker.PageRows(rc, rows)
 }

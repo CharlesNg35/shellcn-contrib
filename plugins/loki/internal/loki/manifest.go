@@ -55,7 +55,7 @@ func actions() []plugin.Action {
 	return []plugin.Action{
 		{ID: rid("query.format"), Label: "Format LogQL", Icon: icon("wand-sparkles"), RouteID: rid("query.format")},
 		{ID: rid("delete.create"), Label: "Delete logs", Icon: icon("eraser"), RouteID: rid("delete.create"), Confirm: true, ConfirmText: "Schedule a Loki delete request for matching logs?"},
-		{ID: rid("delete.cancel"), Label: "Cancel", Icon: icon("circle-x"), RouteID: rid("delete.cancel"), Params: map[string]string{"request": "${resource.uid}"}, Confirm: true, ConfirmText: "Cancel this Loki delete request?"},
+		{ID: rid("delete.cancel"), Label: "Cancel", Icon: icon("circle-x"), RouteID: rid("delete.cancel"), Params: map[string]string{"request": "${record.request_id}"}, Confirm: true, ConfirmText: "Cancel this Loki delete request?"},
 	}
 }
 

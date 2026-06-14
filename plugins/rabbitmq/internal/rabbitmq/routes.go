@@ -320,7 +320,7 @@ func bindingRequest(rc *plugin.RequestContext, path string) (any, error) {
 			DestType:    fmt.Sprint(r["destination_type"]),
 			Props:       fmt.Sprint(r["properties_key"]),
 		}
-		r["ref"] = plugin.ResourceRef{Kind: "binding", Namespace: vhost, Name: spec.Source + " → " + spec.Destination, UID: spec.encode()}
+		r["spec"] = spec.encode()
 	}
 	return broker.PageRows(rc, rows)
 }

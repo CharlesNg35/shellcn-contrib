@@ -119,11 +119,11 @@ func documentParams() map[string]string {
 }
 
 func synonymParams() map[string]string {
-	return map[string]string{"synonym": "${resource.name}"}
+	return map[string]string{"synonym": "${record.name}"}
 }
 
 func overrideParams() map[string]string {
-	return map[string]string{"override": "${resource.name}"}
+	return map[string]string{"override": "${record.name}"}
 }
 
 func collectionColumns() []plugin.Column {

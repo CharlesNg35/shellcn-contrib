@@ -591,8 +591,8 @@ ORDER BY position`, []any{database, table})
 		return nil, err
 	}
 	for i := range rows {
-		name := fmt.Sprint(rows[i]["name"])
-		rows[i]["ref"] = plugin.ResourceRef{Kind: "column", Scope: database, Namespace: table, Name: name, UID: database + "." + table + "." + name}
+		rows[i]["database"] = database
+		rows[i]["table"] = table
 	}
 	return pageRows(rc, rows)
 }
@@ -615,8 +615,8 @@ ORDER BY name`, []any{database, table})
 		return nil, err
 	}
 	for i := range rows {
-		name := fmt.Sprint(rows[i]["name"])
-		rows[i]["ref"] = plugin.ResourceRef{Kind: "index", Scope: database, Namespace: table, Name: name, UID: database + "." + table + "." + name}
+		rows[i]["database"] = database
+		rows[i]["table"] = table
 	}
 	return pageRows(rc, rows)
 }

@@ -974,8 +974,7 @@ ORDER BY c.column_id`, []any{owner, name})
 		r["default"] = r["default_value"]
 		r["nullable"] = boolish(r["nullable"])
 		delete(r, "default_value")
-		cn := fmt.Sprint(r["name"])
-		r["ref"] = plugin.ResourceRef{Kind: "column", Scope: id, Name: cn, UID: id + "." + cn}
+		r["id"] = id
 	}
 	return pageRows(rc, rows)
 }
@@ -1008,8 +1007,7 @@ ORDER BY i.index_name`, []any{owner, name})
 		normalizeRowKeys(r)
 		r["unique"] = boolish(r["unique_flag"])
 		delete(r, "unique_flag")
-		in := fmt.Sprint(r["name"])
-		r["ref"] = plugin.ResourceRef{Kind: "index", Scope: id, Name: in, UID: id + "." + in}
+		r["id"] = id
 	}
 	return pageRows(rc, rows)
 }
@@ -1041,8 +1039,7 @@ ORDER BY c.constraint_name`, []any{owner, name})
 	id := rc.Param("id")
 	for _, r := range rows {
 		normalizeRowKeys(r)
-		cn := fmt.Sprint(r["name"])
-		r["ref"] = plugin.ResourceRef{Kind: "constraint", Scope: id, Name: cn, UID: id + "." + cn}
+		r["id"] = id
 	}
 	return pageRows(rc, rows)
 }

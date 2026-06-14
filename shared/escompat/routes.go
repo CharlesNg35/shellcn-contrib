@@ -427,7 +427,6 @@ func aliasRow(index, alias string, def aliasDefinition) row {
 		"routing.index":  def.IndexRouting,
 		"routing.search": def.SearchRouting,
 		"is_write_index": def.IsWriteIndex,
-		"ref":            plugin.ResourceRef{Kind: "alias", Namespace: index, Name: alias, UID: index + "/" + alias},
 	}
 }
 

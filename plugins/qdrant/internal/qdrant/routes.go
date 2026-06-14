@@ -195,8 +195,6 @@ func listCollectionAliases(rc *plugin.RequestContext) (any, error) {
 		if item["collection_name"] == nil {
 			item["collection_name"] = collectionParam(rc)
 		}
-		name := fmt.Sprint(item["alias_name"])
-		item["ref"] = plugin.ResourceRef{Kind: "alias", Name: name, UID: name, Namespace: fmt.Sprint(item["collection_name"])}
 	}
 	return broker.PageRows(rc, out.Aliases)
 }

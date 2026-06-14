@@ -904,8 +904,7 @@ ORDER BY c.column_id`, quoteIdent(database), quoteIdent(database), quoteIdent(da
 	}
 	id := rc.Param("id")
 	for i := range rows {
-		name := fmt.Sprint(rows[i]["name"])
-		rows[i]["ref"] = plugin.ResourceRef{Kind: "column", Scope: id, Name: name, UID: id + "." + name}
+		rows[i]["id"] = id
 	}
 	return pageRows(rc, rows)
 }
@@ -935,8 +934,7 @@ ORDER BY i.name`, quoteIdent(database), quoteIdent(database), quoteIdent(databas
 	}
 	id := rc.Param("id")
 	for i := range rows {
-		name := fmt.Sprint(rows[i]["name"])
-		rows[i]["ref"] = plugin.ResourceRef{Kind: "index", Scope: id, Name: name, UID: id + "." + name}
+		rows[i]["id"] = id
 	}
 	return pageRows(rc, rows)
 }
@@ -974,8 +972,7 @@ WHERE ps.name = @p1 AND po.name = @p2`, quoteIdent(database), quoteIdent(databas
 	}
 	id := rc.Param("id")
 	for i := range rows {
-		name := fmt.Sprint(rows[i]["name"])
-		rows[i]["ref"] = plugin.ResourceRef{Kind: "constraint", Scope: id, Name: name, UID: id + "." + name}
+		rows[i]["id"] = id
 	}
 	return pageRows(rc, rows)
 }

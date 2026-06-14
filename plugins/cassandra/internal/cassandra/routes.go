@@ -563,8 +563,8 @@ WHERE keyspace_name = ? AND table_name = ?`, []any{keyspace, table})
 		return intValue(rows[i]["position"]) < intValue(rows[j]["position"])
 	})
 	for i := range rows {
-		name := fmt.Sprint(rows[i]["column_name"])
-		rows[i]["ref"] = plugin.ResourceRef{Kind: "column", Scope: keyspace, Namespace: table, Name: name, UID: keyspace + "." + table + "." + name}
+		rows[i]["keyspace"] = keyspace
+		rows[i]["table"] = table
 	}
 	return pageRows(rc, rows)
 }
@@ -587,8 +587,8 @@ WHERE keyspace_name = ? AND table_name = ?`, []any{keyspace, table})
 	}
 	for _, r := range rows {
 		r["options"] = compactJSON(r["options"])
-		name := fmt.Sprint(r["index_name"])
-		r["ref"] = plugin.ResourceRef{Kind: "index", Scope: keyspace, Namespace: table, Name: name, UID: keyspace + "." + table + "." + name}
+		r["keyspace"] = keyspace
+		r["table"] = table
 	}
 	return pageRows(rc, rows)
 }

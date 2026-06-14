@@ -105,7 +105,7 @@ func actions(provider Provider) []plugin.Action {
 }
 
 func aliasParams() map[string]string {
-	return map[string]string{"index": "${resource.namespace}", "alias": "${resource.name}"}
+	return map[string]string{"index": "${record.index}", "alias": "${record.alias}"}
 }
 
 func searchConfig(provider Provider) plugin.QueryEditorConfig {

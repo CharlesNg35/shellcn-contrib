@@ -68,7 +68,7 @@ func actions() []plugin.Action {
 
 func collectionParams() map[string]string { return map[string]string{"collection": "${resource.name}"} }
 func aliasParams() map[string]string {
-	return map[string]string{"collection": "${resource.namespace}", "alias": "${resource.name}"}
+	return map[string]string{"collection": "${record.collection_name}", "alias": "${record.alias_name}"}
 }
 func pointParams() map[string]string {
 	return map[string]string{"collection": "${resource.namespace}", "point": "${resource.name}"}

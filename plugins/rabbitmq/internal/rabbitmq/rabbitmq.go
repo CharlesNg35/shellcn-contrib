@@ -104,7 +104,7 @@ func actions() []plugin.Action {
 		{ID: "rabbitmq.message.publish", Label: "Publish", Icon: icon("send"), RouteID: "rabbitmq.message.publish", Params: map[string]string{"vhost": "${resource.namespace}", "exchange": "${resource.name}"}, Confirm: true, ConfirmText: "Publish this message?"},
 		{ID: "rabbitmq.queue.publish", Label: "Publish", Icon: icon("send"), RouteID: "rabbitmq.queue.publish", Params: queueParams(), Confirm: true, ConfirmText: "Publish this message to the queue?"},
 		{ID: "rabbitmq.binding.create", Label: "Add binding", Icon: icon("link"), RouteID: "rabbitmq.binding.create", Params: queueParams()},
-		{ID: "rabbitmq.binding.delete", Label: "Unbind", Icon: icon("unlink"), RouteID: "rabbitmq.binding.delete", Params: map[string]string{"spec": "${resource.uid}"}, Confirm: true, ConfirmText: "Remove this binding?"},
+		{ID: "rabbitmq.binding.delete", Label: "Unbind", Icon: icon("unlink"), RouteID: "rabbitmq.binding.delete", Params: map[string]string{"spec": "${record.spec}"}, Confirm: true, ConfirmText: "Remove this binding?"},
 	}
 }
 

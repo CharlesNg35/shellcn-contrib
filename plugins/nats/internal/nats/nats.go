@@ -91,7 +91,7 @@ func actions() []plugin.Action {
 		{ID: "nats.consumer.create", Label: "Create consumer", Icon: icon("plus"), RouteID: "nats.consumer.create", Params: map[string]string{"stream": "${resource.name}"}},
 		{ID: "nats.consumer.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "nats.consumer.delete", Params: map[string]string{"stream": "${resource.namespace}", "consumer": "${resource.name}"}, Confirm: true, ConfirmText: "Delete this consumer?"},
 		{ID: "nats.message.publish", Label: "Publish", Icon: icon("send"), RouteID: "nats.message.publish", Confirm: true, ConfirmText: "Publish this message?"},
-		{ID: "nats.message.delete", Label: "Delete", Icon: icon("trash"), RouteID: "nats.message.delete", Params: map[string]string{"stream": "${resource.namespace}", "sequence": "${resource.name}"}, Confirm: true, ConfirmText: "Delete this message?"},
+		{ID: "nats.message.delete", Label: "Delete", Icon: icon("trash"), RouteID: "nats.message.delete", Params: map[string]string{"stream": "${record.stream}", "sequence": "${record.sequence}"}, Confirm: true, ConfirmText: "Delete this message?"},
 	}
 }
 
