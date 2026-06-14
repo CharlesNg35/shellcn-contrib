@@ -20,10 +20,10 @@ func TestManifestRegistersAndStaysDirectOnly(t *testing.T) {
 	if len(m.SupportedTransports) != 1 || m.SupportedTransports[0] != plugin.TransportDirect {
 		t.Fatalf("unexpected transports: %+v", m.SupportedTransports)
 	}
-	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialDBPassword) {
+	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialKindDBPassword) {
 		t.Fatal("database password credential should support CockroachDB")
 	}
-	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialTLSClientCert) {
+	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialKindTLSClientCert) {
 		t.Fatal("TLS client certificate credential should support CockroachDB")
 	}
 }

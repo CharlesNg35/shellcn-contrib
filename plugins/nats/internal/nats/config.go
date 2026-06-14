@@ -55,10 +55,10 @@ func configSchema() plugin.Schema {
 			{Key: "password", Label: "Password", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "password"}}}},
 			{Key: "token", Label: "Token", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "token"}}}},
 			{Key: basicCredentialField, Label: "Stored username and password", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialBasicAuth, Protocols: []string{protocolName},
+				Kind: plugin.CredentialKindBasicAuth, Protocols: []string{protocolName},
 			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "stored_password"}}}},
 			{Key: tokenCredentialField, Label: "Stored token", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialBearerToken, Protocols: []string{protocolName},
+				Kind: plugin.CredentialKindBearerToken, Protocols: []string{protocolName},
 			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "stored_token"}}}},
 		}},
 		{Name: "TLS", Fields: []plugin.Field{

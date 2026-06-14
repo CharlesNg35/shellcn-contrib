@@ -168,7 +168,7 @@ func parseOptions(cfg plugin.ConnectConfig) (Options, error) {
 		opts.SecretKey = cfg.String("secret_access_key")
 		opts.SessionToken = cfg.String("session_token")
 	case "credential":
-		if kind := dbcred.ResolvedKind(cfg, credentialField); kind != "" && kind != plugin.CredentialCloudAccessKey {
+		if kind := dbcred.ResolvedKind(cfg, credentialField); kind != "" && kind != plugin.CredentialKindCloudAccessKey {
 			return Options{}, fmt.Errorf("%w: DynamoDB stored credentials must be cloud access keys", plugin.ErrInvalidInput)
 		}
 		opts.AccessKeyID = dbcred.ResolvedIdentity(cfg, credentialField)
@@ -225,7 +225,7 @@ func configSchema() plugin.Schema {
 			{Key: "secret_access_key", Label: "Secret access key", Type: plugin.FieldPassword, Required: true, Secret: true, VisibleWhen: accessKey},
 			{Key: "session_token", Label: "Session token", Type: plugin.FieldPassword, Secret: true, VisibleWhen: staticCredentials},
 			{Key: credentialField, Label: "Stored access key", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialCloudAccessKey, Protocols: []string{protocolName},
+				Kind: plugin.CredentialKindCloudAccessKey, Protocols: []string{protocolName},
 			}, VisibleWhen: stored},
 		}},
 		{Name: "TLS", Fields: []plugin.Field{

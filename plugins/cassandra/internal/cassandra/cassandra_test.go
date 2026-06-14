@@ -23,10 +23,10 @@ func TestManifestRegistersAndStaysDirectOnly(t *testing.T) {
 	if len(m.SupportedTransports) != 1 || m.SupportedTransports[0] != plugin.TransportDirect {
 		t.Fatalf("unexpected transports: %+v", m.SupportedTransports)
 	}
-	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialDBPassword) {
+	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialKindDBPassword) {
 		t.Fatal("database password credential should support Cassandra")
 	}
-	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialTLSClientCert) {
+	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialKindTLSClientCert) {
 		t.Fatal("TLS client certificate credential should support Cassandra")
 	}
 }
@@ -46,12 +46,19 @@ func TestParseOptionsUsesPasswordCredentialAndTLSCredential(t *testing.T) {
 		"hosts":    "db1, db2",
 		"auth":     authCredential,
 		"tls_mode": "require",
-		plugin.CredentialValuesKey(plugin.CredentialIDField): map[string]string{
-			"username": "cassandra",
-			"password": "secret",
+	}, Credentials: plugin.NewResolvedCredentials(
+		plugin.CredentialBinding{
+			Field: plugin.CredentialRefField,
+			Credential: plugin.ResolvedCredential{Values: map[string]string{
+				"username": "cassandra",
+				"password": "secret",
+			}},
 		},
-		plugin.CredentialValuesKey(clientCertField): map[string]string{"certificate": "pem-material"},
-	}})
+		plugin.CredentialBinding{
+			Field:      clientCertField,
+			Credential: plugin.ResolvedCredential{Values: map[string]string{"certificate": "pem-material"}},
+		},
+	)})
 	if err != nil {
 		t.Fatalf("parse options: %v", err)
 	}

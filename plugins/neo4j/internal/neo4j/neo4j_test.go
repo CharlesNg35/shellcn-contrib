@@ -22,13 +22,13 @@ func TestManifestRegistersDirectOnlyAndCredentialKinds(t *testing.T) {
 	if len(m.SupportedTransports) != 1 || m.SupportedTransports[0] != plugin.TransportDirect {
 		t.Fatalf("unexpected transports: %+v", m.SupportedTransports)
 	}
-	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialDBPassword) {
+	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialKindDBPassword) {
 		t.Fatal("database password credential should support Neo4j")
 	}
-	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialBearerToken) {
+	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialKindBearerToken) {
 		t.Fatal("bearer token credential should support Neo4j")
 	}
-	if plugintest.CredentialKindSupported(m.Config, plugin.CredentialTLSClientCert) {
+	if plugintest.CredentialKindSupported(m.Config, plugin.CredentialKindTLSClientCert) {
 		t.Fatal("Neo4j should not advertise TLS client certificate credentials")
 	}
 }

@@ -262,13 +262,13 @@ func configSchema(provider Provider) plugin.Schema {
 			{Key: "api_key", Label: "API key", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "api_key"}}}},
 			{Key: "bearer_token", Label: "Bearer token", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "bearer"}}}},
 			{Key: basicCredentialField, Label: "Stored username and password", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialBasicAuth, Protocols: []string{provider.Protocol},
+				Kind: plugin.CredentialKindBasicAuth, Protocols: []string{provider.Protocol},
 			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "stored_basic"}}}},
 			{Key: apiKeyCredentialField, Label: "Stored API key", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialAPIToken, Protocols: []string{provider.Protocol},
+				Kind: plugin.CredentialKindAPIToken, Protocols: []string{provider.Protocol},
 			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "stored_api_key"}}}},
 			{Key: bearerCredentialField, Label: "Stored bearer token", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialBearerToken, Protocols: []string{provider.Protocol},
+				Kind: plugin.CredentialKindBearerToken, Protocols: []string{provider.Protocol},
 			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "stored_bearer"}}}},
 		}},
 		{Name: "TLS", Fields: []plugin.Field{

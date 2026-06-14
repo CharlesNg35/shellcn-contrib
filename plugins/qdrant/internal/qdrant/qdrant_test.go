@@ -15,7 +15,7 @@ import (
 func TestManifestValidates(t *testing.T) {
 	p := New()
 	plugintest.ValidatePlugin(t, p)
-	if !plugintest.CredentialKindSupported(p.Manifest().Config, plugin.CredentialAPIToken) {
+	if !plugintest.CredentialKindSupported(p.Manifest().Config, plugin.CredentialKindAPIToken) {
 		t.Fatal("Qdrant should support stored API token credentials")
 	}
 }

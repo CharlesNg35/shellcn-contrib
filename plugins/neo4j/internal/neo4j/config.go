@@ -95,13 +95,13 @@ func configSchema() plugin.Schema {
 			}},
 			{Key: "username", Label: "Username", Type: plugin.FieldText, Default: "neo4j", VisibleWhen: passwordAuth},
 			{Key: credentialIDField, Label: "Stored password", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialDBPassword, Protocols: []string{protocolName},
+				Kind: plugin.CredentialKindDBPassword, Protocols: []string{protocolName},
 			}, VisibleWhen: credentialAuth, Help: "Reusable Neo4j password. The credential identity can also supply the username."},
 			{Key: "password", Label: "Password", Type: plugin.FieldPassword, Secret: true, VisibleWhen: passwordAuth},
 			{Key: "realm", Label: "Realm", Type: plugin.FieldText, VisibleWhen: passwordAuth},
 			{Key: "bearer_token", Label: "Bearer token", Type: plugin.FieldPassword, Secret: true, VisibleWhen: bearerAuth},
 			{Key: bearerCredentialField, Label: "Stored bearer token", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialBearerToken, Protocols: []string{protocolName},
+				Kind: plugin.CredentialKindBearerToken, Protocols: []string{protocolName},
 			}, VisibleWhen: storedBearerAuth},
 		}},
 		{Name: "TLS", Fields: []plugin.Field{
@@ -158,12 +158,12 @@ func parseOptions(cfg plugin.ConnectConfig) (options, error) {
 	case authBearer:
 		bearer = cfg.String("bearer_token")
 	case authStoredBearer:
-		if kind := dbcred.ResolvedKind(cfg, bearerCredentialField); kind != "" && kind != plugin.CredentialBearerToken {
+		if kind := dbcred.ResolvedKind(cfg, bearerCredentialField); kind != "" && kind != plugin.CredentialKindBearerToken {
 			return options{}, fmt.Errorf("%w: Neo4j bearer credentials must be bearer tokens", plugin.ErrInvalidInput)
 		}
 		bearer = dbcred.ResolvedSecret(cfg, bearerCredentialField)
 		if bearer == "" {
-			bearer = dbcred.ResolvedSecret(cfg, plugin.CredentialIDField)
+			bearer = dbcred.ResolvedSecret(cfg, plugin.CredentialRefField)
 		}
 	default:
 		return options{}, fmt.Errorf("%w: unsupported authentication method %q", plugin.ErrInvalidInput, authMode)

@@ -210,7 +210,7 @@ func parseAuth(cfg plugin.ConnectConfig, mode string) (authHeader, error) {
 			}
 			return basicAuth(username, cfg.String(passwordFieldV1)), nil
 		case "credential":
-			if kind := resolvedKindAny(cfg, basicCredV1); kind != "" && kind != plugin.CredentialBasicAuth {
+			if kind := resolvedKindAny(cfg, basicCredV1); kind != "" && kind != plugin.CredentialKindBasicAuth {
 				return authHeader{}, fmt.Errorf("%w: InfluxDB 1 stored credentials must be basic auth", plugin.ErrInvalidInput)
 			}
 			username := resolvedIdentityAny(cfg, basicCredV1)
@@ -245,7 +245,7 @@ func parseTokenOrBasicAuth(cfg plugin.ConnectConfig, auth string, label string, 
 	case "token_credential":
 		kind := resolvedKindAny(cfg, tokenCredentialField)
 		switch kind {
-		case plugin.CredentialAPIToken:
+		case plugin.CredentialKindAPIToken:
 			token := resolvedSecretAny(cfg, tokenCredentialField)
 			if token == "" {
 				return authHeader{}, fmt.Errorf("%w: stored token credential is required", plugin.ErrInvalidInput)
@@ -255,7 +255,7 @@ func parseTokenOrBasicAuth(cfg plugin.ConnectConfig, auth string, label string, 
 			return authHeader{}, fmt.Errorf("%w: %s stored token credentials must be API tokens", plugin.ErrInvalidInput, label)
 		}
 	case "basic_credential":
-		if kind := resolvedKindAny(cfg, basicCredentialField); kind != "" && kind != plugin.CredentialBasicAuth {
+		if kind := resolvedKindAny(cfg, basicCredentialField); kind != "" && kind != plugin.CredentialKindBasicAuth {
 			return authHeader{}, fmt.Errorf("%w: %s stored basic credentials must be basic auth", plugin.ErrInvalidInput, label)
 		}
 		username := resolvedIdentityAny(cfg, basicCredentialField)
@@ -274,7 +274,7 @@ func resolvedSecretAny(cfg plugin.ConnectConfig, keys ...string) string {
 			return secret
 		}
 	}
-	return dbcred.ResolvedSecret(cfg, plugin.CredentialIDField)
+	return dbcred.ResolvedSecret(cfg, plugin.CredentialRefField)
 }
 
 func resolvedIdentityAny(cfg plugin.ConnectConfig, keys ...string) string {
@@ -283,7 +283,7 @@ func resolvedIdentityAny(cfg plugin.ConnectConfig, keys ...string) string {
 			return identity
 		}
 	}
-	return dbcred.ResolvedIdentity(cfg, plugin.CredentialIDField)
+	return dbcred.ResolvedIdentity(cfg, plugin.CredentialRefField)
 }
 
 func resolvedKindAny(cfg plugin.ConnectConfig, keys ...string) plugin.CredentialKind {
@@ -292,7 +292,7 @@ func resolvedKindAny(cfg plugin.ConnectConfig, keys ...string) plugin.Credential
 			return kind
 		}
 	}
-	return cfg.CredentialKindFor(plugin.CredentialIDField)
+	return cfg.CredentialKindFor(plugin.CredentialRefField)
 }
 
 func basicAuth(username, password string) authHeader {
@@ -355,21 +355,21 @@ func configSchema() plugin.Schema {
 			}},
 			{Key: tokenFieldV3, Label: "Token", Type: plugin.FieldPassword, Required: true, Secret: true, VisibleWhen: v3Token},
 			{Key: tokenCredV3, Label: "Stored token", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialAPIToken, Protocols: []string{protocolName},
+				Kind: plugin.CredentialKindAPIToken, Protocols: []string{protocolName},
 			}, VisibleWhen: v3StoredToken},
 			{Key: usernameFieldV3, Label: "Username", Type: plugin.FieldText, Required: true, VisibleWhen: v3Basic},
 			{Key: passwordFieldV3, Label: "Password", Type: plugin.FieldPassword, Secret: true, VisibleWhen: v3Basic},
 			{Key: basicCredV3, Label: "Stored basic auth", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialBasicAuth, Protocols: []string{protocolName},
+				Kind: plugin.CredentialKindBasicAuth, Protocols: []string{protocolName},
 			}, VisibleWhen: v3StoredBasic},
 			{Key: tokenFieldV2, Label: "Token", Type: plugin.FieldPassword, Required: true, Secret: true, VisibleWhen: v2Token},
 			{Key: tokenCredV2, Label: "Stored token", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialAPIToken, Protocols: []string{protocolName},
+				Kind: plugin.CredentialKindAPIToken, Protocols: []string{protocolName},
 			}, VisibleWhen: v2StoredToken},
 			{Key: usernameFieldV1, Label: "Username", Type: plugin.FieldText, Required: true, VisibleWhen: v1Basic},
 			{Key: passwordFieldV1, Label: "Password", Type: plugin.FieldPassword, Secret: true, VisibleWhen: v1Basic},
 			{Key: basicCredV1, Label: "Stored basic auth", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialBasicAuth, Protocols: []string{protocolName},
+				Kind: plugin.CredentialKindBasicAuth, Protocols: []string{protocolName},
 			}, VisibleWhen: v1StoredBasic},
 		}},
 		{Name: "TLS", Fields: []plugin.Field{

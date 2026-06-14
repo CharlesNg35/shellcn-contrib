@@ -20,10 +20,10 @@ func TestManifestRegistersAndStaysDirectOnly(t *testing.T) {
 	if len(m.SupportedTransports) != 1 || m.SupportedTransports[0] != plugin.TransportDirect {
 		t.Fatalf("unexpected transports: %+v", m.SupportedTransports)
 	}
-	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialDBPassword) {
+	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialKindDBPassword) {
 		t.Fatal("database password credential should support MSSQL")
 	}
-	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialTLSClientCert) {
+	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialKindTLSClientCert) {
 		t.Fatal("TLS client certificate credential should support MSSQL transport TLS")
 	}
 }
@@ -35,8 +35,10 @@ func TestParseOptionsUsesTLSClientCertificateCredential(t *testing.T) {
 		"username": "sa",
 		"password": "secret",
 		"encrypt":  "require",
-		plugin.CredentialValuesKey(clientCertField): map[string]string{"certificate": "pem-material"},
-	}})
+	}, Credentials: plugin.NewResolvedCredentials(plugin.CredentialBinding{
+		Field:      clientCertField,
+		Credential: plugin.ResolvedCredential{Values: map[string]string{"certificate": "pem-material"}},
+	})})
 	if err != nil {
 		t.Fatalf("parse options: %v", err)
 	}

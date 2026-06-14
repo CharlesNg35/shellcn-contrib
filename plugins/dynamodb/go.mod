@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.57.8
 	github.com/aws/smithy-go v1.27.1
 	github.com/charlesng35/shellcn-contrib/shared v0.0.0-00010101000000-000000000000
-	github.com/charlesng35/shellcn/sdk v0.1.11
+	github.com/charlesng35/shellcn/sdk v0.1.12
 )
 
 require (

@@ -22,10 +22,10 @@ func TestManifestRegistersAndStaysDirectOnly(t *testing.T) {
 	if len(m.SupportedTransports) != 1 || m.SupportedTransports[0] != plugin.TransportDirect {
 		t.Fatalf("unexpected transports: %+v", m.SupportedTransports)
 	}
-	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialCloudAccessKey) {
+	if !plugintest.CredentialKindSupported(m.Config, plugin.CredentialKindCloudAccessKey) {
 		t.Fatal("cloud access key credential should support DynamoDB")
 	}
-	for _, kind := range []plugin.CredentialKind{plugin.CredentialDBPassword, plugin.CredentialTLSClientCert, plugin.CredentialBasicAuth, plugin.CredentialBearerToken} {
+	for _, kind := range []plugin.CredentialKind{plugin.CredentialKindDBPassword, plugin.CredentialKindTLSClientCert, plugin.CredentialKindBasicAuth, plugin.CredentialKindBearerToken} {
 		if plugintest.CredentialKindSupported(m.Config, kind) {
 			t.Fatalf("DynamoDB should not advertise %s credentials", kind)
 		}

@@ -17,7 +17,7 @@ import (
 func TestManifestValidates(t *testing.T) {
 	p := New()
 	plugintest.ValidatePlugin(t, p)
-	if !plugintest.CredentialKindSupported(p.Manifest().Config, plugin.CredentialBearerToken) {
+	if !plugintest.CredentialKindSupported(p.Manifest().Config, plugin.CredentialKindBearerToken) {
 		t.Fatal("Loki should support stored bearer token credentials")
 	}
 }

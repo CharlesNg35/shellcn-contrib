@@ -123,10 +123,10 @@ func parseOptions(cfg plugin.ConnectConfig) (Options, error) {
 	case "api_key":
 		opts.APIKey = cfg.String("api_key")
 	case "credential":
-		if kind := cfg.CredentialKindFor(plugin.CredentialIDField); kind != "" && kind != plugin.CredentialAPIToken {
+		if kind := cfg.CredentialKindFor(plugin.CredentialRefField); kind != "" && kind != plugin.CredentialKindAPIToken {
 			return Options{}, fmt.Errorf("%w: Qdrant stored credentials must be API tokens", plugin.ErrInvalidInput)
 		}
-		opts.APIKey = dbcred.ResolvedSecret(cfg, plugin.CredentialIDField)
+		opts.APIKey = dbcred.ResolvedSecret(cfg, plugin.CredentialRefField)
 	default:
 		return Options{}, fmt.Errorf("%w: unsupported authentication mode %q", plugin.ErrInvalidInput, auth)
 	}
@@ -155,7 +155,7 @@ func configSchema() plugin.Schema {
 			}},
 			{Key: "api_key", Label: "API key", Type: plugin.FieldPassword, Secret: true, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "api_key"}}}},
 			{Key: credentialField, Label: "Stored API key", Type: plugin.FieldCredentialRef, Required: true, Credential: &plugin.CredentialSelector{
-				Kind: plugin.CredentialAPIToken, Protocols: []string{protocolName},
+				Kind: plugin.CredentialKindAPIToken, Protocols: []string{protocolName},
 			}, VisibleWhen: &plugin.Condition{AllOf: []plugin.Rule{{Field: "auth", Op: plugin.OpEq, Value: "credential"}}}},
 		}},
 		{Name: "TLS", Fields: []plugin.Field{
