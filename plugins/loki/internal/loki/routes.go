@@ -116,7 +116,7 @@ func treeLabels(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "label", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "label", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "label:" + name, Label: name, Icon: icon("tag"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -129,7 +129,7 @@ func listLabels(rc *plugin.RequestContext) (any, error) {
 	}
 	rows := make([]row, 0, len(labels))
 	for _, label := range labels {
-		rows = append(rows, row{"name": label, "ref": plugin.ResourceRef{Kind: "label", Name: label, UID: label}})
+		rows = append(rows, row{"name": label, "ref": plugin.ResourceIdentity{Kind: "label", Name: label, UID: label}})
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -154,7 +154,7 @@ func listStreams(rc *plugin.RequestContext) (any, error) {
 	rows := make([]row, 0, len(streams))
 	for _, labels := range streams {
 		name := labelsToSelector(labels)
-		rows = append(rows, row{"name": name, "labels": labels, "ref": plugin.ResourceRef{Kind: "stream", Name: name, UID: name}})
+		rows = append(rows, row{"name": name, "labels": labels, "ref": plugin.ResourceIdentity{Kind: "stream", Name: name, UID: name}})
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -458,12 +458,6 @@ func normalizeRows(data any) []row {
 	switch v := data.(type) {
 	case []row:
 		return v
-	case []map[string]any:
-		rows := make([]row, 0, len(v))
-		for _, item := range v {
-			rows = append(rows, row(item))
-		}
-		return rows
 	case []any:
 		rows := make([]row, 0, len(v))
 		for _, item := range v {

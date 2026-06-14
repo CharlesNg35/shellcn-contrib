@@ -51,7 +51,7 @@ func objectDetailConfig() plugin.ObjectDetailConfig {
 
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
-		{Key: "keyspaces", Label: "Keyspaces", Icon: icon("database"), Source: plugin.DataSource{RouteID: "cassandra.keyspaces.tree"}, Ref: &plugin.ResourceRef{Kind: "server", Name: "Keyspaces", UID: "server"}},
+		{Key: "keyspaces", Label: "Keyspaces", Icon: icon("database"), Source: plugin.DataSource{RouteID: "cassandra.keyspaces.tree"}, Ref: &plugin.ResourceIdentity{Kind: "server", Name: "Keyspaces", UID: "server"}},
 		{Key: "types", Label: "Types", Icon: icon("braces"), Source: plugin.DataSource{RouteID: "cassandra.types.tree"}, ResourceKind: "type"},
 		{Key: "functions", Label: "Functions", Icon: icon("function-square"), Source: plugin.DataSource{RouteID: "cassandra.functions.tree"}, ResourceKind: "function"},
 		{Key: "nodes", Label: "Nodes", Icon: icon("server"), Source: plugin.DataSource{RouteID: "cassandra.nodes.tree"}, ResourceKind: "node"},

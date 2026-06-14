@@ -55,7 +55,7 @@ func boolPtr(v bool) *bool {
 
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
-		{Key: "databases", Label: "Databases", Icon: icon("database"), Source: plugin.DataSource{RouteID: "mssql.databases.tree"}, Ref: &plugin.ResourceRef{Kind: "server", Name: "Databases", UID: "server"}},
+		{Key: "databases", Label: "Databases", Icon: icon("database"), Source: plugin.DataSource{RouteID: "mssql.databases.tree"}, Ref: &plugin.ResourceIdentity{Kind: "server", Name: "Databases", UID: "server"}},
 		{Key: "users", Label: "Users", Icon: icon("users"), Source: plugin.DataSource{RouteID: "mssql.users.tree"}, ResourceKind: "user"},
 		{Key: "jobs", Label: "Jobs", Icon: icon("calendar-clock"), ResourceKind: "job"},
 	}

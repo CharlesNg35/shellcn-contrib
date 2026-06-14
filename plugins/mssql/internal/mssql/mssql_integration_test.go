@@ -262,7 +262,7 @@ func TestMSSQLPluginIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("child table rows: %v", err)
 	}
-	if links, ok := orderRows.(plugin.Page[row]).Items[0]["_links"].(map[string]plugin.ResourceRef); !ok || links["person_id"].UID != objectID("shellcn", "dbo", "people") {
+	if links, ok := orderRows.(plugin.Page[row]).Items[0]["_links"].(map[string]plugin.ResourceIdentity); !ok || links["person_id"].UID != objectID("shellcn", "dbo", "people") {
 		t.Fatalf("expected _links[person_id] -> people, got %#v", orderRows.(plugin.Page[row]).Items[0]["_links"])
 	}
 

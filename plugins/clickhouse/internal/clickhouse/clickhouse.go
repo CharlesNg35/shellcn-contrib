@@ -51,7 +51,7 @@ func objectDetailConfig() plugin.ObjectDetailConfig {
 
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
-		{Key: "databases", Label: "Databases", Icon: icon("database"), Source: plugin.DataSource{RouteID: "clickhouse.databases.tree"}, Ref: &plugin.ResourceRef{Kind: "server", Name: "Databases", UID: "server"}},
+		{Key: "databases", Label: "Databases", Icon: icon("database"), Source: plugin.DataSource{RouteID: "clickhouse.databases.tree"}, Ref: &plugin.ResourceIdentity{Kind: "server", Name: "Databases", UID: "server"}},
 		{Key: "dictionaries", Label: "Dictionaries", Icon: icon("book-open"), Source: plugin.DataSource{RouteID: "clickhouse.dictionaries.tree"}, ResourceKind: "dictionary"},
 		{Key: "mutations", Label: "Mutations", Icon: icon("git-compare-arrows"), ResourceKind: "mutation"},
 		{Key: "merges", Label: "Merges", Icon: icon("merge"), ResourceKind: "merge"},

@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.57.8
 	github.com/aws/smithy-go v1.27.1
 	github.com/charlesng35/shellcn-contrib/shared v0.0.0-00010101000000-000000000000
-	github.com/charlesng35/shellcn/sdk v0.1.12
+	github.com/charlesng35/shellcn/sdk v0.1.14
 )
 
 require (
@@ -38,7 +38,7 @@ require (
 	github.com/hashicorp/go-plugin v1.8.0 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
-	github.com/mattn/go-colorable v0.1.12 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/oklog/run v1.1.0 // indirect
 	golang.org/x/crypto v0.52.0 // indirect

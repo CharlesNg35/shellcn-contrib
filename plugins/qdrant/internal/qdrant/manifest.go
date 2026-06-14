@@ -12,7 +12,7 @@ func objectDetailConfig() plugin.ObjectDetailConfig {
 
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
-		{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Ref: &plugin.ResourceRef{Kind: "server", Name: "Qdrant", UID: "server"}},
+		{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Ref: &plugin.ResourceIdentity{Kind: "server", Name: "Qdrant", UID: "server"}},
 		{Key: "collections", Label: "Collections", Icon: icon("database"), Source: plugin.DataSource{RouteID: rid("collections.tree")}, ResourceKind: "collection"},
 	}
 }

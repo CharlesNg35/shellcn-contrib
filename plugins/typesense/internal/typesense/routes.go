@@ -181,7 +181,7 @@ func treeCollections(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "collection", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "collection", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "collection:" + name, Label: name, Icon: icon("database"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -198,7 +198,7 @@ func listCollections(rc *plugin.RequestContext) (any, error) {
 	}
 	for _, item := range rows {
 		name := fmt.Sprint(item["name"])
-		item["ref"] = plugin.ResourceRef{Kind: "collection", Name: name, UID: name}
+		item["ref"] = plugin.ResourceIdentity{Kind: "collection", Name: name, UID: name}
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -437,7 +437,7 @@ func treeAliases(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "alias", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "alias", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "alias:" + name, Label: name, Icon: icon("tag"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -456,7 +456,7 @@ func listAliases(rc *plugin.RequestContext) (any, error) {
 	}
 	for _, item := range out.Aliases {
 		name := fmt.Sprint(item["name"])
-		item["ref"] = plugin.ResourceRef{Kind: "alias", Name: name, UID: name}
+		item["ref"] = plugin.ResourceIdentity{Kind: "alias", Name: name, UID: name}
 	}
 	return broker.PageRows(rc, out.Aliases)
 }
@@ -611,7 +611,7 @@ func treeKeys(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["id"])
-		ref := plugin.ResourceRef{Kind: "key", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "key", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "key:" + name, Label: name + " " + fmt.Sprint(item["description"]), Icon: icon("key-round"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -630,7 +630,7 @@ func listKeys(rc *plugin.RequestContext) (any, error) {
 	}
 	for _, item := range out.Keys {
 		id := fmt.Sprint(item["id"])
-		item["ref"] = plugin.ResourceRef{Kind: "key", Name: id, UID: id}
+		item["ref"] = plugin.ResourceIdentity{Kind: "key", Name: id, UID: id}
 	}
 	return broker.PageRows(rc, out.Keys)
 }
@@ -705,7 +705,7 @@ func searchDocuments(ctx context.Context, s *Session, collection string, query u
 			"_text_match": numeric(hit["text_match"]),
 			"_source":     doc,
 			"highlights":  hit["highlights"],
-			"ref":         plugin.ResourceRef{Kind: "document", Namespace: collection, Name: id, UID: collection + "/" + id},
+			"ref":         plugin.ResourceIdentity{Kind: "document", Namespace: collection, Name: id, UID: collection + "/" + id},
 		})
 	}
 	return searchResult{Rows: rows, Total: numeric(out["found"])}, nil

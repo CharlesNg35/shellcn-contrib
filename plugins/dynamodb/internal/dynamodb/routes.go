@@ -130,7 +130,7 @@ func tablesTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "table", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "table", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "table:" + name, Label: name, Icon: icon("table-2"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -154,7 +154,7 @@ func tablesList(rc *plugin.RequestContext) (any, error) {
 			if s.opts.TablePrefix != "" && !strings.HasPrefix(name, s.opts.TablePrefix) {
 				continue
 			}
-			item := row{"name": name, "ref": plugin.ResourceRef{Kind: "table", Name: name, UID: name}}
+			item := row{"name": name, "ref": plugin.ResourceIdentity{Kind: "table", Name: name, UID: name}}
 			if desc, err := describeTable(ctx, s, name); err == nil {
 				mergeRows(item, tableSummary(desc))
 			}
@@ -264,7 +264,7 @@ func itemsList(rc *plugin.RequestContext) (any, error) {
 			id, _ := encodeItemID(table, key)
 			name := keyDisplay(key, desc.KeySchema)
 			display["_key"] = name
-			display["ref"] = plugin.ResourceRef{Kind: "item", Namespace: table, Name: name, UID: id}
+			display["ref"] = plugin.ResourceIdentity{Kind: "item", Namespace: table, Name: name, UID: id}
 		}
 		rows = append(rows, display)
 	}
@@ -348,7 +348,7 @@ func backupsTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name, arn := fmt.Sprint(item["name"]), fmt.Sprint(item["arn"])
-		ref := plugin.ResourceRef{Kind: "backup", Namespace: fmt.Sprint(item["table"]), Name: name, UID: arn}
+		ref := plugin.ResourceIdentity{Kind: "backup", Namespace: fmt.Sprint(item["table"]), Name: name, UID: arn}
 		nodes = append(nodes, plugin.TreeNode{Key: "backup:" + arn, Label: name, Icon: icon("archive"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -389,7 +389,7 @@ func backupsList(rc *plugin.RequestContext) (any, error) {
 			"status":  string(backup.BackupStatus),
 			"size":    awsInt64(backup.BackupSizeBytes),
 			"created": backup.BackupCreationDateTime,
-			"ref":     plugin.ResourceRef{Kind: "backup", Namespace: awsString(backup.TableName), Name: awsString(backup.BackupName), UID: arn},
+			"ref":     plugin.ResourceIdentity{Kind: "backup", Namespace: awsString(backup.TableName), Name: awsString(backup.BackupName), UID: arn},
 		})
 	}
 	return plugin.Page[row]{Items: rows, NextCursor: awsString(out.LastEvaluatedBackupArn)}, nil
@@ -947,7 +947,7 @@ func indexRows(desc *types.TableDescription) []row {
 			"projection": string(idx.Projection.ProjectionType),
 			"items":      awsInt64(idx.ItemCount),
 			"size":       awsInt64(idx.IndexSizeBytes),
-			"ref":        plugin.ResourceRef{Kind: "index", Namespace: awsString(desc.TableName), Name: name, UID: awsString(desc.TableName) + "." + name},
+			"ref":        plugin.ResourceIdentity{Kind: "index", Namespace: awsString(desc.TableName), Name: name, UID: awsString(desc.TableName) + "." + name},
 		})
 	}
 	for _, idx := range desc.LocalSecondaryIndexes {
@@ -961,7 +961,7 @@ func indexRows(desc *types.TableDescription) []row {
 			"projection": string(idx.Projection.ProjectionType),
 			"items":      awsInt64(idx.ItemCount),
 			"size":       awsInt64(idx.IndexSizeBytes),
-			"ref":        plugin.ResourceRef{Kind: "index", Namespace: awsString(desc.TableName), Name: name, UID: awsString(desc.TableName) + "." + name},
+			"ref":        plugin.ResourceIdentity{Kind: "index", Namespace: awsString(desc.TableName), Name: name, UID: awsString(desc.TableName) + "." + name},
 		})
 	}
 	return rows

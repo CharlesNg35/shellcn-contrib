@@ -14,7 +14,7 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
-type row map[string]any
+type row = plugin.TableRow
 
 type actionResult struct {
 	OK bool `json:"ok"`
@@ -115,7 +115,7 @@ func treeStreams(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "stream", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "stream", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "stream:" + name, Label: name, Icon: icon("waves"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -463,7 +463,7 @@ func streamRow(info *natsclient.StreamInfo) row {
 		"consumers": info.State.Consumers,
 		"storage":   fmt.Sprint(info.Config.Storage),
 		"created":   info.Created,
-		"ref":       plugin.ResourceRef{Kind: "stream", Name: info.Config.Name, UID: info.Config.Name},
+		"ref":       plugin.ResourceIdentity{Kind: "stream", Name: info.Config.Name, UID: info.Config.Name},
 	}
 }
 
@@ -476,7 +476,7 @@ func consumerRow(info *natsclient.ConsumerInfo) row {
 		"pending":        info.NumPending,
 		"ack_pending":    info.NumAckPending,
 		"created":        info.Created,
-		"ref":            plugin.ResourceRef{Kind: "consumer", Namespace: info.Stream, Name: info.Name, UID: info.Stream + "/" + info.Name},
+		"ref":            plugin.ResourceIdentity{Kind: "consumer", Namespace: info.Stream, Name: info.Name, UID: info.Stream + "/" + info.Name},
 	}
 }
 

@@ -78,7 +78,7 @@ type Client struct {
 	password string
 }
 
-type row map[string]any
+type row = plugin.TableRow
 
 type actionResult struct {
 	OK bool `json:"ok"`

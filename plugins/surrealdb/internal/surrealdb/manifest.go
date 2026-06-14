@@ -45,8 +45,8 @@ func (p *Plugin) Manifest() plugin.Manifest {
 		},
 
 		Tree: []plugin.TreeGroup{
-			{Key: "database", Label: "Database", Icon: icon("database"), Ref: &plugin.ResourceRef{Kind: "database", Name: "Database", UID: "database"}},
-			{Key: "tables", Label: "Tables", Icon: icon("table-2"), Source: plugin.DataSource{RouteID: "surrealdb.tree.tables"}, Ref: &plugin.ResourceRef{Kind: "database", Name: "Tables", UID: "database"}},
+			{Key: "database", Label: "Database", Icon: icon("database"), Ref: &plugin.ResourceIdentity{Kind: "database", Name: "Database", UID: "database"}},
+			{Key: "tables", Label: "Tables", Icon: icon("table-2"), Source: plugin.DataSource{RouteID: "surrealdb.tree.tables"}, Ref: &plugin.ResourceIdentity{Kind: "database", Name: "Tables", UID: "database"}},
 		},
 		Resources: resources(),
 		Actions:   actions(),

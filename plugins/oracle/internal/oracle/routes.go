@@ -18,7 +18,7 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
-type row map[string]any
+type row = plugin.TableRow
 
 type actionResult struct {
 	OK bool `json:"ok"`
@@ -204,7 +204,7 @@ func treeSchemas(rc *plugin.RequestContext) (any, error) {
 			Key:            "schema:" + name,
 			Label:          name,
 			Icon:           icon("folder-tree"),
-			Ref:            &plugin.ResourceRef{Kind: "schema", Name: name, UID: name},
+			Ref:            &plugin.ResourceIdentity{Kind: "schema", Name: name, UID: name},
 			ChildrenSource: &plugin.DataSource{RouteID: "oracle.relations.tree", Params: map[string]string{"schema": name}},
 		})
 	}
@@ -224,7 +224,7 @@ func treeRelations(rc *plugin.RequestContext) (any, error) {
 	nodes := []plugin.TreeNode{}
 	add := func(res any, iconName string) {
 		for _, r := range res.(plugin.Page[row]).Items {
-			ref, ok := r["ref"].(plugin.ResourceRef)
+			ref, ok := r["ref"].(plugin.ResourceIdentity)
 			if !ok || ref.Kind == "" {
 				continue
 			}
@@ -277,7 +277,7 @@ func listSchemas(rc *plugin.RequestContext) (any, error) {
 	for _, r := range rows {
 		name := fmt.Sprint(firstValue(r, "NAME", "name"))
 		normalizeRowKeys(r)
-		r["ref"] = plugin.ResourceRef{Kind: "schema", Name: name, UID: name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "schema", Name: name, UID: name}
 	}
 	return pageRows(rc, rows)
 }
@@ -417,7 +417,7 @@ ORDER BY o.owner, o.object_name`, args)
 		r["rows"] = r["row_count"]
 		delete(r, "row_count")
 		owner, name := fmt.Sprint(r["owner"]), fmt.Sprint(r["name"])
-		r["ref"] = plugin.ResourceRef{Kind: refKind, Namespace: owner, Name: qualified(owner, name), UID: objectID(owner, name)}
+		r["ref"] = plugin.ResourceIdentity{Kind: refKind, Namespace: owner, Name: qualified(owner, name), UID: objectID(owner, name)}
 	}
 	return pageRows(rc, rows)
 }
@@ -461,7 +461,7 @@ ORDER BY owner, object_name`, args)
 	for _, r := range rows {
 		normalizeRowKeys(r)
 		owner, name := fmt.Sprint(r["owner"]), fmt.Sprint(r["name"])
-		r["ref"] = plugin.ResourceRef{Kind: refKind, Namespace: owner, Name: qualified(owner, name), UID: objectID(owner, name)}
+		r["ref"] = plugin.ResourceIdentity{Kind: refKind, Namespace: owner, Name: qualified(owner, name), UID: objectID(owner, name)}
 	}
 	return pageRows(rc, rows)
 }
@@ -491,7 +491,7 @@ ORDER BY sequence_owner, sequence_name`, args)
 	for _, r := range rows {
 		normalizeRowKeys(r)
 		owner, name := fmt.Sprint(r["owner"]), fmt.Sprint(r["name"])
-		r["ref"] = plugin.ResourceRef{Kind: "sequence", Namespace: owner, Name: qualified(owner, name), UID: objectID(owner, name)}
+		r["ref"] = plugin.ResourceIdentity{Kind: "sequence", Namespace: owner, Name: qualified(owner, name), UID: objectID(owner, name)}
 	}
 	return pageRows(rc, rows)
 }
@@ -528,7 +528,7 @@ func listUsers(rc *plugin.RequestContext) (any, error) {
 	for _, r := range rows {
 		name := fmt.Sprint(firstValue(r, "NAME", "name"))
 		normalizeRowKeys(r)
-		r["ref"] = plugin.ResourceRef{Kind: "user", Name: name, UID: name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "user", Name: name, UID: name}
 	}
 	return pageRows(rc, rows)
 }
@@ -587,7 +587,7 @@ ORDER BY tablespace_name`, nil)
 		normalizeRowKeys(r)
 		name := fmt.Sprint(r["name"])
 		r["bigfile"] = boolish(r["bigfile"])
-		r["ref"] = plugin.ResourceRef{Kind: "tablespace", Name: name, UID: name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "tablespace", Name: name, UID: name}
 	}
 	return pageRows(rc, rows)
 }
@@ -643,7 +643,7 @@ FROM dual`, nil)
 		normalizeRowKeys(r)
 		id := fmt.Sprint(r["sid"]) + ":" + fmt.Sprint(r["serial"])
 		r["name"] = id
-		r["ref"] = plugin.ResourceRef{Kind: "session", Name: id, UID: id}
+		r["ref"] = plugin.ResourceIdentity{Kind: "session", Name: id, UID: id}
 	}
 	return pageRows(rc, rows)
 }
@@ -913,7 +913,7 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 // foreignKeys maps each FK column (real uppercase name, matching the grid's
 // columns) to the referenced table's ref, attached under the generic "_links"
 // field the grid renders as links.
-func foreignKeys(ctx context.Context, s *Session, owner, table string) (map[string]plugin.ResourceRef, error) {
+func foreignKeys(ctx context.Context, s *Session, owner, table string) (map[string]plugin.ResourceIdentity, error) {
 	rows, err := queryRows(ctx, s, `
 SELECT cc.column_name AS col, rc.owner AS ref_owner, rc.table_name AS ref_table
 FROM all_constraints c
@@ -923,16 +923,16 @@ WHERE c.constraint_type = 'R' AND c.owner = :1 AND c.table_name = :2`, []any{own
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]plugin.ResourceRef{}
+	out := map[string]plugin.ResourceIdentity{}
 	for _, r := range rows {
 		normalizeRowKeys(r)
 		col, refOwner, refTable := fmt.Sprint(r["col"]), fmt.Sprint(r["ref_owner"]), fmt.Sprint(r["ref_table"])
-		out[col] = plugin.ResourceRef{Kind: "table", Namespace: refOwner, Name: qualified(refOwner, refTable), UID: objectID(refOwner, refTable)}
+		out[col] = plugin.ResourceIdentity{Kind: "table", Namespace: refOwner, Name: qualified(refOwner, refTable), UID: objectID(refOwner, refTable)}
 	}
 	return out, nil
 }
 
-func attachForeignKeys(rows []row, fks map[string]plugin.ResourceRef) {
+func attachForeignKeys(rows []row, fks map[string]plugin.ResourceIdentity) {
 	if len(fks) == 0 {
 		return
 	}
@@ -1999,7 +1999,7 @@ func treeFromPage(rc *plugin.RequestContext, kind string, iconName string, label
 	}
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, r := range page.Items {
-		ref, _ := r["ref"].(plugin.ResourceRef)
+		ref, _ := r["ref"].(plugin.ResourceIdentity)
 		if ref.Kind == "" {
 			continue
 		}

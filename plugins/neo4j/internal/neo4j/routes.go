@@ -88,7 +88,7 @@ func databasesTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "database", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "database", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "database:" + name, Label: name, Icon: icon("database"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -101,7 +101,7 @@ func databasesList(rc *plugin.RequestContext) (any, error) {
 	}
 	rows, err := queryRows(rc.Ctx, s, "system", "SHOW DATABASES YIELD name, address, role, requestedStatus, currentStatus RETURN name, address, role, requestedStatus, currentStatus ORDER BY name", nil)
 	if err != nil {
-		rows = []row{{"name": s.opts.Database, "current_status": "unknown", "requested_status": "unknown", "role": "", "address": "", "ref": plugin.ResourceRef{Kind: "database", Name: s.opts.Database, UID: s.opts.Database}}}
+		rows = []row{{"name": s.opts.Database, "current_status": "unknown", "requested_status": "unknown", "role": "", "address": "", "ref": plugin.ResourceIdentity{Kind: "database", Name: s.opts.Database, UID: s.opts.Database}}}
 		return broker.PageRows(rc, rows)
 	}
 	// The administrative `system` database rejects data queries (MATCH), so it is
@@ -116,7 +116,7 @@ func databasesList(rc *plugin.RequestContext) (any, error) {
 		r["current_status"] = r["currentStatus"]
 		delete(r, "requestedStatus")
 		delete(r, "currentStatus")
-		r["ref"] = plugin.ResourceRef{Kind: "database", Name: name, UID: name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "database", Name: name, UID: name}
 		out = append(out, r)
 	}
 	return broker.PageRows(rc, out)
@@ -153,7 +153,7 @@ func labelsTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name, db := fmt.Sprint(item["name"]), fmt.Sprint(item["database"])
-		ref := plugin.ResourceRef{Kind: "label", Namespace: db, Name: name, UID: db + ":" + name}
+		ref := plugin.ResourceIdentity{Kind: "label", Namespace: db, Name: name, UID: db + ":" + name}
 		nodes = append(nodes, plugin.TreeNode{Key: "label:" + ref.UID, Label: name, Icon: icon("tag"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -181,7 +181,7 @@ ORDER BY name`, nil)
 		name := fmt.Sprint(r["name"])
 		r["database"] = db
 		r["properties"] = strings.Join(stringSlice(r["properties"]), ", ")
-		r["ref"] = plugin.ResourceRef{Kind: "label", Namespace: db, Name: name, UID: db + ":" + name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "label", Namespace: db, Name: name, UID: db + ":" + name}
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -211,7 +211,7 @@ func relationshipTypesTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name, db := fmt.Sprint(item["name"]), fmt.Sprint(item["database"])
-		ref := plugin.ResourceRef{Kind: "relationship_type", Namespace: db, Name: name, UID: db + ":" + name}
+		ref := plugin.ResourceIdentity{Kind: "relationship_type", Namespace: db, Name: name, UID: db + ":" + name}
 		nodes = append(nodes, plugin.TreeNode{Key: "relationship_type:" + ref.UID, Label: name, Icon: icon("git-branch"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -235,7 +235,7 @@ ORDER BY name`, nil)
 		name := fmt.Sprint(r["name"])
 		r["database"] = db
 		r["properties"] = compactValue(r["properties"])
-		r["ref"] = plugin.ResourceRef{Kind: "relationship_type", Namespace: db, Name: name, UID: db + ":" + name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "relationship_type", Namespace: db, Name: name, UID: db + ":" + name}
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -295,7 +295,7 @@ func schemaRows(rc *plugin.RequestContext, query string) ([]row, error) {
 		r["properties"] = strings.Join(stringSlice(r["properties"]), ", ")
 		delete(r, "entityType")
 		delete(r, "labelsOrTypes")
-		r["ref"] = plugin.ResourceRef{Kind: "schema_item", Namespace: db, Name: name, UID: mustEncodeID(kind, db, name)}
+		r["ref"] = plugin.ResourceIdentity{Kind: "schema_item", Namespace: db, Name: name, UID: mustEncodeID(kind, db, name)}
 	}
 	return rows, nil
 }
@@ -323,7 +323,7 @@ func schemaTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name, kind := fmt.Sprint(item["name"]), fmt.Sprint(item["kind"])
-		ref := item["ref"].(plugin.ResourceRef)
+		ref := item["ref"].(plugin.ResourceIdentity)
 		nodes = append(nodes, plugin.TreeNode{Key: "schema:" + ref.UID, Label: name, Icon: schemaIcon(kind), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -553,7 +553,7 @@ func nodesList(rc *plugin.RequestContext) (any, error) {
 		id := fmt.Sprint(r["element_id"])
 		r["labels"] = strings.Join(stringSlice(r["labels"]), ", ")
 		r["properties"] = redactMap(asMap(r["properties"]), s.opts.RedactPatterns)
-		r["ref"] = plugin.ResourceRef{Kind: "node", Namespace: db, Name: nodeName(r), UID: mustEncodeID("node", db, id)}
+		r["ref"] = plugin.ResourceIdentity{Kind: "node", Namespace: db, Name: nodeName(r), UID: mustEncodeID("node", db, id)}
 	}
 	next := ""
 	if len(rows) == page.Limit {
@@ -670,7 +670,7 @@ func relationshipRows(rc *plugin.RequestContext, db, query string, params map[st
 	for _, r := range rows {
 		id := fmt.Sprint(r["element_id"])
 		r["properties"] = redactMap(asMap(r["properties"]), s.opts.RedactPatterns)
-		r["ref"] = plugin.ResourceRef{Kind: "relationship", Namespace: db, Name: fmt.Sprint(r["type"]) + " " + id, UID: mustEncodeID("relationship", db, id)}
+		r["ref"] = plugin.ResourceIdentity{Kind: "relationship", Namespace: db, Name: fmt.Sprint(r["type"]) + " " + id, UID: mustEncodeID("relationship", db, id)}
 	}
 	next := ""
 	if len(rows) == page.Limit {

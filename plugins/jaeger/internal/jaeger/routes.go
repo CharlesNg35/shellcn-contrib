@@ -55,7 +55,7 @@ func treeServices(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "service", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "service", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "service:" + name, Label: name, Icon: icon("box"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -68,7 +68,7 @@ func listServices(rc *plugin.RequestContext) (any, error) {
 	}
 	rows := make([]row, 0, len(services))
 	for _, service := range services {
-		rows = append(rows, row{"name": service, "ref": plugin.ResourceRef{Kind: "service", Name: service, UID: service}})
+		rows = append(rows, row{"name": service, "ref": plugin.ResourceIdentity{Kind: "service", Name: service, UID: service}})
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -168,7 +168,7 @@ func traceRows(result row) []row {
 			"startTime":     first["startTime"],
 			"spans":         len(spans),
 			"resourceSpans": []row{resourceSpan},
-			"ref":           plugin.ResourceRef{Kind: "trace", Name: id, UID: id},
+			"ref":           plugin.ResourceIdentity{Kind: "trace", Name: id, UID: id},
 		})
 	}
 	return out

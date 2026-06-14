@@ -28,7 +28,7 @@ func objectDetailConfig() plugin.ObjectDetailConfig {
 
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
-		{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Ref: &plugin.ResourceRef{Kind: "server", Name: "Prometheus", UID: "server"}},
+		{Key: "overview", Label: "Overview", Icon: icon("layout-dashboard"), Ref: &plugin.ResourceIdentity{Kind: "server", Name: "Prometheus", UID: "server"}},
 		{Key: "status", Label: "Status", Icon: icon("activity"), Source: plugin.DataSource{RouteID: rid("status.tree")}, ResourceKind: "status"},
 		{Key: "targets", Label: "Targets", Icon: icon("crosshair"), ResourceKind: "target"},
 		{Key: "alerts", Label: "Alerts", Icon: icon("bell"), ResourceKind: "alert"},

@@ -8,7 +8,7 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
-type row map[string]any
+type row = plugin.TableRow
 
 func pageRC(t *testing.T, filter string) *plugin.RequestContext {
 	t.Helper()

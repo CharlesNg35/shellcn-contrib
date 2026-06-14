@@ -28,9 +28,9 @@ func section(info map[string]any, key string) map[string]any {
 }
 
 type tableRow struct {
-	Name string             `json:"name"`
-	Mode string             `json:"mode"`
-	Ref  plugin.ResourceRef `json:"ref"`
+	Name string                  `json:"name"`
+	Mode string                  `json:"mode"`
+	Ref  plugin.ResourceIdentity `json:"ref"`
 }
 
 // listTables backs the Tables list, the database resource list, and the tree.
@@ -69,7 +69,7 @@ func listTables(rc *plugin.RequestContext) (any, error) {
 		}
 		rows = append(rows, tableRow{
 			Name: name, Mode: mode,
-			Ref: plugin.ResourceRef{Kind: "table", Name: name, UID: name},
+			Ref: plugin.ResourceIdentity{Kind: "table", Name: name, UID: name},
 		})
 	}
 	return plugin.Page[tableRow]{Items: rows}, nil
@@ -87,7 +87,7 @@ func treeTables(rc *plugin.RequestContext) (any, error) {
 	for _, t := range page.Items {
 		nodes = append(nodes, plugin.TreeNode{
 			Key: "table:" + t.Name, Label: t.Name, Icon: icon("table"),
-			Ref:  &plugin.ResourceRef{Kind: "table", Name: t.Name, UID: t.Name},
+			Ref:  &plugin.ResourceIdentity{Kind: "table", Name: t.Name, UID: t.Name},
 			Leaf: true,
 		})
 	}
@@ -183,9 +183,9 @@ type defRow struct {
 }
 
 type objectRow struct {
-	Name       string             `json:"name"`
-	Definition string             `json:"definition"`
-	Ref        plugin.ResourceRef `json:"ref"`
+	Name       string                  `json:"name"`
+	Definition string                  `json:"definition"`
+	Ref        plugin.ResourceIdentity `json:"ref"`
 }
 
 type fieldRow struct {

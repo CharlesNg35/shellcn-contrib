@@ -62,7 +62,7 @@ type Session struct {
 	opts   Options
 }
 
-type row map[string]any
+type row = plugin.TableRow
 
 type authHeader struct {
 	Header string

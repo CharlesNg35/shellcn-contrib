@@ -246,8 +246,6 @@ func fieldValue(v any, key string) any {
 	switch t := v.(type) {
 	case map[string]any:
 		return t[key]
-	case row:
-		return t[key]
 	default:
 		return nil
 	}

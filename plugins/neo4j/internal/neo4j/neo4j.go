@@ -22,7 +22,7 @@ type Session struct {
 	opts   options
 }
 
-type row map[string]any
+type row = plugin.TableRow
 
 type actionResult struct {
 	OK bool `json:"ok"`

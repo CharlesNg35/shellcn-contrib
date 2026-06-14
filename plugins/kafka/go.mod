@@ -7,7 +7,7 @@ replace github.com/charlesng35/shellcn-contrib/shared => ../../shared
 require (
 	github.com/IBM/sarama v1.50.1
 	github.com/charlesng35/shellcn-contrib/shared v0.0.0-00010101000000-000000000000
-	github.com/charlesng35/shellcn/sdk v0.1.12
+	github.com/charlesng35/shellcn/sdk v0.1.14
 )
 
 require (
@@ -30,7 +30,7 @@ require (
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
-	github.com/mattn/go-colorable v0.1.12 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/oklog/run v1.1.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect

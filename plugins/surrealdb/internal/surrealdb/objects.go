@@ -47,7 +47,7 @@ func objectLister(sectionKey string) plugin.Handler {
 			def, _ := defs[name].(string)
 			rows = append(rows, objectRow{
 				Name: name, Definition: def,
-				Ref: plugin.ResourceRef{Kind: kind, Name: name, UID: name},
+				Ref: plugin.ResourceIdentity{Kind: kind, Name: name, UID: name},
 			})
 		}
 		return plugin.Page[objectRow]{Items: rows}, nil

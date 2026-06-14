@@ -12,7 +12,7 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
-type row map[string]any
+type row = plugin.TableRow
 
 type actionResult struct {
 	OK bool `json:"ok"`
@@ -111,7 +111,7 @@ func treeQueues(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name, vhost := fmt.Sprint(item["name"]), fmt.Sprint(item["vhost"])
-		ref := plugin.ResourceRef{Kind: "queue", Namespace: vhost, Name: name, UID: vhost + "/" + name}
+		ref := plugin.ResourceIdentity{Kind: "queue", Namespace: vhost, Name: name, UID: vhost + "/" + name}
 		nodes = append(nodes, plugin.TreeNode{Key: "queue:" + ref.UID, Label: name, Icon: icon("list"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -126,7 +126,7 @@ func treeExchanges(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name, vhost := fmt.Sprint(item["name"]), fmt.Sprint(item["vhost"])
-		ref := plugin.ResourceRef{Kind: "exchange", Namespace: vhost, Name: name, UID: vhost + "/" + name}
+		ref := plugin.ResourceIdentity{Kind: "exchange", Namespace: vhost, Name: name, UID: vhost + "/" + name}
 		nodes = append(nodes, plugin.TreeNode{Key: "exchange:" + ref.UID, Label: name, Icon: icon("shuffle"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -142,7 +142,7 @@ func listQueues(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	for _, r := range rows {
-		r["ref"] = plugin.ResourceRef{Kind: "queue", Namespace: fmt.Sprint(r["vhost"]), Name: fmt.Sprint(r["name"]), UID: fmt.Sprint(r["vhost"]) + "/" + fmt.Sprint(r["name"])}
+		r["ref"] = plugin.ResourceIdentity{Kind: "queue", Namespace: fmt.Sprint(r["vhost"]), Name: fmt.Sprint(r["name"]), UID: fmt.Sprint(r["vhost"]) + "/" + fmt.Sprint(r["name"])}
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -240,7 +240,7 @@ func listExchanges(rc *plugin.RequestContext) (any, error) {
 		if name == "" {
 			continue
 		}
-		r["ref"] = plugin.ResourceRef{Kind: "exchange", Namespace: fmt.Sprint(r["vhost"]), Name: name, UID: fmt.Sprint(r["vhost"]) + "/" + name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "exchange", Namespace: fmt.Sprint(r["vhost"]), Name: name, UID: fmt.Sprint(r["vhost"]) + "/" + name}
 		filtered = append(filtered, r)
 	}
 	return broker.PageRows(rc, filtered)

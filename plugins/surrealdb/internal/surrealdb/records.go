@@ -68,7 +68,7 @@ func listRecords(rc *plugin.RequestContext) (any, error) {
 		}
 		row["id"] = id
 		row["record"] = norm
-		row["ref"] = plugin.ResourceRef{Kind: "record", Scope: table, Name: id, UID: id}
+		row["ref"] = plugin.ResourceIdentity{Kind: "record", Scope: table, Name: id, UID: id}
 		items = append(items, row)
 	}
 	out := plugin.Page[map[string]any]{Items: items}

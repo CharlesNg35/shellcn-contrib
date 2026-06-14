@@ -118,7 +118,7 @@ func treeCollections(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "collection", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "collection", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "collection:" + name, Label: name, Icon: icon("database"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -137,7 +137,7 @@ func listCollections(rc *plugin.RequestContext) (any, error) {
 		if err := qdrantAPI(rc, http.MethodGet, "/collections/"+url.PathEscape(name), nil, nil, &detail); err == nil {
 			merge(item, detail)
 		}
-		item["ref"] = plugin.ResourceRef{Kind: "collection", Name: name, UID: name}
+		item["ref"] = plugin.ResourceIdentity{Kind: "collection", Name: name, UID: name}
 	}
 	return broker.PageRows(rc, out.Collections)
 }
@@ -259,7 +259,7 @@ func listPoints(rc *plugin.RequestContext) (any, error) {
 	}
 	for _, item := range out.Points {
 		id := fmt.Sprint(item["id"])
-		item["ref"] = plugin.ResourceRef{Kind: "point", Name: id, UID: id, Namespace: collectionParam(rc)}
+		item["ref"] = plugin.ResourceIdentity{Kind: "point", Name: id, UID: id, Namespace: collectionParam(rc)}
 	}
 	next := ""
 	if out.NextOffset != nil {

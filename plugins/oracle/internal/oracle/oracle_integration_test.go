@@ -215,7 +215,7 @@ func TestOraclePluginIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("child table rows: %v", err)
 	}
-	if links, ok := orderRows.(plugin.Page[row]).Items[0]["_links"].(map[string]plugin.ResourceRef); !ok || links["PERSON_ID"].UID != objectID("SHELLCN_TEST", "PEOPLE") {
+	if links, ok := orderRows.(plugin.Page[row]).Items[0]["_links"].(map[string]plugin.ResourceIdentity); !ok || links["PERSON_ID"].UID != objectID("SHELLCN_TEST", "PEOPLE") {
 		t.Fatalf("expected _links[PERSON_ID] -> PEOPLE, got %#v", orderRows.(plugin.Page[row]).Items[0]["_links"])
 	}
 

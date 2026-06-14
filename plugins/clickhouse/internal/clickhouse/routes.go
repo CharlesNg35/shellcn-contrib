@@ -18,7 +18,7 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
-type row map[string]any
+type row = plugin.TableRow
 
 type actionResult struct {
 	OK      bool   `json:"ok"`
@@ -194,7 +194,7 @@ func treeDatabases(rc *plugin.RequestContext) (any, error) {
 			Key:            "db:" + name,
 			Label:          name,
 			Icon:           icon("database"),
-			Ref:            &plugin.ResourceRef{Kind: "database", Name: name, UID: name},
+			Ref:            &plugin.ResourceIdentity{Kind: "database", Name: name, UID: name},
 			ChildrenSource: &plugin.DataSource{RouteID: "clickhouse.relations.tree", Params: map[string]string{"database": name}},
 		})
 	}
@@ -215,7 +215,7 @@ func treeRelations(rc *plugin.RequestContext) (any, error) {
 	nodes := []plugin.TreeNode{}
 	add := func(res any, iconName string) {
 		for _, r := range res.(plugin.Page[row]).Items {
-			ref, ok := r["ref"].(plugin.ResourceRef)
+			ref, ok := r["ref"].(plugin.ResourceIdentity)
 			if !ok || ref.Kind == "" {
 				continue
 			}
@@ -268,7 +268,7 @@ ORDER BY d.name`, nil)
 	}
 	for _, r := range rows {
 		name := fmt.Sprint(r["name"])
-		r["ref"] = plugin.ResourceRef{Kind: "database", Name: name, UID: name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "database", Name: name, UID: name}
 	}
 	return pageRows(rc, rows)
 }
@@ -336,7 +336,7 @@ ORDER BY database, name`, []any{database, database, table, table})
 	}
 	for _, r := range rows {
 		name, db := fmt.Sprint(r["name"]), fmt.Sprint(r["database"])
-		r["ref"] = plugin.ResourceRef{Kind: refKind, Namespace: db, Name: name, UID: db + "." + name}
+		r["ref"] = plugin.ResourceIdentity{Kind: refKind, Namespace: db, Name: name, UID: db + "." + name}
 	}
 	return pageRows(rc, rows)
 }
@@ -362,7 +362,7 @@ ORDER BY database, name`, []any{database, database, table, table})
 	}
 	for _, r := range rows {
 		name, db := fmt.Sprint(r["name"]), fmt.Sprint(r["database"])
-		r["ref"] = plugin.ResourceRef{Kind: "dictionary", Namespace: db, Name: name, UID: db + "." + name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "dictionary", Namespace: db, Name: name, UID: db + "." + name}
 	}
 	return pageRows(rc, rows)
 }
@@ -392,7 +392,7 @@ ORDER BY create_time DESC, database, table`, []any{database, database, table, ta
 	}
 	for _, r := range rows {
 		id := mutationUID(r)
-		r["ref"] = plugin.ResourceRef{Kind: "mutation", Namespace: fmt.Sprint(r["database"]), Scope: fmt.Sprint(r["table"]), Name: fmt.Sprint(r["mutation_id"]), UID: id}
+		r["ref"] = plugin.ResourceIdentity{Kind: "mutation", Namespace: fmt.Sprint(r["database"]), Scope: fmt.Sprint(r["table"]), Name: fmt.Sprint(r["mutation_id"]), UID: id}
 	}
 	return pageRows(rc, rows)
 }
@@ -416,7 +416,7 @@ ORDER BY elapsed DESC, database, table`, nil)
 	}
 	for _, r := range rows {
 		id := fmt.Sprint(r["id"])
-		r["ref"] = plugin.ResourceRef{Kind: "merge", Namespace: fmt.Sprint(r["database"]), Scope: fmt.Sprint(r["table"]), Name: id, UID: id}
+		r["ref"] = plugin.ResourceIdentity{Kind: "merge", Namespace: fmt.Sprint(r["database"]), Scope: fmt.Sprint(r["table"]), Name: id, UID: id}
 	}
 	return pageRows(rc, rows)
 }
@@ -439,7 +439,7 @@ ORDER BY elapsed DESC`, nil)
 	}
 	for _, r := range rows {
 		id := fmt.Sprint(r["query_id"])
-		r["ref"] = plugin.ResourceRef{Kind: "process", Name: id, UID: id}
+		r["ref"] = plugin.ResourceIdentity{Kind: "process", Name: id, UID: id}
 	}
 	return pageRows(rc, rows)
 }
@@ -462,7 +462,7 @@ ORDER BY name`, nil)
 	}
 	for _, r := range rows {
 		user := fmt.Sprint(r["user"])
-		r["ref"] = plugin.ResourceRef{Kind: "user", Name: user, UID: user}
+		r["ref"] = plugin.ResourceIdentity{Kind: "user", Name: user, UID: user}
 	}
 	return pageRows(rc, rows)
 }
@@ -1731,7 +1731,7 @@ func treeFromPage(rc *plugin.RequestContext, kind string, iconName string, label
 	}
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, r := range page.Items {
-		ref, _ := r["ref"].(plugin.ResourceRef)
+		ref, _ := r["ref"].(plugin.ResourceIdentity)
 		if ref.Kind == "" {
 			continue
 		}
@@ -1767,7 +1767,7 @@ func tableScopedOverview(rc *plugin.RequestContext, kind string, key string, loa
 		if fmt.Sprint(item["database"]) == database && fmt.Sprint(item[key]) == table {
 			return item, nil
 		}
-		if ref, ok := item["ref"].(plugin.ResourceRef); ok && ref.Kind == kind && ref.UID == database+"."+table {
+		if ref, ok := item["ref"].(plugin.ResourceIdentity); ok && ref.Kind == kind && ref.UID == database+"."+table {
 			return item, nil
 		}
 	}
@@ -1788,7 +1788,7 @@ func overviewByUID(rc *plugin.RequestContext, param string, load func(*plugin.Re
 		return nil, fmt.Errorf("%w: overview source returned invalid page", plugin.ErrUnavailable)
 	}
 	for _, item := range page.Items {
-		if ref, ok := item["ref"].(plugin.ResourceRef); ok && ref.UID == id {
+		if ref, ok := item["ref"].(plugin.ResourceIdentity); ok && ref.UID == id {
 			return item, nil
 		}
 	}

@@ -20,7 +20,7 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
-type row map[string]any
+type row = plugin.TableRow
 
 type actionResult struct {
 	OK bool `json:"ok"`
@@ -148,7 +148,7 @@ func treeKeyspaces(rc *plugin.RequestContext) (any, error) {
 			Key:            "ks:" + name,
 			Label:          name,
 			Icon:           icon("database"),
-			Ref:            &plugin.ResourceRef{Kind: "keyspace", Name: name, UID: name},
+			Ref:            &plugin.ResourceIdentity{Kind: "keyspace", Name: name, UID: name},
 			ChildrenSource: &plugin.DataSource{RouteID: "cassandra.relations.tree", Params: map[string]string{"keyspace": name}},
 		})
 	}
@@ -169,7 +169,7 @@ func treeRelations(rc *plugin.RequestContext) (any, error) {
 	nodes := []plugin.TreeNode{}
 	add := func(res any, iconName string) {
 		for _, r := range res.(plugin.Page[row]).Items {
-			ref, ok := r["ref"].(plugin.ResourceRef)
+			ref, ok := r["ref"].(plugin.ResourceIdentity)
 			if !ok || ref.Kind == "" {
 				continue
 			}
@@ -219,7 +219,7 @@ FROM system_schema.keyspaces`, nil)
 			"replication":    compactJSON(r["replication"]),
 			"tables":         tableCounts[name],
 			"views":          viewCounts[name],
-			"ref":            plugin.ResourceRef{Kind: "keyspace", Name: name, UID: name},
+			"ref":            plugin.ResourceIdentity{Kind: "keyspace", Name: name, UID: name},
 		}
 		out = append(out, item)
 	}
@@ -275,7 +275,7 @@ FROM system_schema.tables`, nil)
 			"caching":                compactJSON(r["caching"]),
 			"compaction":             compactJSON(r["compaction"]),
 			"compression":            compactJSON(r["compression"]),
-			"ref":                    plugin.ResourceRef{Kind: "table", Namespace: ks, Name: name, UID: ks + "." + name},
+			"ref":                    plugin.ResourceIdentity{Kind: "table", Namespace: ks, Name: name, UID: ks + "." + name},
 		}
 		out = append(out, item)
 	}
@@ -310,7 +310,7 @@ FROM system_schema.views`, nil)
 			"keyspace":     ks,
 			"base_table":   r["base_table_name"],
 			"where_clause": r["where_clause"],
-			"ref":          plugin.ResourceRef{Kind: "view", Namespace: ks, Name: name, UID: ks + "." + name},
+			"ref":          plugin.ResourceIdentity{Kind: "view", Namespace: ks, Name: name, UID: ks + "." + name},
 		})
 	}
 	return pageRows(rc, out)
@@ -343,7 +343,7 @@ FROM system_schema.types`, nil)
 			"name":     name,
 			"keyspace": ks,
 			"fields":   typeFields(r["field_names"], r["field_types"]),
-			"ref":      plugin.ResourceRef{Kind: "type", Namespace: ks, Name: name, UID: ks + "." + name},
+			"ref":      plugin.ResourceIdentity{Kind: "type", Namespace: ks, Name: name, UID: ks + "." + name},
 		})
 	}
 	return pageRows(rc, out)
@@ -385,7 +385,7 @@ FROM system_schema.functions`, nil)
 			"return_type": r["return_type"],
 			"language":    r["language"],
 			"body":        r["body"],
-			"ref":         plugin.ResourceRef{Kind: "function", Namespace: ks, Name: name, UID: id},
+			"ref":         plugin.ResourceIdentity{Kind: "function", Namespace: ks, Name: name, UID: id},
 		})
 	}
 	return pageRows(rc, out)
@@ -398,7 +398,7 @@ func functionOverview(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	for _, r := range page.(plugin.Page[row]).Items {
-		ref, _ := r["ref"].(plugin.ResourceRef)
+		ref, _ := r["ref"].(plugin.ResourceIdentity)
 		if ref.UID == id {
 			return r, nil
 		}
@@ -1307,7 +1307,7 @@ func treeFromPage(rc *plugin.RequestContext, kind string, iconName string, label
 	}
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, r := range page.Items {
-		ref, _ := r["ref"].(plugin.ResourceRef)
+		ref, _ := r["ref"].(plugin.ResourceIdentity)
 		if ref.Kind == "" {
 			continue
 		}
@@ -1361,7 +1361,7 @@ func nodeRow(address string, r row) row {
 		"release_version": r["release_version"],
 		"schema_version":  r["schema_version"],
 	}
-	item["ref"] = plugin.ResourceRef{Kind: "node", Name: address, UID: address}
+	item["ref"] = plugin.ResourceIdentity{Kind: "node", Name: address, UID: address}
 	return item
 }
 

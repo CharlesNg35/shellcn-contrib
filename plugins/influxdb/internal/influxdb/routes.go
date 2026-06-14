@@ -54,7 +54,7 @@ func statusTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "status", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "status", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "status:" + name, Label: name, Icon: icon("activity"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -64,7 +64,7 @@ func statusList(rc *plugin.RequestContext) (any, error) {
 	rows := cloneRows(statusRows)
 	for _, item := range rows {
 		name := fmt.Sprint(item["name"])
-		item["ref"] = plugin.ResourceRef{Kind: "status", Name: name, UID: name}
+		item["ref"] = plugin.ResourceIdentity{Kind: "status", Name: name, UID: name}
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -98,7 +98,7 @@ func namespaceTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "namespace", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "namespace", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{
 			Key: "namespace:" + name, Label: name, Icon: icon("database"), Ref: &ref,
 			Leaf: true, ResourceKind: "measurement", ListParams: map[string]string{"namespace": name},
@@ -118,7 +118,7 @@ func namespaceList(rc *plugin.RequestContext) (any, error) {
 	}
 	for _, item := range rows {
 		name := fmt.Sprint(item["name"])
-		item["ref"] = plugin.ResourceRef{Kind: "namespace", Name: name, UID: name}
+		item["ref"] = plugin.ResourceIdentity{Kind: "namespace", Name: name, UID: name}
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -151,7 +151,7 @@ func measurementTree(rc *plugin.RequestContext) (any, error) {
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
 		namespace := fmt.Sprint(item["namespace"])
-		ref := plugin.ResourceRef{Kind: "measurement", Namespace: namespace, Name: name, UID: namespace + "." + name}
+		ref := plugin.ResourceIdentity{Kind: "measurement", Namespace: namespace, Name: name, UID: namespace + "." + name}
 		nodes = append(nodes, plugin.TreeNode{Key: "measurement:" + namespace + ":" + name, Label: name, Icon: icon("table-2"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -173,7 +173,7 @@ func measurementList(rc *plugin.RequestContext) (any, error) {
 	for _, item := range rows {
 		name := fmt.Sprint(item["name"])
 		ns := fmt.Sprint(item["namespace"])
-		item["ref"] = plugin.ResourceRef{Kind: "measurement", Namespace: ns, Name: name, UID: ns + "." + name}
+		item["ref"] = plugin.ResourceIdentity{Kind: "measurement", Namespace: ns, Name: name, UID: ns + "." + name}
 	}
 	return broker.PageRows(rc, rows)
 }

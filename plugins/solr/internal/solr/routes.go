@@ -111,7 +111,7 @@ func treeCores(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "core", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "core", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "core:" + name, Label: name, Icon: icon("database"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -129,7 +129,7 @@ func listCores(rc *plugin.RequestContext) (any, error) {
 	rows := make([]row, 0, len(status))
 	for name, item := range status {
 		r := coreRow(name, item)
-		r["ref"] = plugin.ResourceRef{Kind: "core", Name: name, UID: name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "core", Name: name, UID: name}
 		rows = append(rows, r)
 	}
 	return broker.PageRows(rc, rows)
@@ -410,7 +410,7 @@ func listFields(rc *plugin.RequestContext) (any, error) {
 	}
 	for _, item := range rows {
 		name := fmt.Sprint(item["name"])
-		item["ref"] = plugin.ResourceRef{Kind: "field", Namespace: coreParam(rc), Name: name, UID: coreParam(rc) + "/" + name}
+		item["ref"] = plugin.ResourceIdentity{Kind: "field", Namespace: coreParam(rc), Name: name, UID: coreParam(rc) + "/" + name}
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -552,7 +552,7 @@ func searchDocuments(ctx context.Context, s *Session, core string, query url.Val
 			"_id":     id,
 			"_score":  numeric(doc["score"]),
 			"_source": doc,
-			"ref":     plugin.ResourceRef{Kind: "document", Namespace: core, Name: id, UID: core + "/" + id},
+			"ref":     plugin.ResourceIdentity{Kind: "document", Namespace: core, Name: id, UID: core + "/" + id},
 		})
 	}
 	return searchResult{Rows: rows, Total: out.Response.NumFound}, nil

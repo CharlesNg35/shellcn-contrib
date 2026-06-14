@@ -14,7 +14,7 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
-type row map[string]any
+type row = plugin.TableRow
 
 type actionResult struct {
 	OK bool `json:"ok"`
@@ -103,7 +103,7 @@ func treeTopics(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "topic", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "topic", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "topic:" + name, Label: name, Icon: icon("radio-tower"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -118,7 +118,7 @@ func treeGroups(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "consumer_group", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "consumer_group", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "group:" + name, Label: name, Icon: icon("users"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -146,7 +146,7 @@ func listTopics(rc *plugin.RequestContext) (any, error) {
 			"partitions":         d.NumPartitions,
 			"replication_factor": d.ReplicationFactor,
 			"internal":           strings.HasPrefix(name, "__"),
-			"ref":                plugin.ResourceRef{Kind: "topic", Name: name, UID: name},
+			"ref":                plugin.ResourceIdentity{Kind: "topic", Name: name, UID: name},
 		})
 	}
 	return broker.PageRows(rc, rows)
@@ -408,7 +408,7 @@ func listGroups(rc *plugin.RequestContext) (any, error) {
 	}
 	rows := make([]row, 0, len(names))
 	for _, name := range names {
-		r := row{"name": name, "protocol_type": groups[name], "ref": plugin.ResourceRef{Kind: "consumer_group", Name: name, UID: name}}
+		r := row{"name": name, "protocol_type": groups[name], "ref": plugin.ResourceIdentity{Kind: "consumer_group", Name: name, UID: name}}
 		if d := byName[name]; d != nil {
 			r["state"] = d.State
 			r["members"] = len(d.Members)

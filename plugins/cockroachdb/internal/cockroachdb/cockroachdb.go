@@ -55,7 +55,7 @@ func boolPtr(v bool) *bool {
 
 func tree() []plugin.TreeGroup {
 	return []plugin.TreeGroup{
-		{Key: "databases", Label: "Databases", Icon: icon("database"), Source: plugin.DataSource{RouteID: "cockroachdb.databases.tree"}, Ref: &plugin.ResourceRef{Kind: "server", Name: "Databases", UID: "server"}},
+		{Key: "databases", Label: "Databases", Icon: icon("database"), Source: plugin.DataSource{RouteID: "cockroachdb.databases.tree"}, Ref: &plugin.ResourceIdentity{Kind: "server", Name: "Databases", UID: "server"}},
 		{Key: "nodes", Label: "Nodes", Icon: icon("server"), Source: plugin.DataSource{RouteID: "cockroachdb.nodes.tree"}, ResourceKind: "node"},
 		{Key: "ranges", Label: "Ranges", Icon: icon("blocks"), ResourceKind: "range"},
 		{Key: "jobs", Label: "Jobs", Icon: icon("briefcase-business"), ResourceKind: "job"},

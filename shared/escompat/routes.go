@@ -116,7 +116,7 @@ func treeIndexes(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["index"])
-		ref := plugin.ResourceRef{Kind: "index", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "index", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "index:" + name, Label: name, Icon: icon("database"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -139,7 +139,7 @@ func listIndexes(rc *plugin.RequestContext) (any, error) {
 		r["docs_deleted"] = numericString(r["docs.deleted"])
 		r["store_size"] = numericString(r["store.size"])
 		r["pri_store_size"] = numericString(r["pri.store.size"])
-		r["ref"] = plugin.ResourceRef{Kind: "index", Name: name, UID: name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "index", Name: name, UID: name}
 		rows = append(rows, r)
 	}
 	sort.Slice(rows, func(i, j int) bool { return fmt.Sprint(rows[i]["index"]) < fmt.Sprint(rows[j]["index"]) })
@@ -694,7 +694,7 @@ func executeSearch(ctx context.Context, s *Session, index string, body map[strin
 			"_score":   hit["_score"],
 			"_source":  hit["_source"],
 			"_version": hit["_version"],
-			"ref":      plugin.ResourceRef{Kind: "document", Namespace: idx, Name: id, UID: idx + "/" + id},
+			"ref":      plugin.ResourceIdentity{Kind: "document", Namespace: idx, Name: id, UID: idx + "/" + id},
 		})
 	}
 	return searchResult{Rows: rows, Total: total}, nil

@@ -121,7 +121,7 @@ func treeIndexes(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["uid"])
-		ref := plugin.ResourceRef{Kind: "index", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "index", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "index:" + name, Label: name, Icon: icon("database"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -149,7 +149,7 @@ func listIndexes(rc *plugin.RequestContext) (any, error) {
 				r[k] = v
 			}
 		}
-		r["ref"] = plugin.ResourceRef{Kind: "index", Name: name, UID: name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "index", Name: name, UID: name}
 	}
 	next := nextOffset(out.Offset, out.Limit, out.Total)
 	return plugin.Page[row]{Items: out.Results, NextCursor: next, Total: &out.Total}, nil
@@ -287,7 +287,7 @@ func listDocuments(rc *plugin.RequestContext) (any, error) {
 	rows := make([]row, 0, len(out.Results))
 	for i, doc := range out.Results {
 		id := docID(doc, pk, out.Offset+i)
-		rows = append(rows, row{"_index": index, "_id": id, "_source": doc, "ref": plugin.ResourceRef{Kind: "document", Namespace: index, Name: id, UID: index + "/" + id}})
+		rows = append(rows, row{"_index": index, "_id": id, "_source": doc, "ref": plugin.ResourceIdentity{Kind: "document", Namespace: index, Name: id, UID: index + "/" + id}})
 	}
 	next := nextOffset(out.Offset, out.Limit, out.Total)
 	return plugin.Page[row]{Items: rows, NextCursor: next, Total: &out.Total}, nil
@@ -385,7 +385,7 @@ func treeTasks(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["uid"])
-		ref := plugin.ResourceRef{Kind: "task", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "task", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "task:" + name, Label: name + " " + fmt.Sprint(item["type"]), Icon: icon("list-checks"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -414,7 +414,7 @@ func listTasks(rc *plugin.RequestContext) (any, error) {
 	}
 	for _, item := range out.Results {
 		name := fmt.Sprint(item["uid"])
-		item["ref"] = plugin.ResourceRef{Kind: "task", Name: name, UID: name}
+		item["ref"] = plugin.ResourceIdentity{Kind: "task", Name: name, UID: name}
 	}
 	next := ""
 	if out.Next != nil {
@@ -476,7 +476,7 @@ func treeKeys(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["uid"])
-		ref := plugin.ResourceRef{Kind: "key", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "key", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "key:" + name, Label: displayName(item, name), Icon: icon("key-round"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
@@ -499,7 +499,7 @@ func listKeys(rc *plugin.RequestContext) (any, error) {
 	}
 	for _, item := range out.Results {
 		name := fmt.Sprint(item["uid"])
-		item["ref"] = plugin.ResourceRef{Kind: "key", Name: name, UID: name}
+		item["ref"] = plugin.ResourceIdentity{Kind: "key", Name: name, UID: name}
 	}
 	next := nextOffset(out.Offset, out.Limit, out.Total)
 	return plugin.Page[row]{Items: out.Results, NextCursor: next, Total: &out.Total}, nil

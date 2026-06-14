@@ -98,7 +98,7 @@ func statusTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "status", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "status", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "status:" + name, Label: name, Icon: icon("activity"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -108,7 +108,7 @@ func statusList(rc *plugin.RequestContext) (any, error) {
 	rows := cloneRows(statusItems)
 	for _, item := range rows {
 		name := fmt.Sprint(item["name"])
-		item["ref"] = plugin.ResourceRef{Kind: "status", Name: name, UID: name}
+		item["ref"] = plugin.ResourceIdentity{Kind: "status", Name: name, UID: name}
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -145,7 +145,7 @@ func targetTree(rc *plugin.RequestContext) (any, error) {
 	for _, item := range page.Items {
 		uid := fmt.Sprint(item["uid"])
 		label := fmt.Sprint(item["job"]) + "/" + fmt.Sprint(item["instance"])
-		ref := plugin.ResourceRef{Kind: "target", Name: label, UID: uid}
+		ref := plugin.ResourceIdentity{Kind: "target", Name: label, UID: uid}
 		nodes = append(nodes, plugin.TreeNode{Key: "target:" + uid, Label: label, Icon: targetIcon(item), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -162,7 +162,7 @@ func targetList(rc *plugin.RequestContext) (any, error) {
 	}
 	for _, item := range rows {
 		label := fmt.Sprint(item["job"]) + "/" + fmt.Sprint(item["instance"])
-		item["ref"] = plugin.ResourceRef{Kind: "target", Name: label, UID: fmt.Sprint(item["uid"])}
+		item["ref"] = plugin.ResourceIdentity{Kind: "target", Name: label, UID: fmt.Sprint(item["uid"])}
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -205,7 +205,7 @@ func alertTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		uid := fmt.Sprint(item["uid"])
-		ref := plugin.ResourceRef{Kind: "alert", Name: fmt.Sprint(item["alertname"]), UID: uid}
+		ref := plugin.ResourceIdentity{Kind: "alert", Name: fmt.Sprint(item["alertname"]), UID: uid}
 		nodes = append(nodes, plugin.TreeNode{Key: "alert:" + uid, Label: fmt.Sprint(item["alertname"]), Icon: icon("bell"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -221,7 +221,7 @@ func alertList(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	for _, item := range rows {
-		item["ref"] = plugin.ResourceRef{Kind: "alert", Name: fmt.Sprint(item["alertname"]), UID: fmt.Sprint(item["uid"])}
+		item["ref"] = plugin.ResourceIdentity{Kind: "alert", Name: fmt.Sprint(item["alertname"]), UID: fmt.Sprint(item["uid"])}
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -239,7 +239,7 @@ func ruleTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		uid := fmt.Sprint(item["uid"])
-		ref := plugin.ResourceRef{Kind: "rule", Name: fmt.Sprint(item["name"]), UID: uid}
+		ref := plugin.ResourceIdentity{Kind: "rule", Name: fmt.Sprint(item["name"]), UID: uid}
 		nodes = append(nodes, plugin.TreeNode{Key: "rule:" + uid, Label: fmt.Sprint(item["name"]), Icon: icon("list-checks"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -255,7 +255,7 @@ func ruleList(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	for _, item := range rows {
-		item["ref"] = plugin.ResourceRef{Kind: "rule", Name: fmt.Sprint(item["name"]), UID: fmt.Sprint(item["uid"])}
+		item["ref"] = plugin.ResourceIdentity{Kind: "rule", Name: fmt.Sprint(item["name"]), UID: fmt.Sprint(item["uid"])}
 	}
 	return broker.PageRows(rc, rows)
 }
@@ -273,7 +273,7 @@ func metricTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "metric", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "metric", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "metric:" + name, Label: name, Icon: icon("chart-line"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -301,7 +301,7 @@ func metricList(rc *plugin.RequestContext) (any, error) {
 			item["help"] = entries[0]["help"]
 			item["unit"] = entries[0]["unit"]
 		}
-		item["ref"] = plugin.ResourceRef{Kind: "metric", Name: name, UID: name}
+		item["ref"] = plugin.ResourceIdentity{Kind: "metric", Name: name, UID: name}
 		rows = append(rows, item)
 	}
 	return broker.PageRows(rc, rows)
@@ -345,7 +345,7 @@ func labelTree(rc *plugin.RequestContext) (any, error) {
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
-		ref := plugin.ResourceRef{Kind: "label", Name: name, UID: name}
+		ref := plugin.ResourceIdentity{Kind: "label", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "label:" + name, Label: name, Icon: icon("tag"), Ref: &ref, Leaf: true})
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
@@ -362,7 +362,7 @@ func labelList(rc *plugin.RequestContext) (any, error) {
 	}
 	rows := make([]row, 0, len(names))
 	for _, name := range names {
-		rows = append(rows, row{"name": name, "ref": plugin.ResourceRef{Kind: "label", Name: name, UID: name}})
+		rows = append(rows, row{"name": name, "ref": plugin.ResourceIdentity{Kind: "label", Name: name, UID: name}})
 	}
 	return broker.PageRows(rc, rows)
 }

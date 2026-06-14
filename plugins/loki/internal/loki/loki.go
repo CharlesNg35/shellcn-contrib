@@ -45,7 +45,7 @@ type Session struct {
 	opts   Options
 }
 
-type row map[string]any
+type row = plugin.TableRow
 
 func New() plugin.Plugin { return Plugin{} }
 

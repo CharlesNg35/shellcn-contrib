@@ -18,7 +18,7 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
-type row map[string]any
+type row = plugin.TableRow
 
 type actionResult struct {
 	OK bool `json:"ok"`
@@ -200,7 +200,7 @@ func treeDatabases(rc *plugin.RequestContext) (any, error) {
 			Key:            "db:" + name,
 			Label:          name,
 			Icon:           icon("database"),
-			Ref:            &plugin.ResourceRef{Kind: "database", Name: name, UID: name},
+			Ref:            &plugin.ResourceIdentity{Kind: "database", Name: name, UID: name},
 			ChildrenSource: &plugin.DataSource{RouteID: "mssql.schemas.tree", Params: map[string]string{"database": name}},
 		})
 	}
@@ -215,7 +215,7 @@ func treeSchemas(rc *plugin.RequestContext) (any, error) {
 	page := res.(plugin.Page[row])
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, r := range page.Items {
-		ref, ok := r["ref"].(plugin.ResourceRef)
+		ref, ok := r["ref"].(plugin.ResourceIdentity)
 		if !ok {
 			continue
 		}
@@ -243,7 +243,7 @@ func treeRelations(rc *plugin.RequestContext) (any, error) {
 	nodes := []plugin.TreeNode{}
 	add := func(res any, iconName string) {
 		for _, r := range res.(plugin.Page[row]).Items {
-			ref, ok := r["ref"].(plugin.ResourceRef)
+			ref, ok := r["ref"].(plugin.ResourceIdentity)
 			if !ok || ref.Kind == "" {
 				continue
 			}
@@ -283,7 +283,7 @@ ORDER BY name`, nil)
 	}
 	for _, r := range rows {
 		name := fmt.Sprint(r["name"])
-		r["ref"] = plugin.ResourceRef{Kind: "database", Name: name, UID: name}
+		r["ref"] = plugin.ResourceIdentity{Kind: "database", Name: name, UID: name}
 	}
 	return pageRows(rc, rows)
 }
@@ -341,7 +341,7 @@ ORDER BY s.name`, quoteLiteral(database), quoteIdent(database), quoteIdent(datab
 		for _, r := range rows {
 			name := fmt.Sprint(r["name"])
 			r["database"] = database
-			r["ref"] = plugin.ResourceRef{Kind: "schema", Namespace: database, Name: name, UID: objectID(database, name, "")}
+			r["ref"] = plugin.ResourceIdentity{Kind: "schema", Namespace: database, Name: name, UID: objectID(database, name, "")}
 			out = append(out, r)
 		}
 	}
@@ -447,7 +447,7 @@ ORDER BY SCHEMA_NAME(o.schema_id), o.name`, quoteLiteral(database), quoteIdent(d
 		}
 		for _, r := range rows {
 			name, schemaName := fmt.Sprint(r["name"]), fmt.Sprint(r["schema"])
-			r["ref"] = plugin.ResourceRef{Kind: refKind, Namespace: database, Name: quoteIdent(schemaName) + "." + quoteIdent(name), UID: objectID(database, schemaName, name)}
+			r["ref"] = plugin.ResourceIdentity{Kind: refKind, Namespace: database, Name: quoteIdent(schemaName) + "." + quoteIdent(name), UID: objectID(database, schemaName, name)}
 			out = append(out, r)
 		}
 	}
@@ -479,7 +479,7 @@ ORDER BY SCHEMA_NAME(o.schema_id), o.name`, quoteLiteral(database), quoteIdent(d
 		}
 		for _, r := range rows {
 			name, schemaName := fmt.Sprint(r["name"]), fmt.Sprint(r["schema"])
-			r["ref"] = plugin.ResourceRef{Kind: "procedure", Namespace: database, Name: quoteIdent(schemaName) + "." + quoteIdent(name), UID: objectID(database, schemaName, name)}
+			r["ref"] = plugin.ResourceIdentity{Kind: "procedure", Namespace: database, Name: quoteIdent(schemaName) + "." + quoteIdent(name), UID: objectID(database, schemaName, name)}
 			out = append(out, r)
 		}
 	}
@@ -508,7 +508,7 @@ ORDER BY dp.name`, quoteLiteral(database), quoteIdent(database)), nil)
 		}
 		for _, r := range rows {
 			name := fmt.Sprint(r["name"])
-			r["ref"] = plugin.ResourceRef{Kind: "user", Namespace: database, Name: name, UID: objectID(database, "", name)}
+			r["ref"] = plugin.ResourceIdentity{Kind: "user", Namespace: database, Name: name, UID: objectID(database, "", name)}
 			out = append(out, r)
 		}
 	}
@@ -557,7 +557,7 @@ ORDER BY j.name`, nil)
 	}
 	for _, r := range rows {
 		id, name := fmt.Sprint(r["id"]), fmt.Sprint(r["name"])
-		r["ref"] = plugin.ResourceRef{Kind: "job", Name: name, UID: id}
+		r["ref"] = plugin.ResourceIdentity{Kind: "job", Name: name, UID: id}
 	}
 	return pageRows(rc, rows)
 }
@@ -850,7 +850,7 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 
 // foreignKeys maps each FK column to the referenced table's ref, attached under
 // the generic "_links" field the grid renders as links.
-func foreignKeys(ctx context.Context, s *Session, database, schema, table string) (map[string]plugin.ResourceRef, error) {
+func foreignKeys(ctx context.Context, s *Session, database, schema, table string) (map[string]plugin.ResourceIdentity, error) {
 	rows, err := queryRows(ctx, s, fmt.Sprintf(`
 SELECT pc.name AS col, SCHEMA_NAME(rt.schema_id) AS ref_schema, rt.name AS ref_table
 FROM %s.sys.foreign_keys fk
@@ -863,15 +863,15 @@ WHERE sc.name = @p1 AND o.name = @p2`, quoteIdent(database), quoteIdent(database
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]plugin.ResourceRef{}
+	out := map[string]plugin.ResourceIdentity{}
 	for _, r := range rows {
 		col, refSchema, refTable := fmt.Sprint(r["col"]), fmt.Sprint(r["ref_schema"]), fmt.Sprint(r["ref_table"])
-		out[col] = plugin.ResourceRef{Kind: "table", Namespace: database, Name: quoteIdent(refSchema) + "." + quoteIdent(refTable), UID: objectID(database, refSchema, refTable)}
+		out[col] = plugin.ResourceIdentity{Kind: "table", Namespace: database, Name: quoteIdent(refSchema) + "." + quoteIdent(refTable), UID: objectID(database, refSchema, refTable)}
 	}
 	return out, nil
 }
 
-func attachForeignKeys(rows []row, fks map[string]plugin.ResourceRef) {
+func attachForeignKeys(rows []row, fks map[string]plugin.ResourceIdentity) {
 	if len(fks) == 0 {
 		return
 	}
@@ -1875,7 +1875,7 @@ func treeFromPage(rc *plugin.RequestContext, kind string, iconName string, label
 	}
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, r := range page.Items {
-		ref, _ := r["ref"].(plugin.ResourceRef)
+		ref, _ := r["ref"].(plugin.ResourceIdentity)
 		if ref.Kind == "" {
 			continue
 		}
