@@ -74,7 +74,7 @@ func (Plugin) Manifest() plugin.Manifest {
 		Actions:             actions(),
 		Streams: []plugin.Stream{
 			{ID: rid("metrics.live"), Kind: plugin.StreamMetrics, RouteID: rid("metrics.live")},
-			{ID: rid("query"), Kind: plugin.StreamLogs, RouteID: rid("query")},
+			{ID: rid("query"), Kind: plugin.StreamQuery, RouteID: rid("query")},
 		},
 	}
 }

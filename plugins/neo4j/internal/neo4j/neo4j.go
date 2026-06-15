@@ -47,7 +47,7 @@ func (p *Plugin) Manifest() plugin.Manifest {
 		Resources:           resources(),
 		Actions:             actions(),
 		Streams: []plugin.Stream{
-			{ID: rid("query"), Kind: plugin.StreamLogs, RouteID: rid("query")},
+			{ID: rid("query"), Kind: plugin.StreamQuery, RouteID: rid("query")},
 		},
 	}
 }

@@ -30,7 +30,7 @@ func (p *Plugin) Manifest() plugin.Manifest {
 		Resources:           resources(),
 		Actions:             actions(),
 		Streams: []plugin.Stream{
-			{ID: "cassandra.query", Kind: plugin.StreamLogs, RouteID: "cassandra.query"},
+			{ID: "cassandra.query", Kind: plugin.StreamQuery, RouteID: "cassandra.query"},
 		},
 	}
 }

@@ -100,7 +100,7 @@ func (p *Plugin) Manifest() plugin.Manifest {
 		Tree:                tree(p.provider),
 		Resources:           resources(p.provider),
 		Actions:             actions(p.provider),
-		Streams:             []plugin.Stream{{ID: routeID(p.provider, "search.query"), Kind: plugin.StreamLogs, RouteID: routeID(p.provider, "search.query")}},
+		Streams:             []plugin.Stream{{ID: routeID(p.provider, "search.query"), Kind: plugin.StreamQuery, RouteID: routeID(p.provider, "search.query")}},
 	}
 }
 

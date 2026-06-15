@@ -30,7 +30,7 @@ func (p *Plugin) Manifest() plugin.Manifest {
 		Resources:           resources(),
 		Actions:             actions(),
 		Streams: []plugin.Stream{
-			{ID: "mssql.query", Kind: plugin.StreamLogs, RouteID: "mssql.query"},
+			{ID: "mssql.query", Kind: plugin.StreamQuery, RouteID: "mssql.query"},
 		},
 	}
 }

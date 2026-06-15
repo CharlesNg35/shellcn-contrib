@@ -30,7 +30,7 @@ func (p *Plugin) Manifest() plugin.Manifest {
 		Resources:           resources(),
 		Actions:             actions(),
 		Streams: []plugin.Stream{
-			{ID: "cockroachdb.query", Kind: plugin.StreamLogs, RouteID: "cockroachdb.query"},
+			{ID: "cockroachdb.query", Kind: plugin.StreamQuery, RouteID: "cockroachdb.query"},
 		},
 	}
 }

@@ -54,7 +54,7 @@ func (p *Plugin) Manifest() plugin.Manifest {
 		HeaderActions: []string{"surrealdb.open"},
 
 		Streams: []plugin.Stream{
-			{ID: "surrealdb.query", Kind: plugin.StreamLogs, RouteID: "surrealdb.query"},
+			{ID: "surrealdb.query", Kind: plugin.StreamQuery, RouteID: "surrealdb.query"},
 			{ID: "surrealdb.repl", Kind: plugin.StreamTerminal, RouteID: "surrealdb.repl"},
 			{ID: "surrealdb.table.tail", Kind: plugin.StreamLogs, RouteID: "surrealdb.table.tail"},
 		},

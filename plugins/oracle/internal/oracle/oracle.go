@@ -30,7 +30,7 @@ func (p *Plugin) Manifest() plugin.Manifest {
 		Resources:           resources(),
 		Actions:             actions(),
 		Streams: []plugin.Stream{
-			{ID: "oracle.query", Kind: plugin.StreamLogs, RouteID: "oracle.query"},
+			{ID: "oracle.query", Kind: plugin.StreamQuery, RouteID: "oracle.query"},
 		},
 	}
 }

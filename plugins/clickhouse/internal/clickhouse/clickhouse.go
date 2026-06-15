@@ -30,7 +30,7 @@ func (p *Plugin) Manifest() plugin.Manifest {
 		Resources:           resources(),
 		Actions:             actions(),
 		Streams: []plugin.Stream{
-			{ID: "clickhouse.query", Kind: plugin.StreamLogs, RouteID: "clickhouse.query"},
+			{ID: "clickhouse.query", Kind: plugin.StreamQuery, RouteID: "clickhouse.query"},
 		},
 	}
 }

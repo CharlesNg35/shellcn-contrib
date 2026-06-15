@@ -77,7 +77,7 @@ func (Plugin) Manifest() plugin.Manifest {
 		Tree:                tree(),
 		Resources:           resources(),
 		Actions:             actions(),
-		Streams:             []plugin.Stream{{ID: rid("partiql"), Kind: plugin.StreamLogs, RouteID: rid("partiql")}},
+		Streams:             []plugin.Stream{{ID: rid("partiql"), Kind: plugin.StreamQuery, RouteID: rid("partiql")}},
 	}
 }
 
