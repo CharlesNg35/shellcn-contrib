@@ -48,8 +48,8 @@ type pathsRequest struct {
 }
 
 type destRequest struct {
-	Paths []string `json:"paths"`
-	Dest  string   `json:"dest"`
+	Paths       []string `json:"paths"`
+	Destination string   `json:"destination"`
 }
 
 type chmodRequest struct {
@@ -166,7 +166,7 @@ func bindDest(rc *plugin.RequestContext) (paths []string, dest string, err error
 	if err = rc.Bind(&req); err != nil {
 		return nil, "", err
 	}
-	dest, err = cleanRemotePath(req.Dest)
+	dest, err = cleanRemotePath(req.Destination)
 	if err != nil {
 		return nil, "", err
 	}
@@ -175,6 +175,26 @@ func bindDest(rc *plugin.RequestContext) (paths []string, dest string, err error
 		return nil, "", err
 	}
 	return paths, dest, nil
+}
+
+func pathsSchema(groupName string) *plugin.Schema {
+	return &plugin.Schema{Groups: []plugin.Group{{Name: groupName, Fields: []plugin.Field{
+		{Key: "paths", Label: "Paths", Type: plugin.FieldArray, Required: true, Item: &plugin.Field{Type: plugin.FieldText, Required: true}},
+	}}}}
+}
+
+func fileOperationSchema(groupName string) *plugin.Schema {
+	return &plugin.Schema{Groups: []plugin.Group{{Name: groupName, Fields: []plugin.Field{
+		{Key: "paths", Label: "Paths", Type: plugin.FieldArray, Required: true, Item: &plugin.Field{Type: plugin.FieldText, Required: true}},
+		{Key: "destination", Label: "Destination", Type: plugin.FieldText, Required: true},
+	}}}}
+}
+
+func chmodSchema() *plugin.Schema {
+	return &plugin.Schema{Groups: []plugin.Group{{Name: "Permissions", Fields: []plugin.Field{
+		{Key: "paths", Label: "Paths", Type: plugin.FieldArray, Required: true, Item: &plugin.Field{Type: plugin.FieldText, Required: true}},
+		{Key: "mode", Label: "Mode", Type: plugin.FieldText, Required: true, Placeholder: "0644"},
+	}}}}
 }
 
 // archive streams a zip built generically over the base Client (Stat/ReadDir/

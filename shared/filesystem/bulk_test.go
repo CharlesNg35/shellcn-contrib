@@ -69,7 +69,7 @@ func TestBulkMoveCopyChmodOnCapableBackend(t *testing.T) {
 	routes := bulkRoutes(t)
 
 	if _, err := handle(t, routes["test.files.move"], c, mustJSON(t, map[string]any{
-		"paths": []string{"/a.txt"}, "dest": "/dest",
+		"paths": []string{"/a.txt"}, "destination": "/dest",
 	})); err != nil {
 		t.Fatalf("move: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestBulkMoveCopyChmodOnCapableBackend(t *testing.T) {
 	}
 
 	if _, err := handle(t, routes["test.files.copy"], c, mustJSON(t, map[string]any{
-		"paths": []string{"/b.txt"}, "dest": "/dest",
+		"paths": []string{"/b.txt"}, "destination": "/dest",
 	})); err != nil {
 		t.Fatalf("copy: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestBulkUnsupportedReturnsCleanError(t *testing.T) {
 	routes := bulkRoutes(t)
 
 	for _, id := range []string{"test.files.move", "test.files.copy"} {
-		_, err := handle(t, routes[id], m, mustJSON(t, map[string]any{"paths": []string{"/x"}, "dest": "/d"}))
+		_, err := handle(t, routes[id], m, mustJSON(t, map[string]any{"paths": []string{"/x"}, "destination": "/d"}))
 		if !errors.Is(err, plugin.ErrInvalidInput) {
 			t.Fatalf("%s: expected ErrInvalidInput for unsupported backend, got %v", id, err)
 		}
@@ -119,11 +119,11 @@ func TestBulkRejectsEmptyAndRootPaths(t *testing.T) {
 	c := newCapFS()
 	routes := bulkRoutes(t)
 
-	_, err := handle(t, routes["test.files.move"], c, mustJSON(t, map[string]any{"paths": []string{}, "dest": "/d"}))
+	_, err := handle(t, routes["test.files.move"], c, mustJSON(t, map[string]any{"paths": []string{}, "destination": "/d"}))
 	if !errors.Is(err, plugin.ErrInvalidInput) {
 		t.Fatalf("empty paths: expected ErrInvalidInput, got %v", err)
 	}
-	_, err = handle(t, routes["test.files.move"], c, mustJSON(t, map[string]any{"paths": []string{"/"}, "dest": "/d"}))
+	_, err = handle(t, routes["test.files.move"], c, mustJSON(t, map[string]any{"paths": []string{"/"}, "destination": "/d"}))
 	if !errors.Is(err, plugin.ErrInvalidInput) {
 		t.Fatalf("root path: expected ErrInvalidInput, got %v", err)
 	}
