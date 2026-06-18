@@ -62,6 +62,50 @@ type ColumnSpec struct {
 	Unique   bool   `json:"unique"`
 }
 
+func TableColumnType(databaseType string) plugin.ColumnType {
+	t := strings.ToLower(databaseType)
+	switch {
+	case strings.Contains(t, "bool"):
+		return plugin.ColumnBool
+	case strings.Contains(t, "json"):
+		return plugin.ColumnJSON
+	case strings.Contains(t, "int"),
+		strings.Contains(t, "serial"),
+		strings.Contains(t, "numeric"),
+		strings.Contains(t, "decimal"),
+		strings.Contains(t, "real"),
+		strings.Contains(t, "double"),
+		strings.Contains(t, "float"),
+		strings.Contains(t, "money"),
+		strings.Contains(t, "number"):
+		return plugin.ColumnNumber
+	case strings.Contains(t, "date"), strings.Contains(t, "time"):
+		return plugin.ColumnDateTime
+	default:
+		return plugin.ColumnText
+	}
+}
+
+func TableColumnEditor(databaseType string) plugin.ColumnEditor {
+	switch TableColumnType(databaseType) {
+	case plugin.ColumnBool:
+		return plugin.ColumnEditorToggle
+	case plugin.ColumnJSON:
+		return plugin.ColumnEditorJSON
+	case plugin.ColumnNumber:
+		return plugin.ColumnEditorNumber
+	default:
+		return plugin.ColumnEditorText
+	}
+}
+
+func AnnotateTableColumn(row plugin.TableRow, databaseType string, readOnly bool) {
+	row["columnType"] = TableColumnType(databaseType)
+	row["editor"] = TableColumnEditor(databaseType)
+	row["editable"] = !readOnly
+	row["readOnly"] = readOnly
+}
+
 // ColumnsField describes which ColumnSpec attributes a dialect's DDL builder
 // honours, so a plugin only exposes sub-fields its handler actually applies.
 type ColumnsField struct {

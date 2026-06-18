@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -590,9 +591,16 @@ ORDER BY position`, []any{database, table})
 	if err != nil {
 		return nil, err
 	}
+	key, err := sortingKeyColumns(rc.Ctx, s, database, table)
+	if err != nil {
+		return nil, err
+	}
 	for i := range rows {
 		rows[i]["database"] = database
 		rows[i]["table"] = table
+		name := fmt.Sprint(rows[i]["name"])
+		readOnly := slices.Contains(key, name) || sqldb.RedactColumn(name, s.opts.RedactPatterns)
+		sqldb.AnnotateTableColumn(rows[i], fmt.Sprint(rows[i]["type"]), readOnly)
 	}
 	return pageRows(rc, rows)
 }

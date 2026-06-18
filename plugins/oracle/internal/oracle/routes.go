@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -968,11 +969,18 @@ ORDER BY c.column_id`, []any{owner, name})
 	if err != nil {
 		return nil, err
 	}
+	pk, err := primaryKeyColumns(rc.Ctx, s, owner, name)
+	if err != nil {
+		return nil, err
+	}
 	id := rc.Param("id")
 	for _, r := range rows {
 		normalizeRowKeys(r)
 		r["default"] = r["default_value"]
 		r["nullable"] = boolish(r["nullable"])
+		columnName := fmt.Sprint(r["name"])
+		readOnly := slices.Contains(pk, columnName) || sqldb.RedactColumn(columnName, s.opts.RedactPatterns)
+		sqldb.AnnotateTableColumn(r, fmt.Sprint(r["type"]), readOnly)
 		delete(r, "default_value")
 		r["id"] = id
 	}

@@ -221,6 +221,8 @@ type columnRow struct {
 	Label    string `json:"label"`
 	Type     string `json:"type,omitempty"`
 	ReadOnly bool   `json:"readOnly,omitempty"`
+	Editable bool   `json:"editable,omitempty"`
+	Editor   string `json:"editor,omitempty"`
 }
 
 // tableColumnsRoute powers the editable data grid's ColumnsSource: the id column
@@ -239,10 +241,15 @@ func tableColumnsRoute(rc *plugin.RequestContext) (any, error) {
 	defs := section(info, "fields")
 	for _, name := range sortedKeys(defs) {
 		def, _ := defs[name].(string)
-		cols = append(cols, columnRow{Name: name, Label: name, Type: parseFieldType(def)})
+		fieldType := parseFieldType(def)
+		readOnly := strings.Contains(strings.ToUpper(def), " READONLY")
+		cols = append(cols, columnRow{
+			Name: name, Label: name, Type: fieldType,
+			ReadOnly: readOnly, Editable: !readOnly, Editor: fieldEditor(fieldType),
+		})
 	}
 	if len(defs) == 0 {
-		cols = append(cols, columnRow{Name: "record", Label: "Record", Type: "json"})
+		cols = append(cols, columnRow{Name: "record", Label: "Record", Type: "json", Editable: true, Editor: string(plugin.ColumnEditorJSON)})
 	}
 	return plugin.Page[columnRow]{Items: cols}, nil
 }
@@ -460,6 +467,20 @@ func parseFieldType(def string) string {
 		}
 	}
 	return strings.TrimSpace(rest)
+}
+
+func fieldEditor(fieldType string) string {
+	t := strings.ToLower(fieldType)
+	switch {
+	case strings.Contains(t, "bool"):
+		return string(plugin.ColumnEditorToggle)
+	case strings.Contains(t, "array"), strings.Contains(t, "object"), strings.Contains(t, "record"), strings.Contains(t, "json"):
+		return string(plugin.ColumnEditorJSON)
+	case strings.Contains(t, "int"), strings.Contains(t, "float"), strings.Contains(t, "decimal"), strings.Contains(t, "number"):
+		return string(plugin.ColumnEditorNumber)
+	default:
+		return string(plugin.ColumnEditorText)
+	}
 }
 
 // validType allows a SurrealQL type expression: identifiers plus the bracket,

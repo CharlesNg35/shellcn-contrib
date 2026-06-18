@@ -3,6 +3,8 @@ package sqldb
 import (
 	"reflect"
 	"testing"
+
+	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
 func pgDialect() Dialect {
@@ -100,6 +102,28 @@ func TestStatementSafetyClassification(t *testing.T) {
 		if !IsDestructiveStatement(sql) {
 			t.Fatalf("write statement should require confirmation: %q", sql)
 		}
+	}
+}
+
+func TestAnnotateTableColumnAddsEditableRendererMetadata(t *testing.T) {
+	row := plugin.TableRow{"name": "payload", "type": "jsonb"}
+	AnnotateTableColumn(row, "jsonb", false)
+	if row["type"] != "jsonb" {
+		t.Fatalf("database type should remain visible, got %#v", row["type"])
+	}
+	if row["columnType"] != plugin.ColumnJSON {
+		t.Fatalf("columnType = %#v, want json renderer", row["columnType"])
+	}
+	if row["editor"] != plugin.ColumnEditorJSON || row["editable"] != true || row["readOnly"] != false {
+		t.Fatalf("editable metadata = %#v", row)
+	}
+
+	AnnotateTableColumn(row, "bigint", true)
+	if row["columnType"] != plugin.ColumnNumber || row["editor"] != plugin.ColumnEditorNumber {
+		t.Fatalf("numeric metadata = %#v", row)
+	}
+	if row["editable"] != false || row["readOnly"] != true {
+		t.Fatalf("read-only metadata = %#v", row)
 	}
 }
 

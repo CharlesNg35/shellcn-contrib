@@ -565,6 +565,12 @@ WHERE keyspace_name = ? AND table_name = ?`, []any{keyspace, table})
 	for i := range rows {
 		rows[i]["keyspace"] = keyspace
 		rows[i]["table"] = table
+		columnName := fmt.Sprint(rows[i]["column_name"])
+		databaseType := fmt.Sprint(rows[i]["type"])
+		readOnly := sqldb.RedactColumn(columnName, s.opts.RedactPatterns) ||
+			strings.Contains(fmt.Sprint(rows[i]["kind"]), "partition_key") ||
+			strings.Contains(fmt.Sprint(rows[i]["kind"]), "clustering")
+		sqldb.AnnotateTableColumn(rows[i], databaseType, readOnly)
 	}
 	return pageRows(rc, rows)
 }

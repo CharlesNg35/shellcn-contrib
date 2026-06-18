@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -902,9 +903,18 @@ ORDER BY c.column_id`, quoteIdent(database), quoteIdent(database), quoteIdent(da
 	if err != nil {
 		return nil, err
 	}
+	pk, err := primaryKeyColumns(rc.Ctx, s, database, schema, table)
+	if err != nil {
+		return nil, err
+	}
 	id := rc.Param("id")
 	for i := range rows {
 		rows[i]["id"] = id
+		name := fmt.Sprint(rows[i]["name"])
+		readOnly := slices.Contains(pk, name) ||
+			boolish(rows[i]["identity"]) ||
+			sqldb.RedactColumn(name, s.opts.RedactPatterns)
+		sqldb.AnnotateTableColumn(rows[i], fmt.Sprint(rows[i]["type"]), readOnly)
 	}
 	return pageRows(rc, rows)
 }
@@ -2168,6 +2178,21 @@ func ensureWritable(s *Session) error {
 		return fmt.Errorf("%w: read-only mode blocks write operations", plugin.ErrForbidden)
 	}
 	return nil
+}
+
+func boolish(v any) bool {
+	switch x := v.(type) {
+	case bool:
+		return x
+	case int64:
+		return x != 0
+	case int:
+		return x != 0
+	case string:
+		return x == "1" || strings.EqualFold(x, "YES") || strings.EqualFold(x, "TRUE")
+	default:
+		return false
+	}
 }
 
 func mssqlErr(err error) error {
