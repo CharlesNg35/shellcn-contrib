@@ -160,10 +160,11 @@ func actions() []plugin.Action {
 
 func propertiesEditorConfig(saveRouteID string) plugin.CodeEditorConfig {
 	return plugin.CodeEditorConfig{
-		Language:    "json",
-		SaveRouteID: saveRouteID,
-		SaveMethod:  plugin.MethodPut,
-		SaveParams:  map[string]string{"id": "${resource.uid}"},
+		Language:     "json",
+		SaveRouteID:  saveRouteID,
+		SaveMethod:   plugin.MethodPut,
+		SaveParams:   map[string]string{"id": "${resource.uid}"},
+		RefreshField: "content",
 	}
 }
 

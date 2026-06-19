@@ -374,8 +374,20 @@ func updateDocument(rc *plugin.RequestContext) (any, error) {
 		return nil, fmt.Errorf("%w: document content must be valid JSON", plugin.ErrInvalidInput)
 	}
 	var out row
-	err = s.client.Do(rc.Ctx, http.MethodPatch, pathDocument(collectionParam(rc), docParam(rc)), nil, doc, &out)
-	return out, err
+	if err := s.client.Do(rc.Ctx, http.MethodPatch, pathDocument(collectionParam(rc), docParam(rc)), nil, doc, &out); err != nil {
+		return nil, err
+	}
+	return editorContent(out)
+}
+
+// editorContent wraps a canonical document as the save-response body a code editor
+// resets its baseline to (CodeEditorConfig.RefreshField = "content").
+func editorContent(v any) (any, error) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"content": string(b)}, nil
 }
 
 func deleteDocument(rc *plugin.RequestContext) (any, error) {

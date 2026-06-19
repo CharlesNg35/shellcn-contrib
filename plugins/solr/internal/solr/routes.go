@@ -347,8 +347,27 @@ func updateDocument(rc *plugin.RequestContext) (any, error) {
 		doc["id"] = docParam(rc)
 	}
 	var out row
-	err = s.client.Do(rc.Ctx, http.MethodPost, corePath(coreParam(rc), "/update/json/docs"), url.Values{"commit": []string{"true"}, "wt": []string{"json"}}, doc, &out)
-	return out, err
+	if err := s.client.Do(rc.Ctx, http.MethodPost, corePath(coreParam(rc), "/update/json/docs"), url.Values{"commit": []string{"true"}, "wt": []string{"json"}}, doc, &out); err != nil {
+		return nil, err
+	}
+	result, err := searchDocuments(rc.Ctx, s, coreParam(rc), url.Values{"q": []string{idQuery(docParam(rc))}, "rows": []string{"1"}, "wt": []string{"json"}})
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Rows) == 0 {
+		return editorContent(doc)
+	}
+	return editorContent(result.Rows[0]["_source"])
+}
+
+// editorContent wraps a canonical document as the save-response body a code editor
+// resets its baseline to (CodeEditorConfig.RefreshField = "content").
+func editorContent(v any) (any, error) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"content": string(b)}, nil
 }
 
 func deleteDocument(rc *plugin.RequestContext) (any, error) {

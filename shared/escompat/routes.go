@@ -612,8 +612,24 @@ func updateDocument(rc *plugin.RequestContext) (any, error) {
 		return nil, fmt.Errorf("%w: document body is required", plugin.ErrInvalidInput)
 	}
 	var out map[string]any
-	err = s.client.Do(rc.Ctx, http.MethodPut, pathDoc(index, docIDParam(rc)), nil, doc, &out)
-	return out, err
+	if err := s.client.Do(rc.Ctx, http.MethodPut, pathDoc(index, docIDParam(rc)), nil, doc, &out); err != nil {
+		return nil, err
+	}
+	var fresh map[string]any
+	if err := s.client.Do(rc.Ctx, http.MethodGet, pathDoc(index, docIDParam(rc)), nil, nil, &fresh); err != nil {
+		return nil, err
+	}
+	return editorContent(fresh)
+}
+
+// editorContent wraps a canonical document as the save-response body a code editor
+// resets its baseline to (CodeEditorConfig.RefreshField = "content").
+func editorContent(v any) (any, error) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"content": string(b)}, nil
 }
 
 func deleteDocument(rc *plugin.RequestContext) (any, error) {

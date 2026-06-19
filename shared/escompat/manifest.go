@@ -73,7 +73,7 @@ func resources(provider Provider) []plugin.ResourceType {
 			},
 			Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.namespace}/${resource.name}"}, DefaultTab: "editor", Tabs: []plugin.Panel{
 				{Key: "document", Label: "Document", Icon: icon("file-json"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: routeID(provider, "document.read"), Params: documentParams()}},
-				{Key: "editor", Label: "Editor", Icon: icon("code"), Type: plugin.PanelCodeEditor, Source: &plugin.DataSource{RouteID: routeID(provider, "document.read"), Params: documentParams()}, Config: plugin.CodeEditorConfig{Language: "json", SaveRouteID: routeID(provider, "document.update"), SaveMethod: plugin.MethodPut, SaveParams: documentParams()}},
+				{Key: "editor", Label: "Editor", Icon: icon("code"), Type: plugin.PanelCodeEditor, Source: &plugin.DataSource{RouteID: routeID(provider, "document.read"), Params: documentParams()}, Config: plugin.CodeEditorConfig{Language: "json", SaveRouteID: routeID(provider, "document.update"), SaveMethod: plugin.MethodPut, SaveParams: documentParams(), RefreshField: "content"}},
 			}},
 		},
 	}

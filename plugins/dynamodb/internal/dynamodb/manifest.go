@@ -87,7 +87,7 @@ func itemResource() plugin.ResourceType {
 			DefaultTab: "editor",
 			Tabs: []plugin.Panel{
 				{Key: "document", Label: "Item", Icon: icon("braces"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: rid("item.read"), Params: map[string]string{"id": "${resource.uid}"}}},
-				{Key: "editor", Label: "Editor", Icon: icon("code"), Type: plugin.PanelCodeEditor, Source: &plugin.DataSource{RouteID: rid("item.read"), Params: map[string]string{"id": "${resource.uid}"}}, Config: plugin.CodeEditorConfig{Language: "json", SaveRouteID: rid("item.update"), SaveMethod: plugin.MethodPut, SaveParams: map[string]string{"id": "${resource.uid}"}}},
+				{Key: "editor", Label: "Editor", Icon: icon("code"), Type: plugin.PanelCodeEditor, Source: &plugin.DataSource{RouteID: rid("item.read"), Params: map[string]string{"id": "${resource.uid}"}}, Config: plugin.CodeEditorConfig{Language: "json", SaveRouteID: rid("item.update"), SaveMethod: plugin.MethodPut, SaveParams: map[string]string{"id": "${resource.uid}"}, RefreshField: "content"}},
 			},
 		},
 	}

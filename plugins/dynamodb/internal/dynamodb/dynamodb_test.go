@@ -2,7 +2,9 @@ package dynamodb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -150,6 +152,34 @@ func TestAttributeValueKeyRoundTrip(t *testing.T) {
 	}
 	if table != "users" || keyDisplay(decoded, []types.KeySchemaElement{{AttributeName: strptr("pk"), KeyType: types.KeyTypeHash}, {AttributeName: strptr("sk"), KeyType: types.KeyTypeRange}}) != "pk=user#1 · sk=42" {
 		t.Fatalf("unexpected decoded key: table=%s key=%#v", table, decoded)
+	}
+}
+
+func TestEditorContentWrapsIndentedJSON(t *testing.T) {
+	out, err := editorContent(map[string]any{"pk": "user#1", "score": 42})
+	if err != nil {
+		t.Fatalf("editorContent: %v", err)
+	}
+	content, ok := out.(map[string]any)["content"].(string)
+	if !ok {
+		t.Fatalf("expected string content, got %#v", out)
+	}
+	if !strings.Contains(content, "\n  ") {
+		t.Fatalf("content not indented: %q", content)
+	}
+	var back map[string]any
+	if err := json.Unmarshal([]byte(content), &back); err != nil {
+		t.Fatalf("content not valid JSON: %v", err)
+	}
+}
+
+func TestItemEditorDeclaresRefreshField(t *testing.T) {
+	b, err := json.Marshal(New().Manifest())
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	if !strings.Contains(string(b), `"refreshField":"content"`) {
+		t.Fatal("item editor manifest missing refreshField=content")
 	}
 }
 

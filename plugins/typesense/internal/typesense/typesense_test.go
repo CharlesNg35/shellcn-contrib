@@ -1,11 +1,41 @@
 package typesense
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
 	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
+
+func TestEditorContentWrapsIndentedJSON(t *testing.T) {
+	out, err := editorContent(map[string]any{"id": "doc-1", "n": 2})
+	if err != nil {
+		t.Fatalf("editorContent: %v", err)
+	}
+	content, ok := out.(map[string]any)["content"].(string)
+	if !ok {
+		t.Fatalf("expected string content, got %#v", out)
+	}
+	if !strings.Contains(content, "\n  ") {
+		t.Fatalf("content not indented: %q", content)
+	}
+	var back map[string]any
+	if err := json.Unmarshal([]byte(content), &back); err != nil {
+		t.Fatalf("content not valid JSON: %v", err)
+	}
+}
+
+func TestDocumentEditorDeclaresRefreshField(t *testing.T) {
+	b, err := json.Marshal(New().Manifest())
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	if !strings.Contains(string(b), `"refreshField":"content"`) {
+		t.Fatal("document editor manifest missing refreshField=content")
+	}
+}
 
 func TestManifest(t *testing.T) {
 	p := New()

@@ -2,11 +2,42 @@ package escompat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
+
+func TestEditorContentWrapsIndentedJSON(t *testing.T) {
+	out, err := editorContent(map[string]any{"_id": "1", "_source": map[string]any{"n": 2}})
+	if err != nil {
+		t.Fatalf("editorContent: %v", err)
+	}
+	content, ok := out.(map[string]any)["content"].(string)
+	if !ok {
+		t.Fatalf("expected string content, got %#v", out)
+	}
+	if !strings.Contains(content, "\n  ") {
+		t.Fatalf("content not indented: %q", content)
+	}
+	var back map[string]any
+	if err := json.Unmarshal([]byte(content), &back); err != nil {
+		t.Fatalf("content not valid JSON: %v", err)
+	}
+}
+
+func TestDocumentEditorDeclaresRefreshField(t *testing.T) {
+	m := New(Provider{Protocol: "elasticsearch", Product: ProductElasticsearch}).Manifest()
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	if !strings.Contains(string(b), `"refreshField":"content"`) {
+		t.Fatal("document editor manifest missing refreshField=content")
+	}
+}
 
 // wrappedSession mimics the core's borrowed session.Handle: a plugin.Session
 // that exposes the live session via Session().

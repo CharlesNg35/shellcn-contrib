@@ -512,8 +512,20 @@ func itemUpdate(rc *plugin.RequestContext) (any, error) {
 	}
 	ctx, cancel := requestContext(rc.Ctx, s)
 	defer cancel()
-	_, err = s.client.PutItem(ctx, &awsdynamodb.PutItemInput{TableName: aws.String(table), Item: av})
-	return actionResult{OK: err == nil}, ddbErr(err)
+	if _, err := s.client.PutItem(ctx, &awsdynamodb.PutItemInput{TableName: aws.String(table), Item: av}); err != nil {
+		return nil, ddbErr(err)
+	}
+	return editorContent(unmarshalItem(av))
+}
+
+// editorContent wraps a canonical object as the save-response body a code editor
+// resets its baseline to (CodeEditorConfig.RefreshField = "content").
+func editorContent(v any) (any, error) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"content": string(b)}, nil
 }
 
 func itemDelete(rc *plugin.RequestContext) (any, error) {

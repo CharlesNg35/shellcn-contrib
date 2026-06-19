@@ -579,7 +579,17 @@ func nodeRead(rc *plugin.RequestContext) (any, error) {
 		return nil, plugin.ErrNotFound
 	}
 	rows[0]["properties"] = redactMap(asMap(rows[0]["properties"]), s.opts.RedactPatterns)
-	return rows[0], nil
+	return editorContent(rows[0]["properties"])
+}
+
+// editorContent wraps a canonical properties map as the save-response body a code
+// editor resets its baseline to (CodeEditorConfig.RefreshField = "content").
+func editorContent(v any) (any, error) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"content": string(b)}, nil
 }
 
 func nodeProperties(rc *plugin.RequestContext) (any, error) {
@@ -626,7 +636,7 @@ func nodeUpdate(rc *plugin.RequestContext) (any, error) {
 		return nil, plugin.ErrNotFound
 	}
 	rows[0]["properties"] = redactMap(asMap(rows[0]["properties"]), s.opts.RedactPatterns)
-	return rows[0], nil
+	return editorContent(rows[0]["properties"])
 }
 
 func nodeRelationships(rc *plugin.RequestContext) (any, error) {
@@ -696,7 +706,7 @@ func relationshipRead(rc *plugin.RequestContext) (any, error) {
 		return nil, plugin.ErrNotFound
 	}
 	rows[0]["properties"] = redactMap(asMap(rows[0]["properties"]), s.opts.RedactPatterns)
-	return rows[0], nil
+	return editorContent(rows[0]["properties"])
 }
 
 func relationshipProperties(rc *plugin.RequestContext) (any, error) {
@@ -743,7 +753,7 @@ func relationshipUpdate(rc *plugin.RequestContext) (any, error) {
 		return nil, plugin.ErrNotFound
 	}
 	rows[0]["properties"] = redactMap(asMap(rows[0]["properties"]), s.opts.RedactPatterns)
-	return rows[0], nil
+	return editorContent(rows[0]["properties"])
 }
 
 func graphRoute(rc *plugin.RequestContext) (any, error) {

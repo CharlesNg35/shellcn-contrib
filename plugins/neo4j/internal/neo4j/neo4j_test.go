@@ -2,6 +2,7 @@ package neo4j
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"strings"
@@ -11,6 +12,34 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
+
+func TestEditorContentWrapsIndentedJSON(t *testing.T) {
+	out, err := editorContent(map[string]any{"name": "n1", "score": 2})
+	if err != nil {
+		t.Fatalf("editorContent: %v", err)
+	}
+	content, ok := out.(map[string]any)["content"].(string)
+	if !ok {
+		t.Fatalf("expected string content, got %#v", out)
+	}
+	if !strings.Contains(content, "\n  ") {
+		t.Fatalf("content not indented: %q", content)
+	}
+	var back map[string]any
+	if err := json.Unmarshal([]byte(content), &back); err != nil {
+		t.Fatalf("content not valid JSON: %v", err)
+	}
+}
+
+func TestPropertiesEditorsDeclareRefreshField(t *testing.T) {
+	b, err := json.Marshal(New().Manifest())
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	if n := strings.Count(string(b), `"refreshField":"content"`); n < 2 {
+		t.Fatalf("expected node + relationship editors to declare refreshField, found %d", n)
+	}
+}
 
 func TestManifestRegistersDirectOnlyAndCredentialKinds(t *testing.T) {
 	p := New()
