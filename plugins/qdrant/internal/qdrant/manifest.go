@@ -56,12 +56,12 @@ func resources() []plugin.ResourceType {
 func actions() []plugin.Action {
 	return []plugin.Action{
 		{ID: rid("collection.create"), Label: "Create collection", Icon: icon("plus"), RouteID: rid("collection.create")},
-		{ID: rid("collection.delete"), Label: "Delete", Icon: icon("trash-2"), RouteID: rid("collection.delete"), Params: collectionParams(), Confirm: true, ConfirmText: "Delete this Qdrant collection and all points?"},
+		{ID: rid("collection.delete"), Label: "Delete", Icon: icon("trash-2"), RouteID: rid("collection.delete"), Params: collectionParams(), Confirm: true, ConfirmText: "Delete this Qdrant collection and all points?", Bulk: true},
 		{ID: rid("point.upsert"), Label: "Upsert points", Icon: icon("plus"), RouteID: rid("point.upsert"), Params: collectionParams(), Open: plugin.OpenDialog, Panel: plugin.PanelCodeEditor, Config: plugin.CodeEditorConfig{Language: "json", InitialContent: "{\n  \"points\": [\n    {\"id\": 1, \"vector\": [0.1, 0.2, 0.3, 0.4], \"payload\": {\"text\": \"example\"}}\n  ]\n}", SaveRouteID: rid("point.upsert"), SaveMethod: plugin.MethodPut, SaveParams: collectionParams(), SaveBodyKey: "body"}},
-		{ID: rid("point.delete"), Label: "Delete", Icon: icon("trash"), RouteID: rid("point.delete"), Params: pointParams(), Confirm: true, ConfirmText: "Delete this point?"},
+		{ID: rid("point.delete"), Label: "Delete", Icon: icon("trash"), RouteID: rid("point.delete"), Params: pointParams(), Confirm: true, ConfirmText: "Delete this point?", Bulk: true},
 		{ID: rid("payload.index.create"), Label: "Create payload index", Icon: icon("list-plus"), RouteID: rid("payload.index.create"), Params: collectionParams()},
 		{ID: rid("alias.create"), Label: "Create alias", Icon: icon("tag"), RouteID: rid("alias.create"), Params: collectionParams()},
-		{ID: rid("alias.delete"), Label: "Delete", Icon: icon("trash"), RouteID: rid("alias.delete"), Params: aliasParams(), Confirm: true, ConfirmText: "Delete this alias?"},
+		{ID: rid("alias.delete"), Label: "Delete", Icon: icon("trash"), RouteID: rid("alias.delete"), Params: aliasParams(), Confirm: true, ConfirmText: "Delete this alias?", Bulk: true},
 		{ID: rid("snapshot.create"), Label: "Create snapshot", Icon: icon("archive"), RouteID: rid("snapshot.create"), Params: collectionParams(), Confirm: true, ConfirmText: "Create a snapshot for this collection?"},
 	}
 }

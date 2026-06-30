@@ -114,13 +114,13 @@ func backupResource() plugin.ResourceType {
 func actions() []plugin.Action {
 	return []plugin.Action{
 		{ID: rid("table.create"), Label: "Create table", Icon: icon("plus"), RouteID: rid("table.create"), Confirm: true},
-		{ID: rid("table.delete"), Label: "Delete table", Icon: icon("trash-2"), RouteID: rid("table.delete"), Params: tableParams(), Confirm: true, ConfirmText: "Delete this DynamoDB table and all items?"},
+		{ID: rid("table.delete"), Label: "Delete table", Icon: icon("trash-2"), RouteID: rid("table.delete"), Params: tableParams(), Confirm: true, ConfirmText: "Delete this DynamoDB table and all items?", Bulk: true},
 		{ID: rid("item.put"), Label: "Put item", Icon: icon("plus"), RouteID: rid("item.put"), Params: tableParams(), Open: plugin.OpenDialog, Panel: plugin.PanelCodeEditor, Config: plugin.CodeEditorConfig{Language: "json", InitialContent: "{\n  \"pk\": \"example\"\n}", SaveRouteID: rid("item.put"), SaveMethod: plugin.MethodPost, SaveParams: tableParams(), SaveBodyKey: "item"}, OnSuccess: &plugin.ActionSuccess{SelectTab: "items"}},
-		{ID: rid("item.delete"), Label: "Delete item", Icon: icon("trash"), RouteID: rid("item.delete"), Params: map[string]string{"id": "${resource.uid}"}, Confirm: true, ConfirmText: "Delete this item?"},
+		{ID: rid("item.delete"), Label: "Delete item", Icon: icon("trash"), RouteID: rid("item.delete"), Params: map[string]string{"id": "${resource.uid}"}, Confirm: true, ConfirmText: "Delete this item?", Bulk: true},
 		{ID: rid("gsi.create"), Label: "Create GSI", Icon: icon("plus"), RouteID: rid("gsi.create"), Params: tableParams(), Confirm: true, OnSuccess: &plugin.ActionSuccess{SelectTab: "indexes"}},
-		{ID: rid("gsi.delete"), Label: "Delete GSI", Icon: icon("trash"), RouteID: rid("gsi.delete"), Params: indexParams(), Confirm: true, ConfirmText: "Delete this global secondary index?"},
+		{ID: rid("gsi.delete"), Label: "Delete GSI", Icon: icon("trash"), RouteID: rid("gsi.delete"), Params: indexParams(), Confirm: true, ConfirmText: "Delete this global secondary index?", Bulk: true},
 		{ID: rid("backup.create"), Label: "Create backup", Icon: icon("archive"), RouteID: rid("backup.create"), Params: tableParams(), Confirm: true, OnSuccess: &plugin.ActionSuccess{SelectTab: "backups"}},
-		{ID: rid("backup.delete"), Label: "Delete backup", Icon: icon("trash"), RouteID: rid("backup.delete"), Params: map[string]string{"backup": "${resource.uid}"}, Confirm: true, ConfirmText: "Delete this backup?"},
+		{ID: rid("backup.delete"), Label: "Delete backup", Icon: icon("trash"), RouteID: rid("backup.delete"), Params: map[string]string{"backup": "${resource.uid}"}, Confirm: true, ConfirmText: "Delete this backup?", Bulk: true},
 		{ID: rid("ttl.update"), Label: "Update TTL", Icon: icon("timer-reset"), RouteID: rid("ttl.update"), Params: tableParams(), Confirm: true, OnSuccess: &plugin.ActionSuccess{SelectTab: "ttl"}},
 	}
 }

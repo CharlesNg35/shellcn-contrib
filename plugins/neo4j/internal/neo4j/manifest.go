@@ -148,13 +148,13 @@ func actions() []plugin.Action {
 	return []plugin.Action{
 		{ID: rid("node.create.database"), Label: "Create node", Icon: icon("plus"), RouteID: rid("node.create"), Params: map[string]string{"database": "${resource.uid}"}, OnSuccess: &plugin.ActionSuccess{SelectTab: "nodes"}},
 		{ID: rid("node.create.label"), Label: "Create node", Icon: icon("plus"), RouteID: rid("node.create"), Params: map[string]string{"database": "${resource.namespace}"}, OnSuccess: &plugin.ActionSuccess{SelectTab: "nodes"}},
-		{ID: rid("node.delete"), Label: "Delete node", Icon: icon("trash"), RouteID: rid("node.delete"), Params: map[string]string{"id": "${resource.uid}"}, Confirm: true, ConfirmText: "Delete this node and detach its relationships?"},
+		{ID: rid("node.delete"), Label: "Delete node", Icon: icon("trash"), RouteID: rid("node.delete"), Params: map[string]string{"id": "${resource.uid}"}, Confirm: true, ConfirmText: "Delete this node and detach its relationships?", Bulk: true},
 		{ID: rid("relationship.create.database"), Label: "Create relationship", Icon: icon("git-branch-plus"), RouteID: rid("relationship.create"), Params: map[string]string{"database": "${resource.uid}"}, OnSuccess: &plugin.ActionSuccess{SelectTab: "relationships"}},
 		{ID: rid("relationship.create.type"), Label: "Create relationship", Icon: icon("git-branch-plus"), RouteID: rid("relationship.create"), Params: map[string]string{"database": "${resource.namespace}"}, OnSuccess: &plugin.ActionSuccess{SelectTab: "relationships"}},
-		{ID: rid("relationship.delete"), Label: "Delete relationship", Icon: icon("trash"), RouteID: rid("relationship.delete"), Params: map[string]string{"id": "${resource.uid}"}, Confirm: true, ConfirmText: "Delete this relationship?"},
+		{ID: rid("relationship.delete"), Label: "Delete relationship", Icon: icon("trash"), RouteID: rid("relationship.delete"), Params: map[string]string{"id": "${resource.uid}"}, Confirm: true, ConfirmText: "Delete this relationship?", Bulk: true},
 		{ID: rid("index.create"), Label: "Create index", Icon: icon("plus"), RouteID: rid("index.create"), Params: map[string]string{"database": "${resource.uid}"}, OnSuccess: &plugin.ActionSuccess{SelectTab: "indexes"}},
 		{ID: rid("constraint.create"), Label: "Create constraint", Icon: icon("plus"), RouteID: rid("constraint.create"), Params: map[string]string{"database": "${resource.uid}"}, OnSuccess: &plugin.ActionSuccess{SelectTab: "constraints"}},
-		{ID: rid("schema.drop"), Label: "Drop", Icon: icon("trash"), RouteID: rid("schema.drop"), Params: map[string]string{"id": "${resource.uid}"}, Confirm: true, ConfirmText: "Drop this index or constraint?"},
+		{ID: rid("schema.drop"), Label: "Drop", Icon: icon("trash"), RouteID: rid("schema.drop"), Params: map[string]string{"id": "${resource.uid}"}, Confirm: true, ConfirmText: "Drop this index or constraint?", Bulk: true},
 	}
 }
 

@@ -75,13 +75,13 @@ func actions() []plugin.Action {
 		{ID: rid("core.reload"), Label: "Reload", Icon: icon("refresh-cw"), RouteID: rid("core.reload"), Params: coreParams(), Confirm: true, ConfirmText: "Reload this collection or core?"},
 		{ID: rid("core.commit"), Label: "Commit", Icon: icon("check"), RouteID: rid("core.commit"), Params: coreParams(), Confirm: true, ConfirmText: "Commit pending updates for this collection or core?"},
 		{ID: rid("core.optimize"), Label: "Optimize", Icon: icon("gauge"), RouteID: rid("core.optimize"), Params: coreParams(), Confirm: true, ConfirmText: "Optimize this collection or core now?"},
-		{ID: rid("core.delete"), Label: "Delete", Icon: icon("trash-2"), RouteID: rid("core.delete"), Params: coreParams(), Confirm: true, ConfirmText: "Delete this collection or unload this core with its index data?"},
+		{ID: rid("core.delete"), Label: "Delete", Icon: icon("trash-2"), RouteID: rid("core.delete"), Params: coreParams(), Confirm: true, ConfirmText: "Delete this collection or unload this core with its index data?", Bulk: true},
 		{ID: rid("document.upsert"), Label: "Upsert document", Icon: icon("plus"), RouteID: rid("document.upsert"), Params: coreParams(), Open: plugin.OpenDialog, Panel: plugin.PanelCodeEditor, Config: plugin.CodeEditorConfig{Language: "json", InitialContent: "{\n  \"id\": \"example\"\n}", SaveRouteID: rid("document.upsert"), SaveMethod: plugin.MethodPost, SaveParams: coreParams(), SaveBodyKey: "document", SaveExtra: map[string]any{"commit": true}}},
-		{ID: rid("document.delete"), Label: "Delete", Icon: icon("trash"), RouteID: rid("document.delete"), Params: documentParams(), Confirm: true, ConfirmText: "Delete this document?"},
+		{ID: rid("document.delete"), Label: "Delete", Icon: icon("trash"), RouteID: rid("document.delete"), Params: documentParams(), Confirm: true, ConfirmText: "Delete this document?", Bulk: true},
 		{ID: rid("documents.delete_query"), Label: "Delete by query", Icon: icon("eraser"), RouteID: rid("documents.delete_query"), Params: coreParams(), Confirm: true, ConfirmText: "Delete all Solr documents matching this query?"},
 		{ID: rid("schema.field.add"), Label: "Add field", Icon: icon("columns-3"), RouteID: rid("schema.field.add"), Params: coreParams(), Confirm: true, ConfirmText: "Add this field to the managed schema?"},
 		{ID: rid("schema.field.replace"), Label: "Edit field", Icon: icon("pencil"), RouteID: rid("schema.field.replace"), Params: fieldParams(), Confirm: true, ConfirmText: "Replace this field's definition? Solr requires the full definition and reindexing may be needed for existing documents."},
-		{ID: rid("schema.field.delete"), Label: "Delete field", Icon: icon("trash"), RouteID: rid("schema.field.delete"), Params: fieldParams(), Confirm: true, ConfirmText: "Delete this field from the managed schema?"},
+		{ID: rid("schema.field.delete"), Label: "Delete field", Icon: icon("trash"), RouteID: rid("schema.field.delete"), Params: fieldParams(), Confirm: true, ConfirmText: "Delete this field from the managed schema?", Bulk: true},
 	}
 }
 

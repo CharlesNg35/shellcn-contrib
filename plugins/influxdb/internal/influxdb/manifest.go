@@ -62,7 +62,7 @@ func actions() []plugin.Action {
 		{ID: rid("write.namespace"), Label: "Write line protocol", Icon: icon("send"), RouteID: rid("write"), Params: namespaceParams(), Confirm: true, ConfirmText: "Write line protocol to this InfluxDB container?"},
 		{ID: rid("write.measurement"), Label: "Write line protocol", Icon: icon("send"), RouteID: rid("write"), Params: map[string]string{"namespace": "${resource.namespace}"}, Confirm: true, ConfirmText: "Write line protocol to this InfluxDB container?"},
 		{ID: rid("namespace.create"), Label: "Create database / bucket", Icon: icon("plus"), RouteID: rid("namespace.create")},
-		{ID: rid("namespace.delete"), Label: "Delete", Icon: icon("trash-2"), RouteID: rid("namespace.delete"), Params: namespaceParams(), Confirm: true, ConfirmText: "Delete this database / bucket and all of its data?"},
+		{ID: rid("namespace.delete"), Label: "Delete", Icon: icon("trash-2"), RouteID: rid("namespace.delete"), Params: namespaceParams(), Confirm: true, ConfirmText: "Delete this database / bucket and all of its data?", Bulk: true},
 	}
 }
 

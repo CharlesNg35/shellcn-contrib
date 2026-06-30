@@ -86,12 +86,12 @@ func actions() []plugin.Action {
 	return []plugin.Action{
 		{ID: "nats.stream.create", Label: "Create stream", Icon: icon("plus"), RouteID: "nats.stream.create"},
 		{ID: "nats.stream.update", Label: "Edit", Icon: icon("pencil"), RouteID: "nats.stream.update", Params: map[string]string{"stream": "${resource.name}"}},
-		{ID: "nats.stream.purge", Label: "Purge", Icon: icon("eraser"), RouteID: "nats.stream.purge", Params: map[string]string{"stream": "${resource.name}"}, Confirm: true, ConfirmText: "Purge every message in this stream?"},
-		{ID: "nats.stream.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "nats.stream.delete", Params: map[string]string{"stream": "${resource.name}"}, Confirm: true, ConfirmText: "Delete this stream?"},
+		{ID: "nats.stream.purge", Label: "Purge", Icon: icon("eraser"), RouteID: "nats.stream.purge", Params: map[string]string{"stream": "${resource.name}"}, Confirm: true, ConfirmText: "Purge every message in this stream?", Bulk: true},
+		{ID: "nats.stream.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "nats.stream.delete", Params: map[string]string{"stream": "${resource.name}"}, Confirm: true, ConfirmText: "Delete this stream?", Bulk: true},
 		{ID: "nats.consumer.create", Label: "Create consumer", Icon: icon("plus"), RouteID: "nats.consumer.create", Params: map[string]string{"stream": "${resource.name}"}},
-		{ID: "nats.consumer.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "nats.consumer.delete", Params: map[string]string{"stream": "${resource.namespace}", "consumer": "${resource.name}"}, Confirm: true, ConfirmText: "Delete this consumer?"},
+		{ID: "nats.consumer.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "nats.consumer.delete", Params: map[string]string{"stream": "${resource.namespace}", "consumer": "${resource.name}"}, Confirm: true, ConfirmText: "Delete this consumer?", Bulk: true},
 		{ID: "nats.message.publish", Label: "Publish", Icon: icon("send"), RouteID: "nats.message.publish", Confirm: true, ConfirmText: "Publish this message?"},
-		{ID: "nats.message.delete", Label: "Delete", Icon: icon("trash"), RouteID: "nats.message.delete", Params: map[string]string{"stream": "${record.stream}", "sequence": "${record.sequence}"}, Confirm: true, ConfirmText: "Delete this message?"},
+		{ID: "nats.message.delete", Label: "Delete", Icon: icon("trash"), RouteID: "nats.message.delete", Params: map[string]string{"stream": "${record.stream}", "sequence": "${record.sequence}"}, Confirm: true, ConfirmText: "Delete this message?", Bulk: true},
 	}
 }
 

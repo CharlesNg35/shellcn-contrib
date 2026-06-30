@@ -109,9 +109,9 @@ func actions() []plugin.Action {
 		{ID: "kafka.topic.create", Label: "Create topic", Icon: icon("plus"), RouteID: "kafka.topic.create"},
 		{ID: "kafka.topic.alter_config", Label: "Alter config", Icon: icon("settings-2"), RouteID: "kafka.topic.alter_config", Params: map[string]string{"topic": "${resource.name}"}},
 		{ID: "kafka.topic.add_partitions", Label: "Add partitions", Icon: icon("columns-3"), RouteID: "kafka.topic.add_partitions", Params: map[string]string{"topic": "${resource.name}"}, Confirm: true, ConfirmText: "Add partitions? Increasing partitions is irreversible and can change key-to-partition routing."},
-		{ID: "kafka.topic.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "kafka.topic.delete", Params: map[string]string{"topic": "${resource.name}"}, Confirm: true, ConfirmText: "Delete this topic?"},
+		{ID: "kafka.topic.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "kafka.topic.delete", Params: map[string]string{"topic": "${resource.name}"}, Confirm: true, ConfirmText: "Delete this topic?", Bulk: true},
 		{ID: "kafka.message.produce", Label: "Produce", Icon: icon("send"), RouteID: "kafka.message.produce", Params: map[string]string{"topic": "${resource.name}"}, Confirm: true, ConfirmText: "Produce this record?"},
-		{ID: "kafka.group.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "kafka.group.delete", Params: map[string]string{"group": "${resource.name}"}, Confirm: true, ConfirmText: "Delete this consumer group?"},
+		{ID: "kafka.group.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "kafka.group.delete", Params: map[string]string{"group": "${resource.name}"}, Confirm: true, ConfirmText: "Delete this consumer group?", Bulk: true},
 		{ID: "kafka.group.reset_offsets", Label: "Reset offsets", Icon: icon("history"), RouteID: "kafka.group.reset_offsets", Params: map[string]string{"group": "${resource.name}"}, Confirm: true, ConfirmText: "Reset this group's committed offsets?"},
 	}
 }

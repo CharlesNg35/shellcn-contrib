@@ -97,14 +97,14 @@ func resources() []plugin.ResourceType {
 func actions() []plugin.Action {
 	return []plugin.Action{
 		{ID: "rabbitmq.queue.create", Label: "Create queue", Icon: icon("plus"), RouteID: "rabbitmq.queue.create"},
-		{ID: "rabbitmq.queue.purge", Label: "Purge", Icon: icon("eraser"), RouteID: "rabbitmq.queue.purge", Params: queueParams(), Confirm: true, ConfirmText: "Purge every ready message in this queue?"},
-		{ID: "rabbitmq.queue.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "rabbitmq.queue.delete", Params: queueParams(), Confirm: true, ConfirmText: "Delete this queue?"},
+		{ID: "rabbitmq.queue.purge", Label: "Purge", Icon: icon("eraser"), RouteID: "rabbitmq.queue.purge", Params: queueParams(), Confirm: true, ConfirmText: "Purge every ready message in this queue?", Bulk: true},
+		{ID: "rabbitmq.queue.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "rabbitmq.queue.delete", Params: queueParams(), Confirm: true, ConfirmText: "Delete this queue?", Bulk: true},
 		{ID: "rabbitmq.exchange.create", Label: "Create exchange", Icon: icon("plus"), RouteID: "rabbitmq.exchange.create"},
-		{ID: "rabbitmq.exchange.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "rabbitmq.exchange.delete", Params: exchangeParams(), Confirm: true, ConfirmText: "Delete this exchange?"},
+		{ID: "rabbitmq.exchange.delete", Label: "Delete", Icon: icon("trash-2"), RouteID: "rabbitmq.exchange.delete", Params: exchangeParams(), Confirm: true, ConfirmText: "Delete this exchange?", Bulk: true},
 		{ID: "rabbitmq.message.publish", Label: "Publish", Icon: icon("send"), RouteID: "rabbitmq.message.publish", Params: map[string]string{"vhost": "${resource.namespace}", "exchange": "${resource.name}"}, Confirm: true, ConfirmText: "Publish this message?"},
 		{ID: "rabbitmq.queue.publish", Label: "Publish", Icon: icon("send"), RouteID: "rabbitmq.queue.publish", Params: queueParams(), Confirm: true, ConfirmText: "Publish this message to the queue?"},
 		{ID: "rabbitmq.binding.create", Label: "Add binding", Icon: icon("link"), RouteID: "rabbitmq.binding.create", Params: queueParams()},
-		{ID: "rabbitmq.binding.delete", Label: "Unbind", Icon: icon("unlink"), RouteID: "rabbitmq.binding.delete", Params: map[string]string{"spec": "${record.spec}"}, Confirm: true, ConfirmText: "Remove this binding?"},
+		{ID: "rabbitmq.binding.delete", Label: "Unbind", Icon: icon("unlink"), RouteID: "rabbitmq.binding.delete", Params: map[string]string{"spec": "${record.spec}"}, Confirm: true, ConfirmText: "Remove this binding?", Bulk: true},
 	}
 }
 

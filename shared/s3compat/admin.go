@@ -72,7 +72,7 @@ func bucketColumns() []plugin.Column {
 func Actions(protocol string) []plugin.Action {
 	return []plugin.Action{
 		{ID: routeID(protocol, "bucket.create"), Label: "Create bucket", Icon: icon("plus"), RouteID: routeID(protocol, "bucket.create")},
-		{ID: routeID(protocol, "bucket.delete"), Label: "Delete", Icon: icon("trash-2"), RouteID: routeID(protocol, "bucket.delete"), Params: bucketParams(), Confirm: true, ConfirmText: "Delete this bucket? The bucket must be empty."},
+		{ID: routeID(protocol, "bucket.delete"), Label: "Delete", Icon: icon("trash-2"), RouteID: routeID(protocol, "bucket.delete"), Params: bucketParams(), Confirm: true, ConfirmText: "Delete this bucket? The bucket must be empty.", Bulk: true},
 		{ID: routeID(protocol, "bucket.versioning.set"), Label: "Set versioning", Icon: icon("history"), RouteID: routeID(protocol, "bucket.versioning.set"), Params: bucketParams()},
 	}
 }

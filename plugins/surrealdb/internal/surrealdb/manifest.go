@@ -245,6 +245,7 @@ func actions() []plugin.Action {
 			Params: map[string]string{"table": "${resource.uid}"}, Confirm: true,
 			ConfirmText: "Remove this table and all its records?",
 			OnSuccess:   &plugin.ActionSuccess{Navigate: plugin.NavigateList},
+			Bulk:        true,
 		},
 		{
 			ID: "surrealdb.record.create", Label: "New record", Icon: icon("plus"), RouteID: "surrealdb.record.create",
@@ -258,6 +259,7 @@ func actions() []plugin.Action {
 			ID: "surrealdb.record.remove", Label: "Delete", Icon: icon("trash-2"), RouteID: "surrealdb.record.remove",
 			Params: map[string]string{"id": "${resource.uid}"}, Confirm: true, ConfirmText: "Delete this record?",
 			OnSuccess: &plugin.ActionSuccess{Navigate: plugin.NavigateList},
+			Bulk:      true,
 		},
 		{
 			ID: "surrealdb.field.define", Label: "Define field", Icon: icon("plus"), RouteID: "surrealdb.field.define",
@@ -267,6 +269,7 @@ func actions() []plugin.Action {
 			ID: "surrealdb.field.remove", Label: "Remove", Icon: icon("trash-2"), RouteID: "surrealdb.field.remove",
 			Params: map[string]string{"table": "${record.table}", "name": "${record.name}"}, Confirm: true,
 			ConfirmText: "Remove this field definition?",
+			Bulk:        true,
 		},
 		{
 			ID: "surrealdb.index.define", Label: "Define index", Icon: icon("plus"), RouteID: "surrealdb.index.define",
@@ -276,6 +279,7 @@ func actions() []plugin.Action {
 			ID: "surrealdb.index.remove", Label: "Remove", Icon: icon("trash-2"), RouteID: "surrealdb.index.remove",
 			Params: map[string]string{"table": "${record.table}", "name": "${record.name}"}, Confirm: true,
 			ConfirmText: "Remove this index?",
+			Bulk:        true,
 		},
 		{
 			ID: "surrealdb.open", Label: "Open in browser", Icon: icon("external-link"),
@@ -287,6 +291,7 @@ func actions() []plugin.Action {
 			ID: "surrealdb." + k.kind + ".remove", Label: "Remove", Icon: icon("trash-2"), RouteID: "surrealdb.object.remove",
 			Params: map[string]string{"kind": k.kind, "name": "${resource.name}"}, Confirm: true,
 			ConfirmText: "Remove this " + k.kind + "?",
+			Bulk:        true,
 		})
 	}
 	return acts
