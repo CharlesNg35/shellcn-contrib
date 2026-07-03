@@ -114,6 +114,7 @@ These protocols are better as first-party external plugins than built-ins:
 | Messaging         | Kafka, RabbitMQ, NATS                                                         |
 | Files and storage | NFS, MinIO                                                                    |
 | Observability     | Prometheus, InfluxDB, Loki, Jaeger                                            |
+| Workspaces        | VS Code, Notebook                                                             |
 
 ## License
 
