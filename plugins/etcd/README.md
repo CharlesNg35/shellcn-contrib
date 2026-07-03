@@ -47,8 +47,3 @@ SHELLCN_ETCD_INTEGRATION=1 go test ./internal/etcd/
 # Or point at an existing endpoint:
 SHELLCN_ETCD_ADDR=127.0.0.1:2379 SHELLCN_ETCD_INTEGRATION=1 go test ./internal/etcd/
 ```
-
-## Credits
-
-The feature set is inspired by [etcd-workbench](https://github.com/tzfun/etcd-workbench),
-adapted to ShellCN's panels and manifest-driven UI.
