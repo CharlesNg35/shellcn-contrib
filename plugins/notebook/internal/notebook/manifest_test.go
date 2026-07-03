@@ -171,6 +171,33 @@ func TestJupyterArgsUseSandboxPaths(t *testing.T) {
 	}
 }
 
+func TestNotebookPrepareScriptFixesVolumeOwnership(t *testing.T) {
+	for _, want := range []string{
+		"mkdir -p /home/jovyan/work /home/jovyan/.jupyter /home/jovyan/.local/share/jupyter/runtime /home/jovyan/.ipython",
+		"chown -R 1000:1000 /home/jovyan /home/jovyan/work",
+		"chmod -R u+rwX,g+rwX /home/jovyan /home/jovyan/work",
+	} {
+		if !strings.Contains(notebookPrepareScript, want) {
+			t.Fatalf("notebook prep script missing %q:\n%s", want, notebookPrepareScript)
+		}
+	}
+}
+
+func TestNotebookProbeScriptChecksWritableDirs(t *testing.T) {
+	for _, want := range []string{
+		`mkdir -p "$JUPYTER_CONFIG_DIR" "$JUPYTER_DATA_DIR" "$JUPYTER_RUNTIME_DIR" "$IPYTHONDIR" /home/jovyan/work/.shellcn-probe`,
+		`touch "$JUPYTER_CONFIG_DIR/.shellcn-probe"`,
+		`touch "$JUPYTER_DATA_DIR/.shellcn-probe"`,
+		`touch "$JUPYTER_RUNTIME_DIR/.shellcn-probe"`,
+		`touch "$IPYTHONDIR/.shellcn-probe"`,
+		"touch /home/jovyan/work/.shellcn-probe/file",
+	} {
+		if !strings.Contains(notebookProbeScript, want) {
+			t.Fatalf("notebook probe script missing %q:\n%s", want, notebookProbeScript)
+		}
+	}
+}
+
 func TestSessionCloseDockerContainerCleanup(t *testing.T) {
 	removed := ""
 	orig := removeDockerContainerFunc
