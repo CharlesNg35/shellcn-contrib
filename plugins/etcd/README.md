@@ -48,18 +48,7 @@ SHELLCN_ETCD_INTEGRATION=1 go test ./internal/etcd/
 SHELLCN_ETCD_ADDR=127.0.0.1:2379 SHELLCN_ETCD_INTEGRATION=1 go test ./internal/etcd/
 ```
 
-## Feature reference
+## Credits
 
-The feature set mirrors [etcd-workbench](https://github.com/tzfun/etcd-workbench)
-(GPL-3.0), the reference etcd desktop UI. The screenshots below are from
-etcd-workbench and show that reference UI — not the ShellCN interface — to
-document the capabilities this plugin exposes through ShellCN's panels.
-
-| | |
-|---|---|
-| Key editor | ![Key editor](screenshot/key-editor.png) |
-| Cluster & members | ![Cluster](screenshot/cluster.png) |
-| Leases | ![Leases](screenshot/leases.png) |
-| Live key monitor / watch | ![Key monitor](screenshot/key-monitor.png) |
-| Metrics | ![Metrics](screenshot/metrics.png) |
-| Revision diff | ![Revision diff](screenshot/key-diff.png) |
+The feature set is inspired by [etcd-workbench](https://github.com/tzfun/etcd-workbench),
+adapted to ShellCN's panels and manifest-driven UI.
