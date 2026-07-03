@@ -149,6 +149,9 @@ func startSession(ctx context.Context, rt *dockerRuntime, opts Options) (*Sessio
 	if err := rt.HealthCheck(ctx); err != nil {
 		return nil, err
 	}
+	if err := rt.prepareVolumes(ctx, opts); err != nil {
+		return nil, err
+	}
 	containerID, err := rt.startJupyter(ctx, opts)
 	if err != nil {
 		return nil, err
@@ -183,9 +186,6 @@ func (rt *dockerRuntime) HealthCheck(ctx context.Context) error {
 func (rt *dockerRuntime) startJupyter(ctx context.Context, opts Options) (string, error) {
 	name := dockerContainerName(opts)
 	_ = rt.removeContainer(ctx, name)
-	if err := rt.pullImage(ctx, opts.Image); err != nil {
-		return "", err
-	}
 	port := network.MustParsePort(jupyterPort)
 	created, err := rt.cli.ContainerCreate(ctx, dockerclient.ContainerCreateOptions{
 		Name: name,
@@ -206,10 +206,7 @@ func (rt *dockerRuntime) startJupyter(ctx context.Context, opts Options) (string
 			ReadonlyRootfs: true,
 			SecurityOpt:    []string{"no-new-privileges:true"},
 			Tmpfs:          map[string]string{"/tmp": "rw,nosuid,nodev,noexec,size=256m"},
-			Mounts: []mount.Mount{
-				{Type: mount.TypeVolume, Source: dockerVolumeName(opts, "home"), Target: containerHome},
-				{Type: mount.TypeVolume, Source: dockerVolumeName(opts, "workspace"), Target: containerWorkspace},
-			},
+			Mounts:         notebookMounts(opts),
 		},
 	})
 	if err != nil {
@@ -220,6 +217,134 @@ func (rt *dockerRuntime) startJupyter(ctx context.Context, opts Options) (string
 		return "", dockerErr("start docker sandbox", err)
 	}
 	return created.ID, nil
+}
+
+func (rt *dockerRuntime) prepareVolumes(ctx context.Context, opts Options) error {
+	if err := rt.pullImage(ctx, opts.Image); err != nil {
+		return err
+	}
+	name := dockerContainerName(opts) + "-prep"
+	_ = rt.removeContainer(ctx, name)
+	created, err := rt.cli.ContainerCreate(ctx, dockerclient.ContainerCreateOptions{
+		Name: name,
+		Config: &container.Config{
+			Image:      opts.Image,
+			User:       "0:0",
+			Entrypoint: []string{"sh"},
+			Cmd:        []string{"-ec", notebookPrepareScript},
+			Env:        []string{"HOME=/tmp"},
+			WorkingDir: containerHome,
+			Labels: map[string]string{
+				"shellcn.managed":     "true",
+				"shellcn.plugin":      "notebook",
+				"shellcn.purpose":     "volumes",
+				"shellcn.connection":  safeLabelValue(opts.ConnectionID),
+				"shellcn.actor_scope": safeLabelValue(scopeSegment(opts)),
+			},
+		},
+		HostConfig: &container.HostConfig{
+			AutoRemove:     false,
+			ReadonlyRootfs: true,
+			SecurityOpt:    []string{"no-new-privileges:true"},
+			Tmpfs:          map[string]string{"/tmp": "rw,nosuid,nodev,noexec,size=64m"},
+			Mounts:         notebookMounts(opts),
+		},
+	})
+	if err != nil {
+		return dockerErr("create notebook volume prep", err)
+	}
+	defer func() { _ = rt.removeContainer(context.Background(), created.ID) }()
+	wait := rt.cli.ContainerWait(ctx, created.ID, dockerclient.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+	if _, err := rt.cli.ContainerStart(ctx, created.ID, dockerclient.ContainerStartOptions{}); err != nil {
+		return dockerErr("start notebook volume prep", err)
+	}
+	select {
+	case err := <-wait.Error:
+		return dockerErr("wait notebook volume prep", err)
+	case result := <-wait.Result:
+		if result.StatusCode != 0 {
+			return fmt.Errorf("%w: notebook volume preparation failed: %s", plugin.ErrUnavailable, rt.runtimeLogs(ctx, created.ID))
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return rt.probeNotebookPermissions(ctx, opts)
+}
+
+const notebookPrepareScript = `
+set -eu
+mkdir -p /home/jovyan/work /home/jovyan/.jupyter /home/jovyan/.local/share/jupyter/runtime /home/jovyan/.ipython
+chown -R 1000:1000 /home/jovyan /home/jovyan/work
+chmod -R u+rwX,g+rwX /home/jovyan /home/jovyan/work
+`
+
+func (rt *dockerRuntime) probeNotebookPermissions(ctx context.Context, opts Options) error {
+	name := dockerContainerName(opts) + "-probe"
+	_ = rt.removeContainer(ctx, name)
+	created, err := rt.cli.ContainerCreate(ctx, dockerclient.ContainerCreateOptions{
+		Name: name,
+		Config: &container.Config{
+			Image:      opts.Image,
+			User:       "1000:1000",
+			Entrypoint: []string{"sh"},
+			Cmd:        []string{"-ec", notebookProbeScript},
+			Env:        jupyterEnv(),
+			WorkingDir: containerWorkspace,
+			Labels: map[string]string{
+				"shellcn.managed":     "true",
+				"shellcn.plugin":      "notebook",
+				"shellcn.purpose":     "permissions",
+				"shellcn.connection":  safeLabelValue(opts.ConnectionID),
+				"shellcn.actor_scope": safeLabelValue(scopeSegment(opts)),
+			},
+		},
+		HostConfig: &container.HostConfig{
+			AutoRemove:     false,
+			CapDrop:        []string{"ALL"},
+			ReadonlyRootfs: true,
+			SecurityOpt:    []string{"no-new-privileges:true"},
+			Tmpfs:          map[string]string{"/tmp": "rw,nosuid,nodev,noexec,size=64m"},
+			Mounts:         notebookMounts(opts),
+		},
+	})
+	if err != nil {
+		return dockerErr("create notebook permission probe", err)
+	}
+	defer func() { _ = rt.removeContainer(context.Background(), created.ID) }()
+	wait := rt.cli.ContainerWait(ctx, created.ID, dockerclient.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+	if _, err := rt.cli.ContainerStart(ctx, created.ID, dockerclient.ContainerStartOptions{}); err != nil {
+		return dockerErr("start notebook permission probe", err)
+	}
+	select {
+	case err := <-wait.Error:
+		return dockerErr("wait notebook permission probe", err)
+	case result := <-wait.Result:
+		if result.StatusCode != 0 {
+			return fmt.Errorf("%w: notebook volumes are not writable by sandbox user: %s", plugin.ErrUnavailable, rt.runtimeLogs(ctx, created.ID))
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
+}
+
+const notebookProbeScript = `
+set -eu
+mkdir -p "$JUPYTER_CONFIG_DIR" "$JUPYTER_DATA_DIR" "$JUPYTER_RUNTIME_DIR" "$IPYTHONDIR" /home/jovyan/work/.shellcn-probe
+touch "$JUPYTER_CONFIG_DIR/.shellcn-probe"
+touch "$JUPYTER_DATA_DIR/.shellcn-probe"
+touch "$JUPYTER_RUNTIME_DIR/.shellcn-probe"
+touch "$IPYTHONDIR/.shellcn-probe"
+touch /home/jovyan/work/.shellcn-probe/file
+rm -f "$JUPYTER_CONFIG_DIR/.shellcn-probe" "$JUPYTER_DATA_DIR/.shellcn-probe" "$JUPYTER_RUNTIME_DIR/.shellcn-probe" "$IPYTHONDIR/.shellcn-probe"
+rm -rf /home/jovyan/work/.shellcn-probe
+`
+
+func notebookMounts(opts Options) []mount.Mount {
+	return []mount.Mount{
+		{Type: mount.TypeVolume, Source: dockerVolumeName(opts, "home"), Target: containerHome},
+		{Type: mount.TypeVolume, Source: dockerVolumeName(opts, "workspace"), Target: containerWorkspace},
+	}
 }
 
 func (rt *dockerRuntime) pullImage(ctx context.Context, image string) error {

@@ -214,6 +214,16 @@ func TestWorkspaceProbeScriptChecksVSCodeWritableDirs(t *testing.T) {
 	}
 }
 
+func TestRepositoryTokenUsesGitHubCompatibleBasicAuth(t *testing.T) {
+	header := gitAuthHeader("ghp_example")
+	if !strings.HasPrefix(header, "Authorization: Basic ") {
+		t.Fatalf("auth header = %q", header)
+	}
+	if strings.Contains(header, "ghp_example") || strings.Contains(header, "Bearer") {
+		t.Fatalf("auth header should be basic encoded without a bearer token: %q", header)
+	}
+}
+
 func TestSessionCloseDockerContainerCleanup(t *testing.T) {
 	removed := ""
 	orig := removeDockerContainerFunc

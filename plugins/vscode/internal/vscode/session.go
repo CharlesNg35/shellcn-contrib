@@ -3,6 +3,7 @@ package vscode
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -295,7 +296,7 @@ func (rt *dockerRuntime) prepareVolumesAndRepo(ctx context.Context, opts Options
 		env = append(env,
 			"GIT_CONFIG_COUNT=1",
 			"GIT_CONFIG_KEY_0=http.extraHeader",
-			"GIT_CONFIG_VALUE_0=Authorization: Bearer "+opts.RepositoryToken,
+			"GIT_CONFIG_VALUE_0="+gitAuthHeader(opts.RepositoryToken),
 		)
 	}
 	created, err := rt.cli.ContainerCreate(gitCtx, dockerclient.ContainerCreateOptions{
@@ -568,6 +569,15 @@ func dockerVolumeName(opts Options, suffix string) string {
 
 func workspaceVolumeName(opts Options) string {
 	return dockerVolumeName(opts, "workspace")
+}
+
+func gitAuthHeader(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ""
+	}
+	raw := "x-access-token:" + token
+	return "Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte(raw))
 }
 
 func safeDockerName(name string, max int) string {
