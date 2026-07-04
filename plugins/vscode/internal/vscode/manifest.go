@@ -89,11 +89,18 @@ func configSchema() plugin.Schema {
 				{Label: "None", Value: "none"},
 				{Label: "Stored token", Value: "stored_token"},
 				{Label: "Inline token", Value: "inline_token"},
+				{Label: "Stored username/password", Value: "stored_basic"},
+				{Label: "Inline username/password", Value: "inline_basic"},
 			}},
 			{Key: "repository_token", Label: "Stored token", Type: plugin.FieldCredentialRef, Credential: &plugin.CredentialSelector{
 				Kind: plugin.CredentialKindAPIToken,
 			}, VisibleWhen: visibleRule("repository_auth", "stored_token")},
 			{Key: "repository_token_value", Label: "Inline token", Type: plugin.FieldPassword, Secret: true, VisibleWhen: visibleRule("repository_auth", "inline_token")},
+			{Key: "repository_basic", Label: "Stored username/password", Type: plugin.FieldCredentialRef, Credential: &plugin.CredentialSelector{
+				Kind: plugin.CredentialKindBasicAuth,
+			}, VisibleWhen: visibleRule("repository_auth", "stored_basic")},
+			{Key: "repository_basic_username", Label: "Repository username", Type: plugin.FieldText, VisibleWhen: visibleRule("repository_auth", "inline_basic")},
+			{Key: "repository_basic_password", Label: "Repository password", Type: plugin.FieldPassword, Secret: true, VisibleWhen: visibleRule("repository_auth", "inline_basic")},
 		}},
 	}}
 }

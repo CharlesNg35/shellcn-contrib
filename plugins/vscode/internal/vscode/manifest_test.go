@@ -112,6 +112,42 @@ func TestParseOptions(t *testing.T) {
 		t.Fatalf("repository workspace path = %q", opts.WorkspacePath)
 	}
 
+	opts, err = parseOptions(plugin.ConnectConfig{ConnectionID: "c1", ActorScope: "u1", Transport: plugin.TransportAgent, Config: map[string]any{
+		"repository_url":            "https://gitlab.com/acme/app.git",
+		"repository_auth":           "inline_basic",
+		"repository_basic_username": "oauth2",
+		"repository_basic_password": "glpat_example",
+	}})
+	if err != nil {
+		t.Fatalf("parse inline basic repository auth: %v", err)
+	}
+	if opts.RepositoryAuthHeader != gitBasicAuthHeader("oauth2", "glpat_example") {
+		t.Fatalf("inline basic auth header = %q", opts.RepositoryAuthHeader)
+	}
+
+	opts, err = parseOptions(plugin.ConnectConfig{
+		ConnectionID: "c1",
+		ActorScope:   "u1",
+		Transport:    plugin.TransportAgent,
+		Config: map[string]any{
+			"repository_url":  "https://git.example.com/acme/app.git",
+			"repository_auth": "stored_basic",
+		},
+		Credentials: plugin.NewResolvedCredentials(plugin.CredentialBinding{
+			Field: "repository_basic",
+			Credential: plugin.ResolvedCredential{
+				Kind:   plugin.CredentialKindBasicAuth,
+				Values: map[string]string{"username": "alice", "password": "app-password"},
+			},
+		}),
+	})
+	if err != nil {
+		t.Fatalf("parse stored basic repository auth: %v", err)
+	}
+	if opts.RepositoryAuthHeader != gitBasicAuthHeader("alice", "app-password") {
+		t.Fatalf("stored basic auth header = %q", opts.RepositoryAuthHeader)
+	}
+
 	_, err = parseOptions(plugin.ConnectConfig{ConnectionID: "c1", ActorScope: "u1", Transport: plugin.TransportAgent, Config: map[string]any{
 		"workspace_path": "relative",
 	}})
@@ -214,13 +250,21 @@ func TestWorkspaceProbeScriptChecksVSCodeWritableDirs(t *testing.T) {
 	}
 }
 
-func TestRepositoryTokenUsesGitHubCompatibleBasicAuth(t *testing.T) {
-	header := gitAuthHeader("ghp_example")
-	if !strings.HasPrefix(header, "Authorization: Basic ") {
-		t.Fatalf("auth header = %q", header)
+func TestRepositoryAuthHeadersUseBasicEncoding(t *testing.T) {
+	tokenHeader := gitTokenAuthHeader("ghp_example")
+	if !strings.HasPrefix(tokenHeader, "Authorization: Basic ") {
+		t.Fatalf("token auth header = %q", tokenHeader)
 	}
-	if strings.Contains(header, "ghp_example") || strings.Contains(header, "Bearer") {
-		t.Fatalf("auth header should be basic encoded without a bearer token: %q", header)
+	if strings.Contains(tokenHeader, "ghp_example") || strings.Contains(tokenHeader, "Bearer") {
+		t.Fatalf("token auth header should be basic encoded without a bearer token: %q", tokenHeader)
+	}
+
+	basicHeader := gitBasicAuthHeader("oauth2", "glpat_example")
+	if !strings.HasPrefix(basicHeader, "Authorization: Basic ") {
+		t.Fatalf("basic auth header = %q", basicHeader)
+	}
+	if strings.Contains(basicHeader, "oauth2") || strings.Contains(basicHeader, "glpat_example") {
+		t.Fatalf("basic auth header should be encoded without visible credentials: %q", basicHeader)
 	}
 }
 

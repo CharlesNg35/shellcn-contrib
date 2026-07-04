@@ -53,13 +53,13 @@ var removeDockerContainerFunc = func(ctx context.Context, rt *dockerRuntime, con
 }
 
 type Options struct {
-	RepositoryURL   string
-	RepositoryRef   string
-	RepositoryToken string
-	ConnectionID    string
-	UserID          string
-	ActorScope      string
-	WorkspacePath   string
+	RepositoryURL        string
+	RepositoryRef        string
+	RepositoryAuthHeader string
+	ConnectionID         string
+	UserID               string
+	ActorScope           string
+	WorkspacePath        string
 }
 
 type Session struct {
@@ -145,13 +145,34 @@ func parseOptions(cfg plugin.ConnectConfig) (Options, error) {
 			if err != nil {
 				return Options{}, err
 			}
-			opts.RepositoryToken = token
+			opts.RepositoryAuthHeader = gitTokenAuthHeader(token)
 		case "inline_token":
 			token := strings.TrimSpace(cfg.String("repository_token_value"))
 			if token == "" {
 				return Options{}, fmt.Errorf("%w: repository token is required", plugin.ErrInvalidInput)
 			}
-			opts.RepositoryToken = token
+			opts.RepositoryAuthHeader = gitTokenAuthHeader(token)
+		case "stored_basic":
+			cred, err := cfg.RequiredCredentialFor("repository_basic", plugin.CredentialKindBasicAuth)
+			if err != nil {
+				return Options{}, err
+			}
+			username, err := cred.RequiredValue("username")
+			if err != nil {
+				return Options{}, err
+			}
+			password, err := cred.RequiredValue("password")
+			if err != nil {
+				return Options{}, err
+			}
+			opts.RepositoryAuthHeader = gitBasicAuthHeader(username, password)
+		case "inline_basic":
+			username := strings.TrimSpace(cfg.String("repository_basic_username"))
+			password := cfg.String("repository_basic_password")
+			if username == "" || password == "" {
+				return Options{}, fmt.Errorf("%w: repository username and password are required", plugin.ErrInvalidInput)
+			}
+			opts.RepositoryAuthHeader = gitBasicAuthHeader(username, password)
 		default:
 			return Options{}, fmt.Errorf("%w: unsupported repository auth mode %q", plugin.ErrInvalidInput, authMode)
 		}
@@ -292,11 +313,11 @@ func (rt *dockerRuntime) prepareVolumesAndRepo(ctx context.Context, opts Options
 		"REPOSITORY_DEST=" + opts.WorkspacePath,
 		"HOME=/tmp",
 	}
-	if opts.RepositoryToken != "" {
+	if opts.RepositoryAuthHeader != "" {
 		env = append(env,
 			"GIT_CONFIG_COUNT=1",
 			"GIT_CONFIG_KEY_0=http.extraHeader",
-			"GIT_CONFIG_VALUE_0="+gitAuthHeader(opts.RepositoryToken),
+			"GIT_CONFIG_VALUE_0="+opts.RepositoryAuthHeader,
 		)
 	}
 	created, err := rt.cli.ContainerCreate(gitCtx, dockerclient.ContainerCreateOptions{
@@ -571,12 +592,16 @@ func workspaceVolumeName(opts Options) string {
 	return dockerVolumeName(opts, "workspace")
 }
 
-func gitAuthHeader(token string) string {
-	token = strings.TrimSpace(token)
-	if token == "" {
+func gitTokenAuthHeader(token string) string {
+	return gitBasicAuthHeader("x-access-token", strings.TrimSpace(token))
+}
+
+func gitBasicAuthHeader(username, password string) string {
+	username = strings.TrimSpace(username)
+	if username == "" || password == "" {
 		return ""
 	}
-	raw := "x-access-token:" + token
+	raw := username + ":" + password
 	return "Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte(raw))
 }
 
