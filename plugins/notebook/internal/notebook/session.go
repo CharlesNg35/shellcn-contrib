@@ -254,10 +254,10 @@ func (rt *dockerRuntime) prepareVolumes(ctx context.Context, opts Options) error
 		return dockerErr("create notebook volume prep", err)
 	}
 	defer func() { _ = rt.removeContainer(context.Background(), created.ID) }()
-	wait := rt.cli.ContainerWait(ctx, created.ID, dockerclient.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	if _, err := rt.cli.ContainerStart(ctx, created.ID, dockerclient.ContainerStartOptions{}); err != nil {
 		return dockerErr("start notebook volume prep", err)
 	}
+	wait := rt.cli.ContainerWait(ctx, created.ID, dockerclient.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
 	case err := <-wait.Error:
 		return dockerErr("wait notebook volume prep", err)
@@ -274,8 +274,8 @@ func (rt *dockerRuntime) prepareVolumes(ctx context.Context, opts Options) error
 const notebookPrepareScript = `
 set -eu
 mkdir -p /home/jovyan/work /home/jovyan/.jupyter /home/jovyan/.local/share/jupyter/runtime /home/jovyan/.ipython
-chown -R 1000:1000 /home/jovyan /home/jovyan/work
-chmod -R u+rwX,g+rwX /home/jovyan /home/jovyan/work
+chown -R 1000:1000 /home/jovyan/. /home/jovyan/work/.
+chmod -R u+rwX,g+rwX /home/jovyan/. /home/jovyan/work/.
 `
 
 func (rt *dockerRuntime) probeNotebookPermissions(ctx context.Context, opts Options) error {
@@ -311,10 +311,10 @@ func (rt *dockerRuntime) probeNotebookPermissions(ctx context.Context, opts Opti
 		return dockerErr("create notebook permission probe", err)
 	}
 	defer func() { _ = rt.removeContainer(context.Background(), created.ID) }()
-	wait := rt.cli.ContainerWait(ctx, created.ID, dockerclient.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	if _, err := rt.cli.ContainerStart(ctx, created.ID, dockerclient.ContainerStartOptions{}); err != nil {
 		return dockerErr("start notebook permission probe", err)
 	}
+	wait := rt.cli.ContainerWait(ctx, created.ID, dockerclient.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
 	case err := <-wait.Error:
 		return dockerErr("wait notebook permission probe", err)

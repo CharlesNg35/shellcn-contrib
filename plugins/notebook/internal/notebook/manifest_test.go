@@ -174,8 +174,8 @@ func TestJupyterArgsUseSandboxPaths(t *testing.T) {
 func TestNotebookPrepareScriptFixesVolumeOwnership(t *testing.T) {
 	for _, want := range []string{
 		"mkdir -p /home/jovyan/work /home/jovyan/.jupyter /home/jovyan/.local/share/jupyter/runtime /home/jovyan/.ipython",
-		"chown -R 1000:1000 /home/jovyan /home/jovyan/work",
-		"chmod -R u+rwX,g+rwX /home/jovyan /home/jovyan/work",
+		"chown -R 1000:1000 /home/jovyan/. /home/jovyan/work/.",
+		"chmod -R u+rwX,g+rwX /home/jovyan/. /home/jovyan/work/.",
 	} {
 		if !strings.Contains(notebookPrepareScript, want) {
 			t.Fatalf("notebook prep script missing %q:\n%s", want, notebookPrepareScript)
