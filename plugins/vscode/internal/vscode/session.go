@@ -333,10 +333,10 @@ func (rt *dockerRuntime) prepareVolumesAndRepo(ctx context.Context, opts Options
 		return dockerErr("create repository checkout", err)
 	}
 	defer func() { _ = rt.removeContainer(context.Background(), created.ID) }()
-	wait := rt.cli.ContainerWait(gitCtx, created.ID, dockerclient.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	if _, err := rt.cli.ContainerStart(gitCtx, created.ID, dockerclient.ContainerStartOptions{}); err != nil {
 		return dockerErr("start repository checkout", err)
 	}
+	wait := rt.cli.ContainerWait(gitCtx, created.ID, dockerclient.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
 	case err := <-wait.Error:
 		return dockerErr("wait repository checkout", err)
@@ -352,7 +352,7 @@ func (rt *dockerRuntime) prepareVolumesAndRepo(ctx context.Context, opts Options
 
 const workspacePrepareScript = `
 set -eu
-mkdir -p /workspace /home/coder /user-data /extensions
+mkdir -p /workspace /home/coder/.config /user-data/User /user-data/Machine /extensions
 if [ -n "${REPOSITORY_URL:-}" ]; then
   dest="${REPOSITORY_DEST:-/workspace}"
   mkdir -p "$(dirname "$dest")"
@@ -376,8 +376,8 @@ if [ -n "${REPOSITORY_URL:-}" ]; then
     git -C "$dest" checkout -B "${default_ref#origin/}" "$default_ref"
   fi
 fi
-chown -R 1000:1000 /workspace /home/coder /user-data /extensions
-chmod -R u+rwX,g+rwX /workspace /home/coder /user-data /extensions
+chown -R 1000:1000 /workspace/. /home/coder/. /user-data/. /extensions/.
+chmod -R u+rwX,g+rwX /workspace/. /home/coder/. /user-data/. /extensions/.
 `
 
 func (rt *dockerRuntime) probeWorkspacePermissions(ctx context.Context, opts Options) error {
@@ -418,10 +418,10 @@ func (rt *dockerRuntime) probeWorkspacePermissions(ctx context.Context, opts Opt
 		return dockerErr("create workspace permission probe", err)
 	}
 	defer func() { _ = rt.removeContainer(context.Background(), created.ID) }()
-	wait := rt.cli.ContainerWait(ctx, created.ID, dockerclient.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	if _, err := rt.cli.ContainerStart(ctx, created.ID, dockerclient.ContainerStartOptions{}); err != nil {
 		return dockerErr("start workspace permission probe", err)
 	}
+	wait := rt.cli.ContainerWait(ctx, created.ID, dockerclient.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
 	case err := <-wait.Error:
 		return dockerErr("wait workspace permission probe", err)

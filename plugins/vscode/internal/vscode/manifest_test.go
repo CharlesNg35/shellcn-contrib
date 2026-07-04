@@ -185,14 +185,14 @@ func TestCodeServerUsesOfficialEntrypoint(t *testing.T) {
 
 func TestWorkspacePrepareScriptFixesVolumeOwnership(t *testing.T) {
 	for _, want := range []string{
-		"mkdir -p /workspace /home/coder /user-data /extensions",
+		"mkdir -p /workspace /home/coder/.config /user-data/User /user-data/Machine /extensions",
 		"git clone --",
 		"remote.origin.url",
 		"rev-parse --verify HEAD",
 		"git -C \"$dest\" fetch origin --tags --prune",
 		"git -C \"$dest\" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'",
-		"chown -R 1000:1000 /workspace /home/coder /user-data /extensions",
-		"chmod -R u+rwX,g+rwX /workspace /home/coder /user-data /extensions",
+		"chown -R 1000:1000 /workspace/. /home/coder/. /user-data/. /extensions/.",
+		"chmod -R u+rwX,g+rwX /workspace/. /home/coder/. /user-data/. /extensions/.",
 	} {
 		if !strings.Contains(workspacePrepareScript, want) {
 			t.Fatalf("workspace prep script missing %q:\n%s", want, workspacePrepareScript)
