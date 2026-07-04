@@ -39,13 +39,18 @@ the editor container through the remote Docker daemon for each ShellCN session.
 
 ## Configure
 
-| Field             | Default      | Notes                                                                                       |
-| ----------------- | ------------ | ------------------------------------------------------------------------------------------- |
-| `sandbox`         | `docker`     | Explicit sandbox selector. Docker is currently the only supported value.                    |
-| `workspace_path`  | `/workspace` | Folder path sent to the editor on the initial load.                                         |
-| `repository_url`  | empty        | Optional repository to clone into the scoped Docker workspace volume before VS Code starts. |
-| `repository_ref`  | empty        | Optional branch, tag, or commit to checkout after clone/fetch.                              |
-| `repository_auth` | `none`       | Use no token, a stored API token, or an inline token for private repositories.              |
+| Field                       | Default      | Notes                                                                                       |
+| --------------------------- | ------------ | ------------------------------------------------------------------------------------------- |
+| `sandbox`                   | `docker`     | Explicit sandbox selector. Docker is currently the only supported value.                    |
+| `workspace_path`            | `/workspace` | Folder path sent to the editor on the initial load.                                         |
+| `repository_url`            | empty        | Optional repository to clone into the scoped Docker workspace volume before VS Code starts. |
+| `repository_ref`            | empty        | Optional branch, tag, or commit to checkout after clone/fetch.                              |
+| `repository_auth`           | `none`       | Use no auth, token auth, or username/password auth for private repositories.                |
+| `repository_token`          | empty        | Stored API token credential, visible when repository auth is stored token.                  |
+| `repository_token_value`    | empty        | Inline API token, visible when repository auth is inline token.                             |
+| `repository_basic`          | empty        | Stored Basic auth credential, visible when repository auth is stored username/password.     |
+| `repository_basic_username` | empty        | Inline repository username, visible when repository auth is inline username/password.       |
+| `repository_basic_password` | empty        | Inline repository password or app token, visible when repository auth is inline username/password. |
 
 ## Build
 
