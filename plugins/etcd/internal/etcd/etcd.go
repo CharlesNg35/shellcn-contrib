@@ -90,8 +90,8 @@ func actions() []plugin.Action {
 func leaseColumns() []plugin.Column {
 	return []plugin.Column{
 		{Key: "id", Label: "Lease ID", Sortable: true},
-		{Key: "ttl", Label: "TTL (s)", Type: plugin.ColumnNumber, Sortable: true},
-		{Key: "granted_ttl", Label: "Granted TTL (s)", Type: plugin.ColumnNumber, Sortable: true},
+		{Key: "ttl", Label: "TTL", Type: plugin.ColumnDuration, Sortable: true},
+		{Key: "granted_ttl", Label: "Granted TTL", Type: plugin.ColumnDuration, Sortable: true},
 		{Key: "keys", Label: "Keys", Type: plugin.ColumnNumber, Sortable: true},
 	}
 }

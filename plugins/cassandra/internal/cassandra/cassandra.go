@@ -223,7 +223,7 @@ func queryConfig(initial string) plugin.QueryEditorConfig {
 }
 
 func tableColumns() []plugin.Column {
-	return []plugin.Column{{Key: "name", Label: "Table", Sortable: true}, {Key: "keyspace", Label: "Keyspace", Sortable: true}, {Key: "comment", Label: "Comment"}, {Key: "gc_grace_seconds", Label: "GC grace", Type: plugin.ColumnNumber}, {Key: "bloom_filter_fp_chance", Label: "Bloom FP", Type: plugin.ColumnNumber}}
+	return []plugin.Column{{Key: "name", Label: "Table", Sortable: true}, {Key: "keyspace", Label: "Keyspace", Sortable: true}, {Key: "comment", Label: "Comment"}, {Key: "gc_grace_seconds", Label: "GC grace", Type: plugin.ColumnDuration}, {Key: "bloom_filter_fp_chance", Label: "Bloom FP", Type: plugin.ColumnNumber}}
 }
 
 func viewColumns() []plugin.Column {

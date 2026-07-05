@@ -2,7 +2,7 @@ module github.com/charlesng35/shellcn-contrib/plugins/cloudflare
 
 go 1.26.4
 
-require github.com/charlesng35/shellcn/sdk v0.1.23
+require github.com/charlesng35/shellcn/sdk v0.1.24
 
 require (
 	github.com/fatih/color v1.13.0 // indirect
