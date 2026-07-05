@@ -6,7 +6,7 @@ replace github.com/charlesng35/shellcn-contrib/shared => ../../shared
 
 require (
 	github.com/charlesng35/shellcn-contrib/shared v0.0.0-20260630074135-02f48aac98a5
-	github.com/charlesng35/shellcn/sdk v0.1.22
+	github.com/charlesng35/shellcn/sdk v0.1.23
 	go.etcd.io/etcd/client/v3 v3.5.17
 	google.golang.org/grpc v1.79.3
 )

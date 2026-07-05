@@ -7,13 +7,13 @@ replace github.com/charlesng35/shellcn-contrib/shared => ../../shared
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
 	github.com/charlesng35/shellcn-contrib/shared v0.0.0-00010101000000-000000000000
-	github.com/charlesng35/shellcn/sdk v0.1.22
+	github.com/charlesng35/shellcn/sdk v0.1.23
 	github.com/google/uuid v1.6.0
 )
 
 require (
 	github.com/ClickHouse/ch-go v0.71.0 // indirect
-	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/fatih/color v1.13.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect

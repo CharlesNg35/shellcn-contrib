@@ -782,7 +782,6 @@ func (s *Session) ServeHTTPProxy(w http.ResponseWriter, r *http.Request) {
 		UpstreamPath:    req.URL.Path,
 		UpstreamRawPath: req.URL.RawPath,
 		PublicPrefix:    prefix,
-		WebSocket:       codeServerWebSocketOptions(),
 	})
 }
 
@@ -815,13 +814,6 @@ func (t codeServerTransport) RoundTrip(req *http.Request) (*http.Response, error
 	resp.ContentLength = int64(len(out))
 	resp.Header.Set("Content-Length", strconv.Itoa(len(out)))
 	return resp, nil
-}
-
-func codeServerWebSocketOptions() webproxy.WebSocketOptions {
-	return webproxy.WebSocketOptions{
-		RewriteOrigin:         true,
-		StripForwardedHeaders: true,
-	}
 }
 
 func rewriteCodeServerWorkbenchConfig(page, prefix string) string {

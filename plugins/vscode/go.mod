@@ -3,7 +3,7 @@ module github.com/charlesng35/shellcn-contrib/plugins/vscode
 go 1.26.4
 
 require (
-	github.com/charlesng35/shellcn/sdk v0.1.22
+	github.com/charlesng35/shellcn/sdk v0.1.23
 	github.com/containerd/errdefs v1.0.0
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
@@ -11,6 +11,7 @@ require (
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
