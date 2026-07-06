@@ -219,6 +219,17 @@ func TestCodeServerUsesOfficialEntrypoint(t *testing.T) {
 	}
 }
 
+func TestSandboxTmpfsAllowsEditorToolingTemps(t *testing.T) {
+	tmpfs := sandboxTmpfs()
+	opts := tmpfs["/tmp"]
+	if !strings.Contains(opts, "size=1g") {
+		t.Fatalf("sandbox tmpfs should leave room for editor tooling, got %q", opts)
+	}
+	if strings.Contains(opts, "noexec") {
+		t.Fatalf("sandbox tmpfs should not block tooling that executes temp files: %q", opts)
+	}
+}
+
 func TestWorkspacePrepareScriptFixesVolumeOwnership(t *testing.T) {
 	for _, want := range []string{
 		"mkdir -p /workspace /home/coder/.config /user-data/User /user-data/Machine /extensions",

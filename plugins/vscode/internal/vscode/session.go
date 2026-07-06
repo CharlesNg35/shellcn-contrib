@@ -42,6 +42,7 @@ const (
 	dockerCodeServerImage = "codercom/code-server:4.127.0"
 	codeServerEntrypoint  = "/usr/bin/entrypoint.sh"
 	dockerCodeServerPort  = "8080/tcp"
+	sandboxTmpfsOptions   = "rw,nosuid,nodev,size=1g"
 	startupTimeout        = 45 * time.Second
 	gitTimeout            = 2 * time.Minute
 )
@@ -280,7 +281,7 @@ func (rt *dockerRuntime) startCodeServer(ctx context.Context, opts Options) (str
 			PortBindings:   network.PortMap{port: []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1")}}},
 			ReadonlyRootfs: true,
 			SecurityOpt:    []string{"no-new-privileges:true"},
-			Tmpfs:          map[string]string{"/tmp": "rw,nosuid,nodev,noexec,size=64m"},
+			Tmpfs:          sandboxTmpfs(),
 			Mounts: []mount.Mount{
 				{Type: mount.TypeVolume, Source: workspaceVolumeName(opts), Target: sandboxWorkspacePath},
 				{Type: mount.TypeVolume, Source: dockerVolumeName(opts, "home"), Target: sandboxHomeDir},
@@ -341,7 +342,7 @@ func (rt *dockerRuntime) prepareVolumesAndRepo(ctx context.Context, opts Options
 			AutoRemove:     false,
 			ReadonlyRootfs: true,
 			SecurityOpt:    []string{"no-new-privileges:true"},
-			Tmpfs:          map[string]string{"/tmp": "rw,nosuid,nodev,noexec,size=64m"},
+			Tmpfs:          sandboxTmpfs(),
 			Mounts: []mount.Mount{
 				{Type: mount.TypeVolume, Source: workspaceVolumeName(opts), Target: sandboxWorkspacePath},
 				{Type: mount.TypeVolume, Source: dockerVolumeName(opts, "home"), Target: sandboxHomeDir},
@@ -426,7 +427,7 @@ func (rt *dockerRuntime) probeWorkspacePermissions(ctx context.Context, opts Opt
 			CapDrop:        []string{"ALL"},
 			ReadonlyRootfs: true,
 			SecurityOpt:    []string{"no-new-privileges:true"},
-			Tmpfs:          map[string]string{"/tmp": "rw,nosuid,nodev,noexec,size=64m"},
+			Tmpfs:          sandboxTmpfs(),
 			Mounts: []mount.Mount{
 				{Type: mount.TypeVolume, Source: workspaceVolumeName(opts), Target: sandboxWorkspacePath},
 				{Type: mount.TypeVolume, Source: dockerVolumeName(opts, "home"), Target: sandboxHomeDir},
@@ -565,6 +566,10 @@ func codeServerEnv() []string {
 		"XDG_CACHE_HOME=" + sandboxHomeDir + "/.cache",
 		"XDG_DATA_HOME=" + sandboxHomeDir + "/.local/share",
 	}
+}
+
+func sandboxTmpfs() map[string]string {
+	return map[string]string{"/tmp": sandboxTmpfsOptions}
 }
 
 func dockerLabels(opts Options) map[string]string {
