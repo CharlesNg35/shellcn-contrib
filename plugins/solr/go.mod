@@ -1,12 +1,12 @@
 module github.com/charlesng35/shellcn-contrib/plugins/solr
 
-go 1.26.4
+go 1.26.5
 
 replace github.com/charlesng35/shellcn-contrib/shared => ../../shared
 
 require (
 	github.com/charlesng35/shellcn-contrib/shared v0.0.0-00010101000000-000000000000
-	github.com/charlesng35/shellcn/sdk v0.1.24
+	github.com/charlesng35/shellcn/sdk v0.1.25
 )
 
 require (
@@ -26,7 +26,7 @@ require (
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect

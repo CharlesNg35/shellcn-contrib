@@ -1,6 +1,6 @@
 module github.com/charlesng35/shellcn-contrib/shared
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.11
@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.2.5
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.103.1
 	github.com/aws/smithy-go v1.27.1
-	github.com/charlesng35/shellcn/sdk v0.1.24
+	github.com/charlesng35/shellcn/sdk v0.1.25
 )
 
 require (
@@ -27,5 +27,5 @@ require (
 	github.com/leodido/go-urn v1.4.0 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 )
