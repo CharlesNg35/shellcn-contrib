@@ -3,27 +3,17 @@
 
   var sc = window.shellcn || {};
   var DUCK = null, adb = null, conn = null;
-  var pageSize = 50;
-  var mode = null;
-  var cursor = null;
-  var table = null;
-  var selection = null;
-  var lastGrid = null;
-  var refs = {};
+  var pageSize = 50, mode = null, cursor = null, table = null, selection = {};
+  var refs = {}, lastGrid = null;
 
   function applyTheme(theme, colors) {
     document.body.dataset.theme = theme === "light" ? "light" : "dark";
     var accent = (colors && colors.primary500) || (sc.colors && sc.colors.primary500);
     if (accent) document.documentElement.style.setProperty("--accent", accent);
   }
-
   function el(tag, attrs, children) {
     var n = document.createElement(tag);
-    if (attrs) for (var k in attrs) {
-      if (k === "class") n.className = attrs[k];
-      else if (k === "text") n.textContent = attrs[k];
-      else n.setAttribute(k, attrs[k]);
-    }
+    if (attrs) for (var k in attrs) { if (k === "class") n.className = attrs[k]; else if (k === "text") n.textContent = attrs[k]; else n.setAttribute(k, attrs[k]); }
     (children || []).forEach(function (c) { if (c == null) return; n.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
     return n;
   }
@@ -31,18 +21,6 @@
     var b = el("button", { class: "btn " + (kind || ""), type: "button", title: title || label }, [label]);
     b.addEventListener("click", onClick);
     return b;
-  }
-  function confirmDialog(message, onConfirm, danger) {
-    var overlay = el("div", { class: "modal-overlay" });
-    function close() { document.removeEventListener("keydown", onKey); overlay.remove(); }
-    function onKey(e) { if (e.key === "Escape") close(); }
-    var confirmBtn = button(danger ? "Delete" : "Confirm", function () { close(); onConfirm(); }, danger ? "primary danger-solid" : "primary");
-    var box = el("div", { class: "modal" }, [el("div", { class: "modal-msg", text: message }), el("div", { class: "modal-actions" }, [button("Cancel", close, "ghost"), confirmBtn])]);
-    overlay.appendChild(box);
-    overlay.addEventListener("click", function (e) { if (e.target === overlay) close(); });
-    document.addEventListener("keydown", onKey);
-    document.body.appendChild(overlay);
-    confirmBtn.focus();
   }
   function q1(s) { return '"' + String(s).replace(/"/g, '""') + '"'; }
   function qname(cat, sch, name) { return q1(cat) + "." + q1(sch) + "." + q1(name); }
@@ -57,14 +35,11 @@
     var out = "", m;
     while ((m = re.exec(src))) {
       var t = m[0], cls = "";
-      if (m[1]) cls = "hl-comment";
-      else if (m[2]) cls = "hl-string";
-      else if (m[3]) cls = "hl-ident";
+      if (m[1]) cls = "hl-comment"; else if (m[2]) cls = "hl-string"; else if (m[3]) cls = "hl-ident";
       else if (m[4]) cls = "hl-num";
       else if (m[5]) { var u = t.toUpperCase(); cls = SQL_KW[u] ? "hl-kw" : (SQL_FN[u] ? "hl-fn" : ""); }
       else if (m[7]) cls = "hl-punc";
-      var e = escHtml(t);
-      out += cls ? '<span class="' + cls + '">' + e + "</span>" : e;
+      out += cls ? '<span class="' + cls + '">' + escHtml(t) + "</span>" : escHtml(t);
       if (re.lastIndex === m.index) re.lastIndex++;
     }
     return out;
@@ -72,11 +47,35 @@
   function syncHighlight() { refs.hl.innerHTML = highlightSQL(refs.editor.value) + "\n"; }
   function setEditorValue(v) { refs.editor.value = v; syncHighlight(); }
 
+  function openModal(box) {
+    var overlay = el("div", { class: "modal-overlay" });
+    overlay.appendChild(box);
+    overlay.addEventListener("click", function (e) { if (e.target === overlay) closeModal(overlay); });
+    overlay._onKey = function (e) { if (e.key === "Escape") closeModal(overlay); };
+    document.addEventListener("keydown", overlay._onKey);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(function () { overlay.classList.add("show"); });
+    return overlay;
+  }
+  function closeModal(overlay) {
+    if (!overlay || overlay._closing) return;
+    overlay._closing = true;
+    overlay.classList.remove("show");
+    document.removeEventListener("keydown", overlay._onKey);
+    setTimeout(function () { overlay.remove(); }, 200);
+  }
+  function confirmDialog(message, onConfirm, danger) {
+    var overlay;
+    var ok = button(danger ? "Delete" : "Confirm", function () { closeModal(overlay); onConfirm(); }, danger ? "primary danger-solid" : "primary");
+    var box = el("div", { class: "modal" }, [el("div", { class: "modal-msg", text: message }), el("div", { class: "modal-actions" }, [button("Cancel", function () { closeModal(overlay); }, "ghost"), ok])]);
+    overlay = openModal(box);
+    ok.focus();
+  }
+
   function buildUI() {
     document.body.appendChild(styleTag());
     refs.file = el("input", { type: "file", accept: ".parquet,.csv,.tsv,.json,.ndjson,.arrow,.duckdb,.db", style: "display:none" });
     refs.file.addEventListener("change", function () { if (refs.file.files && refs.file.files[0]) openLocal(refs.file.files[0]); refs.file.value = ""; });
-
     refs.open = button("Open file", function () { refs.file.click(); }, "primary");
     refs.new = button("New", newDatabase, "", "Create an empty in-memory database");
     refs.dbLabel = el("span", { class: "dbname", text: "No database" });
@@ -109,10 +108,8 @@
     setBusy(true);
     renderLoading("Loading DuckDB engine…");
   }
-
   function setBusy(b) { [refs.open, refs.new, refs.run].forEach(function (x) { if (x) x.disabled = b; }); }
   function renderLoading(text) { refs.results.innerHTML = ""; refs.results.appendChild(el("div", { class: "loading" }, [el("div", { class: "spinner" }), el("div", { text: text || "Loading…" })])); }
-
   function setupDrop() {
     var overlay = el("div", { class: "drop-overlay", text: "Drop a Parquet / CSV / JSON file to open" });
     refs.app.appendChild(overlay);
@@ -162,21 +159,10 @@
       await refreshSchema();
     } catch (e) { renderError(msg(e)); setStatus("Could not open file", "error"); }
   }
+  async function newDatabase() { if (!conn) return; setEditorValue(""); mode = null; cursor = null; table = null; await refreshSchema(); welcome(); setStatus("In-memory database — create tables or open a file", "ok"); }
+  function reload() { if (mode === "table") loadTablePage(table.page || 0); else if (mode === "query" && cursor) runQuery(); }
 
-  async function newDatabase() {
-    if (!conn) return;
-    setEditorValue("");
-    mode = null; cursor = null; table = null;
-    await refreshSchema();
-    welcome();
-    setStatus("In-memory database — create tables or open a file", "ok");
-  }
-
-  function reload() { if (mode === "table") loadTablePage(table.page || 0); else if (mode === "query") { /* re-run current query */ if (cursor) runQuery(); } }
-
-  async function listRows(sql) {
-    try { var res = await conn.query(sql); return res.toArray().map(function (r) { return Object.values(r.toJSON ? r.toJSON() : r); }); } catch (e) { return []; }
-  }
+  async function listRows(sql) { try { var res = await conn.query(sql); return res.toArray().map(function (r) { return Object.values(r.toJSON ? r.toJSON() : r); }); } catch (e) { return []; } }
 
   async function refreshSchema() {
     refs.schema.innerHTML = "";
@@ -187,7 +173,6 @@
     if (tables.length) refs.schema.appendChild(schemaGroup("Tables", tables));
     if (views.length) refs.schema.appendChild(schemaGroup("Views", views));
   }
-
   function schemaGroup(title, rows) {
     var group = el("div", { class: "schema-group" }, [el("div", { class: "schema-group-head", text: title + " (" + rows.length + ")" })]);
     rows.forEach(function (row) {
@@ -198,27 +183,17 @@
       var caret = el("span", { class: "caret", text: "▸" });
       var head = el("div", { class: "table-row" }, [caret, el("span", { class: "table-name", text: label, title: cat + "." + sch + "." + name })]);
       caret.addEventListener("click", async function (e) {
-        e.stopPropagation();
-        expanded = !expanded;
-        caret.textContent = expanded ? "▾" : "▸";
-        cols.style.display = expanded ? "block" : "none";
-        if (expanded && !cols.dataset.loaded) {
-          (await describe(cat, sch, name)).forEach(function (c) { cols.appendChild(el("div", { class: "col" }, [el("span", { class: "col-name", text: c.name }), el("span", { class: "col-type", text: c.type || "" })])); });
-          cols.dataset.loaded = "1";
-        }
+        e.stopPropagation(); expanded = !expanded; caret.textContent = expanded ? "▾" : "▸"; cols.style.display = expanded ? "block" : "none";
+        if (expanded && !cols.dataset.loaded) { (await describe(cat, sch, name)).forEach(function (c) { cols.appendChild(el("div", { class: "col" }, [el("span", { class: "col-name", text: c.name }), el("span", { class: "col-type", text: c.type || "" })])); }); cols.dataset.loaded = "1"; }
       });
       head.addEventListener("click", function () { openObject(cat, sch, name, type); });
       group.appendChild(el("div", {}, [head, cols]));
     });
     return group;
   }
-
   async function describe(cat, sch, name) {
     var out = [];
-    try {
-      var res = await conn.query("DESCRIBE " + qname(cat, sch, name));
-      res.toArray().forEach(function (r) { var o = r.toJSON ? r.toJSON() : r; out.push({ name: o.column_name, type: o.column_type, pk: String(o.key || "").toUpperCase() === "PRI", notnull: String(o["null"]).toUpperCase() === "NO" }); });
-    } catch (e) {}
+    try { var res = await conn.query("DESCRIBE " + qname(cat, sch, name)); res.toArray().forEach(function (r) { var o = r.toJSON ? r.toJSON() : r; out.push({ name: o.column_name, type: o.column_type, pk: String(o.key || "").toUpperCase() === "PRI", notnull: String(o["null"]).toUpperCase() === "NO" }); }); } catch (e) {}
     return out;
   }
 
@@ -228,8 +203,7 @@
     var writable = cat !== "attached" && String(type).indexOf("VIEW") === -1 && pk.length > 0;
     table = { cat: cat, sch: sch, name: name, cols: cols, pk: pk, editable: writable, page: 0 };
     setEditorValue("SELECT * FROM " + qname(cat, sch, name));
-    mode = "table";
-    selection = {};
+    mode = "table"; selection = {};
     await loadTablePage(0);
   }
 
@@ -241,17 +215,10 @@
     var offset = pageIndex * pageSize;
     var names = table.cols.map(function (c) { return c.name; });
     var rows = [];
-    try {
-      var res = await conn.query("SELECT * FROM " + qn + " LIMIT " + pageSize + " OFFSET " + offset);
-      rows = res.toArray().map(function (r) { var o = r.toJSON ? r.toJSON() : r; return names.map(function (n) { return normalize(o[n]); }); });
-    } catch (e) { renderError(msg(e)); return; }
-    renderGrid(names, rows, {
-      start: offset, total: total, editable: table.editable,
-      hasPrev: pageIndex > 0, hasNext: offset + rows.length < total,
-      onPrev: function () { loadTablePage(pageIndex - 1); },
-      onNext: function () { loadTablePage(pageIndex + 1); },
-    });
-    setStatus((table.editable ? "Editable · " : "") + table.name + " · " + total + " row(s)", "ok");
+    try { var res = await conn.query("SELECT * FROM " + qn + " LIMIT " + pageSize + " OFFSET " + offset); rows = res.toArray().map(function (r) { var o = r.toJSON ? r.toJSON() : r; return names.map(function (n) { return normalize(o[n]); }); }); }
+    catch (e) { renderError(msg(e)); return; }
+    grid(names, rows, { start: offset, total: total, editable: table.editable, hasPrev: pageIndex > 0, hasNext: offset + rows.length < total, onPrev: function () { loadTablePage(pageIndex - 1); }, onNext: function () { loadTablePage(pageIndex + 1); } });
+    setStatus(table.name + " · " + total + " row(s)" + (table.editable ? " · editable" : ""), "ok");
   }
 
   function isReadQuery(text) {
@@ -259,7 +226,6 @@
     if (!/^(select|with|from|pragma|describe|explain|show|values|table)\b/.test(t)) return false;
     return text.replace(/;+\s*$/, "").indexOf(";") === -1;
   }
-
   async function runQuery() {
     if (!conn) { setStatus("Engine not ready", "error"); return; }
     var text = refs.editor.value.trim();
@@ -270,7 +236,7 @@
     try {
       if (isReadQuery(text)) {
         mode = "query"; table = null;
-        cursor = { reader: await conn.send(text.replace(/;+\s*$/, "")), columns: null, rows: [], done: false, sql: text };
+        cursor = { reader: await conn.send(text.replace(/;+\s*$/, "")), columns: null, rows: [], done: false };
         await renderCursorPage(0);
         setStatus("Query ran in " + since(t0), "ok");
       } else {
@@ -295,17 +261,11 @@
     }
     if (!cursor.columns && cursor.reader.schema) cursor.columns = cursor.reader.schema.fields.map(function (f) { return f.name; });
   }
-
   async function renderCursorPage(pageIndex) {
     await fill((pageIndex + 1) * pageSize + 1);
     var start = pageIndex * pageSize;
     var rows = cursor.rows.slice(start, start + pageSize);
-    renderGrid(cursor.columns || [], rows, {
-      start: start, total: cursor.done ? cursor.rows.length : null, editable: false,
-      hasPrev: pageIndex > 0, hasNext: cursor.rows.length > start + pageSize,
-      onPrev: function () { renderCursorPage(pageIndex - 1); },
-      onNext: function () { renderCursorPage(pageIndex + 1); },
-    });
+    grid(cursor.columns || [], rows, { start: start, total: cursor.done ? cursor.rows.length : null, editable: false, hasPrev: pageIndex > 0, hasNext: cursor.rows.length > start + pageSize, onPrev: function () { renderCursorPage(pageIndex - 1); }, onNext: function () { renderCursorPage(pageIndex + 1); } });
   }
 
   function normalize(v) {
@@ -316,17 +276,18 @@
     return v;
   }
 
-  function renderGrid(columns, rows, nav) {
+  function grid(columns, rows, nav) {
     refs.results.innerHTML = "";
     var editable = !!nav.editable;
     var bar = el("div", { class: "gridbar" });
     if (editable) {
-      bar.appendChild(button("＋ Add row", startAddRow, "ghost"));
-      var del = button("Delete", deleteSelected, "ghost danger"); del.disabled = true; refs.delBtn = del;
-      bar.appendChild(del);
+      refs.addBtn = button("＋ Add row", function () { openRowForm("add", null); }, "ghost");
+      refs.editBtn = button("Edit", editSelected, "ghost"); refs.editBtn.disabled = true;
+      refs.delBtn = button("Delete", deleteSelected, "ghost danger"); refs.delBtn.disabled = true;
+      bar.appendChild(refs.addBtn); bar.appendChild(refs.editBtn); bar.appendChild(refs.delBtn);
     }
     bar.appendChild(el("span", { class: "spacer" }));
-    bar.appendChild(el("span", { class: "muted", text: editable ? "Double-click a cell to edit" : "Read-only result" }));
+    bar.appendChild(el("span", { class: "muted", text: editable ? "Select a row, or double-click to edit" : "Read-only result" }));
     refs.results.appendChild(bar);
 
     var scroll = el("div", { class: "grid-scroll" });
@@ -339,18 +300,18 @@
     var tbody = el("tbody", {});
     rows.forEach(function (row, r) {
       var tr = el("tr", {});
-      var key = editable ? rowKey(row) : null;
+      var key = editable ? rowKey(row, columns) : null;
+      var values = null;
       if (editable) {
+        values = {}; columns.forEach(function (c, i) { values[c] = row[i]; });
+        var kk = JSON.stringify(key);
         var cb = el("input", { type: "checkbox" });
-        cb.addEventListener("change", function () { if (cb.checked) selection[JSON.stringify(key)] = key; else delete selection[JSON.stringify(key)]; refreshDelBtn(); });
+        cb.addEventListener("change", function () { if (cb.checked) selection[kk] = { key: key, values: values }; else delete selection[kk]; tr.classList.toggle("sel", cb.checked); refreshEditDel(); });
         tr.appendChild(el("td", { class: "selcol" }, [cb]));
       }
       tr.appendChild(el("td", { class: "rownum", text: String(nav.start + r + 1) }));
-      row.forEach(function (cell, ci) {
-        var td = cellNode(cell);
-        if (editable) { td.title = "Double-click to edit"; td.addEventListener("dblclick", function () { editCell(td, columns[ci], cell, key); }); }
-        tr.appendChild(td);
-      });
+      row.forEach(function (cell) { tr.appendChild(cellNode(cell)); });
+      if (editable) tr.addEventListener("dblclick", function () { openRowForm("edit", { key: key, values: values }); });
       tbody.appendChild(tr);
     });
     tableEl.appendChild(tbody);
@@ -361,84 +322,60 @@
     lastGrid = { columns: columns, rows: rows };
   }
 
-  function rowKey(row) {
-    var names = table.cols.map(function (c) { return c.name; });
-    return table.pk.map(function (c) { return row[names.indexOf(c.name)]; });
-  }
-  function refreshDelBtn() { if (refs.delBtn) refs.delBtn.disabled = Object.keys(selection).length === 0; }
+  function rowKey(row, columns) { return table.pk.map(function (c) { return row[columns.indexOf(c.name)]; }); }
+  function refreshEditDel() { var n = Object.keys(selection).length; if (refs.editBtn) refs.editBtn.disabled = n !== 1; if (refs.delBtn) refs.delBtn.disabled = n === 0; }
+  function editSelected() { var keys = Object.keys(selection); if (keys.length === 1) openRowForm("edit", selection[keys[0]]); }
+  function typeHint(c) { return (c.type || "") + (c.pk ? " · pk" : ""); }
   function pkWhere() { return table.pk.map(function (c) { return q1(c.name) + " = ?"; }).join(" AND "); }
 
-  function editCell(td, colName, oldVal, key) {
-    if (td.querySelector("input")) return;
-    var col = table.cols.filter(function (c) { return c.name === colName; })[0] || { type: "" };
-    var input = el("input", { class: "cell-input", type: "text" });
-    input.value = oldVal === null ? "" : (oldVal && oldVal.__blob !== undefined ? "" : String(oldVal));
-    td.textContent = ""; td.appendChild(input); input.focus(); input.select();
-    var done = false;
-    async function commit(save) {
-      if (done) return; done = true;
-      if (!save) { td.replaceWith(editableCell(oldVal, colName, key)); return; }
-      var val = coerce(input.value, col.type, col.notnull);
-      try {
-        var stmt = await conn.prepare("UPDATE " + qname(table.cat, table.sch, table.name) + " SET " + q1(colName) + " = ? WHERE " + pkWhere());
-        await stmt.query.apply(stmt, [val].concat(key));
-        await stmt.close();
-        td.replaceWith(editableCell(val, colName, key));
-        setStatus("Updated " + table.name + "." + colName, "ok");
-      } catch (e) { setStatus("Update failed: " + msg(e), "error"); td.replaceWith(editableCell(oldVal, colName, key)); }
-    }
-    input.addEventListener("keydown", function (e) { if (e.key === "Enter") commit(true); else if (e.key === "Escape") commit(false); });
-    input.addEventListener("blur", function () { commit(true); });
-  }
-  function editableCell(val, colName, key) {
-    var td = cellNode(val); td.title = "Double-click to edit";
-    td.addEventListener("dblclick", function () { editCell(td, colName, val, key); });
-    return td;
-  }
-
-  function startAddRow() {
-    if (!table) return;
+  function openRowForm(kind, existing) {
     var inputs = {};
-    var form = el("div", { class: "addrow" });
-    table.cols.forEach(function (c) {
-      var inp = el("input", { class: "cell-input", type: "text", placeholder: c.type || "" });
+    var fields = table.cols.map(function (c) {
+      var inp = el("input", { class: "cell-input", spellcheck: "false", placeholder: c.type || "" });
+      var v = existing ? existing.values[c.name] : undefined;
+      inp.value = v === null || v === undefined ? "" : (v && v.__blob !== undefined ? "" : String(v));
       inputs[c.name] = inp;
-      form.appendChild(el("label", { class: "addfield" }, [el("span", { class: "addlabel", text: c.name + (c.pk ? " (pk)" : "") }), inp]));
+      return el("label", { class: "form-field" }, [el("span", { class: "form-label" }, [el("span", { text: c.name }), el("span", { class: "form-type", text: typeHint(c) })]), inp]);
     });
-    refs.results.innerHTML = "";
-    refs.results.appendChild(el("div", { class: "addwrap" }, [el("div", { class: "addhead", text: "New row in " + table.name }), form, el("div", { class: "addactions" }, [button("Insert", function () { doInsert(inputs); }, "primary"), button("Cancel", function () { loadTablePage(table.page || 0); }, "ghost")])]));
-    var first = form.querySelector("input"); if (first) first.focus();
+    var overlay;
+    var saveBtn = button(kind === "edit" ? "Save changes" : "Insert row", function () { saveRow(kind, inputs, existing, overlay); }, "primary");
+    var box = el("div", { class: "modal modal-form" }, [
+      el("div", { class: "modal-title", text: (kind === "edit" ? "Edit row · " : "New row · ") + table.name }),
+      el("div", { class: "form-grid" }, fields),
+      el("div", { class: "modal-actions" }, [button("Cancel", function () { closeModal(overlay); }, "ghost"), saveBtn]),
+    ]);
+    overlay = openModal(box);
+    var first = box.querySelector("input"); if (first) { first.focus(); first.select(); }
   }
 
-  async function doInsert(inputs) {
-    var cols = [], marks = [], vals = [];
-    table.cols.forEach(function (c) {
-      var raw = inputs[c.name].value;
-      if (raw === "" && !c.pk) return;
-      cols.push(q1(c.name)); marks.push("?"); vals.push(coerce(raw, c.type, c.notnull));
-    });
-    if (!cols.length) { setStatus("Enter at least the key columns", "error"); return; }
+  async function saveRow(kind, inputs, existing, overlay) {
     try {
-      var stmt = await conn.prepare("INSERT INTO " + qname(table.cat, table.sch, table.name) + " (" + cols.join(", ") + ") VALUES (" + marks.join(", ") + ")");
-      await stmt.query.apply(stmt, vals);
-      await stmt.close();
-      setStatus("Row inserted into " + table.name, "ok");
-      loadTablePage(table.page || 0);
-    } catch (e) { setStatus("Insert failed: " + msg(e), "error"); }
+      if (kind === "edit") {
+        var vals = table.cols.map(function (c) { return coerce(inputs[c.name].value, c.type, c.notnull); });
+        var stmt = await conn.prepare("UPDATE " + qname(table.cat, table.sch, table.name) + " SET " + table.cols.map(function (c) { return q1(c.name) + " = ?"; }).join(", ") + " WHERE " + pkWhere());
+        await stmt.query.apply(stmt, vals.concat(existing.key));
+        await stmt.close();
+        setStatus("Row updated in " + table.name, "ok");
+      } else {
+        var cols = [], marks = [], v2 = [];
+        table.cols.forEach(function (c) { var raw = inputs[c.name].value; if (raw === "" && !c.pk) return; cols.push(q1(c.name)); marks.push("?"); v2.push(coerce(raw, c.type, c.notnull)); });
+        if (!cols.length) { setStatus("Enter at least the key columns", "error"); return; }
+        var ins = await conn.prepare("INSERT INTO " + qname(table.cat, table.sch, table.name) + " (" + cols.join(", ") + ") VALUES (" + marks.join(", ") + ")");
+        await ins.query.apply(ins, v2);
+        await ins.close();
+        setStatus("Row inserted into " + table.name, "ok");
+      }
+      closeModal(overlay); loadTablePage(table.page || 0);
+    } catch (e) { setStatus("Save failed: " + msg(e), "error"); }
   }
 
   function deleteSelected() {
-    var keys = Object.keys(selection).map(function (k) { return selection[k]; });
-    if (!keys.length || !table) return;
-    confirmDialog("Delete " + keys.length + " row(s) from " + table.name + "? This cannot be undone.", async function () {
+    var entries = Object.keys(selection).map(function (k) { return selection[k]; });
+    if (!entries.length || !table) return;
+    confirmDialog("Delete " + entries.length + " row(s) from " + table.name + "? This cannot be undone.", async function () {
       try {
-        for (var i = 0; i < keys.length; i++) {
-          var stmt = await conn.prepare("DELETE FROM " + qname(table.cat, table.sch, table.name) + " WHERE " + pkWhere());
-          await stmt.query.apply(stmt, keys[i]);
-          await stmt.close();
-        }
-        setStatus(keys.length + " row(s) deleted from " + table.name, "ok");
-        loadTablePage(table.page || 0);
+        for (var i = 0; i < entries.length; i++) { var stmt = await conn.prepare("DELETE FROM " + qname(table.cat, table.sch, table.name) + " WHERE " + pkWhere()); await stmt.query.apply(stmt, entries[i].key); await stmt.close(); }
+        setStatus(entries.length + " row(s) deleted from " + table.name, "ok"); loadTablePage(table.page || 0);
       } catch (e) { setStatus("Delete failed: " + msg(e), "error"); }
     }, true);
   }
@@ -476,11 +413,7 @@
     var a = el("a", { href: url, download: "export.csv" }); document.body.appendChild(a); a.click();
     setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 0);
   }
-
-  async function closeCursor() {
-    if (cursor && cursor.reader) { try { if (cursor.reader.cancel) await cursor.reader.cancel(); else if (cursor.reader.return) await cursor.reader.return(); } catch (e) {} }
-    cursor = null;
-  }
+  async function closeCursor() { if (cursor && cursor.reader) { try { if (cursor.reader.cancel) await cursor.reader.cancel(); else if (cursor.reader.return) await cursor.reader.return(); } catch (e) {} } cursor = null; }
 
   function setStatus(text, kind) { refs.status.className = "status" + (kind ? " " + kind : ""); refs.status.querySelector(".status-text").textContent = text; }
   function since(t0) { return (performance.now() - t0).toFixed(1) + " ms"; }
@@ -491,48 +424,40 @@
     if (typeof sc.hideStatus === "function") sc.hideStatus();
     applyTheme(sc.theme, sc.colors);
     if (typeof sc.onTheme === "function") sc.onTheme(applyTheme);
-    try {
-      await initEngine();
-      setBusy(false);
-      welcome();
-      setStatus("Ready — open a file to begin", "ok");
-    } catch (e) { renderError("DuckDB engine failed to load: " + msg(e)); setStatus("Engine failed to load", "error"); }
+    try { await initEngine(); setBusy(false); welcome(); setStatus("Ready — open a file to begin", "ok"); }
+    catch (e) { renderError("DuckDB engine failed to load: " + msg(e)); setStatus("Engine failed to load", "error"); }
   }
 
   function styleTag() {
     var css = [
       ":root{--accent:#fcd34d}",
-      'body[data-theme="dark"]{--bg:#0b1220;--panel:#0f1a2e;--panel2:#16233b;--head:#152238;--border:#243449;--text:#e6edf6;--muted:#8598b3;--danger:#f87171;--ok:#34d399}',
-      'body[data-theme="light"]{--bg:#f6f8fb;--panel:#ffffff;--panel2:#eef2f7;--head:#f1f5f9;--border:#dbe2ec;--text:#0f172a;--muted:#64748b;--danger:#dc2626;--ok:#059669}',
+      'body[data-theme="dark"]{--bg:#0b1220;--panel:#0f1a2e;--panel2:#16233b;--head:#152238;--border:#243449;--text:#e6edf6;--muted:#8598b3;--danger:#f87171;--ok:#34d399;--sel:rgba(252,211,77,.16)}',
+      'body[data-theme="light"]{--bg:#f6f8fb;--panel:#ffffff;--panel2:#eef2f7;--head:#f1f5f9;--border:#dbe2ec;--text:#0f172a;--muted:#64748b;--danger:#dc2626;--ok:#059669;--sel:rgba(202,138,4,.14)}',
       "*{box-sizing:border-box}",
       "html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}",
       ".app{position:relative;display:flex;flex-direction:column;height:100vh}",
       ".toolbar{display:flex;gap:8px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);background:var(--panel)}",
       ".dbname{color:var(--muted);font-size:12px;max-width:52ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".spacer{flex:1}",
-      ".muted{color:var(--muted);font-size:12px}",
+      ".spacer{flex:1}.muted{color:var(--muted);font-size:12px}",
       ".btn{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:6px 13px;cursor:pointer;font:inherit;transition:border-color .12s}",
       ".btn:hover:not(:disabled){border-color:var(--accent)}",
       ".btn:disabled{opacity:.4;cursor:default}",
       ".btn.primary{background:var(--accent);color:#20160a;border-color:transparent;font-weight:600}",
       ".btn.ghost{background:transparent}",
-      ".btn.danger{color:var(--danger)}",
-      ".btn.danger:hover:not(:disabled){border-color:var(--danger)}",
+      ".btn.danger{color:var(--danger)}.btn.danger:hover:not(:disabled){border-color:var(--danger)}",
+      ".btn.danger-solid{background:var(--danger);color:#fff;border-color:transparent}",
       ".select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:6px 8px;font:inherit;cursor:pointer}",
       ".body{flex:1;display:flex;min-height:0}",
       ".sidebar{width:236px;flex-shrink:0;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;min-height:0}",
       ".side-head{padding:10px 12px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)}",
       ".schema{overflow:auto;padding:6px 4px;flex:1}",
-      ".schema-group{margin-bottom:8px}",
-      ".schema-group-head{padding:4px 10px;font-size:11px;color:var(--muted);text-transform:uppercase}",
-      ".table-row{display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;cursor:pointer}",
-      ".table-row:hover{background:var(--panel2)}",
+      ".schema-group{margin-bottom:8px}.schema-group-head{padding:4px 10px;font-size:11px;color:var(--muted);text-transform:uppercase}",
+      ".table-row{display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;cursor:pointer}.table-row:hover{background:var(--panel2)}",
       ".caret{width:14px;color:var(--muted);font-size:10px;text-align:center}",
       ".table-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".cols{padding:2px 0 4px 22px}",
       ".col{display:flex;justify-content:space-between;gap:8px;padding:2px 10px 2px 0;color:var(--muted);font-size:12px}",
-      ".col-name{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".col-type{font-size:11px;opacity:.8;flex-shrink:0}",
+      ".col-name{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.col-type{font-size:11px;opacity:.8;flex-shrink:0}",
       ".side-empty{padding:12px;color:var(--muted);font-size:12px}",
       ".main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}",
       ".editor-pane{display:flex;flex-direction:column;flex-shrink:0}",
@@ -540,18 +465,8 @@
       ".editor,.editor-hl{margin:0;border:0;padding:9px 14px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;tab-size:4}",
       ".editor-hl{position:absolute;inset:0;overflow:hidden;pointer-events:none;color:var(--text);background:transparent}",
       ".editor{position:relative;display:block;width:100%;height:76px;min-height:36px;resize:vertical;background:transparent;color:transparent;caret-color:var(--text);outline:none}",
-      ".hl-kw{color:#7dd3fc;font-weight:600}",
-      ".hl-fn{color:#c4b5fd}",
-      ".hl-string{color:#86efac}",
-      ".hl-ident{color:#fca5a5}",
-      ".hl-num{color:#fdba74}",
-      ".hl-comment{color:var(--muted);font-style:italic}",
-      ".hl-punc{color:var(--muted)}",
-      'body[data-theme="light"] .hl-kw{color:#0369a1}',
-      'body[data-theme="light"] .hl-fn{color:#7c3aed}',
-      'body[data-theme="light"] .hl-string{color:#15803d}',
-      'body[data-theme="light"] .hl-ident{color:#b91c1c}',
-      'body[data-theme="light"] .hl-num{color:#c2410c}',
+      ".hl-kw{color:#7dd3fc;font-weight:600}.hl-fn{color:#c4b5fd}.hl-string{color:#86efac}.hl-ident{color:#fca5a5}.hl-num{color:#fdba74}.hl-comment{color:var(--muted);font-style:italic}.hl-punc{color:var(--muted)}",
+      'body[data-theme="light"] .hl-kw{color:#0369a1}body[data-theme="light"] .hl-fn{color:#7c3aed}body[data-theme="light"] .hl-string{color:#15803d}body[data-theme="light"] .hl-ident{color:#b91c1c}body[data-theme="light"] .hl-num{color:#c2410c}',
       ".runbar{display:flex;gap:10px;align-items:center;padding:7px 12px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--panel)}",
       ".kbd{color:var(--muted);font-size:11px;border:1px solid var(--border);border-radius:5px;padding:1px 6px}",
       ".result-pane{flex:1;display:flex;flex-direction:column;min-height:0}",
@@ -561,23 +476,15 @@
       ".grid{border-collapse:collapse;width:100%;font-size:12.5px}",
       ".grid th,.grid td{border-bottom:1px solid var(--border);border-right:1px solid var(--border);padding:5px 10px;text-align:left;white-space:nowrap;max-width:460px;overflow:hidden;text-overflow:ellipsis}",
       ".grid thead th{position:sticky;top:0;background:var(--head);z-index:1;font-weight:600}",
-      ".grid .rownum{color:var(--muted);text-align:right;background:var(--panel)}",
-      ".grid .selcol{width:34px;text-align:center}",
-      ".grid tbody tr:hover td{background:var(--panel2)}",
-      ".grid td.null{color:var(--muted);font-style:italic}",
-      ".grid td.blob{color:var(--accent)}",
-      ".cell-input{width:100%;min-width:80px;background:var(--panel);color:var(--text);border:1px solid var(--accent);border-radius:4px;padding:3px 6px;font:inherit;outline:none}",
-      ".addwrap{padding:16px;overflow:auto}",
-      ".addhead{font-weight:600;margin-bottom:12px}",
-      ".addrow{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}",
-      ".addfield{display:flex;flex-direction:column;gap:4px}",
-      ".addlabel{font-size:11px;color:var(--muted)}",
-      ".addactions{display:flex;gap:8px;margin-top:14px}",
+      ".grid .rownum{color:var(--muted);text-align:right;background:var(--panel)}.grid .selcol{width:34px;text-align:center}",
+      ".grid tbody tr:hover td{background:var(--panel2)}.grid tbody tr.sel td{background:var(--sel)}",
+      ".grid td.null{color:var(--muted);font-style:italic}.grid td.blob{color:var(--accent)}",
+      ".cell-input{width:100%;min-width:80px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font:inherit;outline:none}",
+      ".cell-input:focus{border-color:var(--accent)}",
       ".pager{display:flex;align-items:center;gap:8px;padding:7px 12px;border-top:1px solid var(--border);background:var(--panel)}",
       ".range{color:var(--muted);font-size:12px}",
       ".empty,.notice,.welcome{padding:26px;text-align:center;color:var(--muted)}",
-      ".welcome-title{font-size:15px;color:var(--text);margin-bottom:6px;font-weight:600}",
-      ".welcome-sub{max-width:56ch;margin:0 auto}",
+      ".welcome-title{font-size:15px;color:var(--text);margin-bottom:6px;font-weight:600}.welcome-sub{max-width:56ch;margin:0 auto}",
       ".loading{display:flex;flex-direction:column;align-items:center;gap:12px;padding:44px;color:var(--muted)}",
       ".spinner{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}",
       "@keyframes spin{to{transform:rotate(360deg)}}",
@@ -586,17 +493,21 @@
       ".error-msg{margin:0;padding:12px;white-space:pre-wrap;font:12px/1.5 ui-monospace,monospace;color:var(--text)}",
       ".status{display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--border);background:var(--panel);color:var(--muted);font-size:12px}",
       ".status .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0}",
-      ".status.ok .dot{background:var(--ok)}",
-      ".status.error{color:var(--danger)}",
-      ".status.error .dot{background:var(--danger)}",
+      ".status.ok .dot{background:var(--ok)}.status.error{color:var(--danger)}.status.error .dot{background:var(--danger)}",
       ".status-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".drop-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,.72);color:#fff;font-size:16px;border:2px dashed var(--accent);z-index:10;pointer-events:none}",
       ".app.dragging .drop-overlay{display:flex}",
-      ".modal-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(2,6,23,.6);z-index:50}",
-      ".modal{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;max-width:400px;box-shadow:0 10px 40px rgba(0,0,0,.4)}",
+      ".modal-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(2,6,23,.55);z-index:50;opacity:0;transition:opacity .18s ease}",
+      ".modal-overlay.show{opacity:1}",
+      ".modal{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px;max-width:420px;box-shadow:0 16px 50px rgba(0,0,0,.45);opacity:0;transform:translateY(10px) scale(.97);transition:opacity .18s ease,transform .18s ease}",
+      ".modal-overlay.show .modal{opacity:1;transform:none}",
+      ".modal-title{font-weight:600;font-size:14px;margin-bottom:16px}",
       ".modal-msg{margin-bottom:16px;line-height:1.5}",
       ".modal-actions{display:flex;gap:8px;justify-content:flex-end}",
-      ".btn.danger-solid{background:var(--danger);color:#fff;border-color:transparent}",
+      ".modal-form{width:min(560px,92vw);max-height:82vh;overflow:auto}",
+      ".form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:18px}",
+      ".form-field{display:flex;flex-direction:column;gap:5px}",
+      ".form-label{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:8px}.form-type{opacity:.7;font-size:10px}",
     ].join("\n");
     return el("style", { text: css });
   }
