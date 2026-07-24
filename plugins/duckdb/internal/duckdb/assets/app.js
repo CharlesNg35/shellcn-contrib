@@ -25,6 +25,18 @@
   function q1(s) { return '"' + String(s).replace(/"/g, '""') + '"'; }
   function qname(cat, sch, name) { return q1(cat) + "." + q1(sch) + "." + q1(name); }
   function sqlStr(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
+  function dropdown(label, items) {
+    var wrap = el("div", { class: "dropdown" });
+    var menu = el("div", { class: "menu" });
+    var open = false;
+    function onDoc(e) { if (!wrap.contains(e.target)) setOpen(false); }
+    function setOpen(v) { open = v; menu.classList.toggle("show", v); if (v) document.addEventListener("click", onDoc); else document.removeEventListener("click", onDoc); }
+    items.forEach(function (it) { var mi = el("button", { class: "menu-item", type: "button" }, [it.label]); mi.addEventListener("click", function () { setOpen(false); it.onClick(); }); menu.appendChild(mi); });
+    var btn = el("button", { class: "btn ghost", type: "button" }, [label]);
+    btn.addEventListener("click", function (e) { e.stopPropagation(); setOpen(!open); });
+    wrap.appendChild(btn); wrap.appendChild(menu);
+    return wrap;
+  }
 
   var SQL_KW = {}, SQL_FN = {};
   "SELECT FROM WHERE INSERT INTO VALUES UPDATE SET DELETE CREATE TABLE VIEW SCHEMA DROP ALTER ADD COLUMN CONSTRAINT PRIMARY KEY FOREIGN REFERENCES NOT NULL DEFAULT UNIQUE CHECK AND OR IN IS LIKE BETWEEN LIMIT OFFSET ORDER BY GROUP HAVING JOIN LEFT RIGHT INNER OUTER FULL CROSS ON AS DISTINCT UNION ALL EXCEPT INTERSECT EXISTS CASE WHEN THEN ELSE END ASC DESC PRAGMA EXPLAIN DESCRIBE SHOW WITH RECURSIVE ATTACH DETACH USE COPY QUALIFY USING SAMPLE PIVOT UNPIVOT".split(/\s+/).forEach(function (k) { SQL_KW[k] = 1; });
@@ -96,7 +108,7 @@
     refs.pageSize.addEventListener("change", function () { pageSize = parseInt(refs.pageSize.value, 10); reload(); });
 
     refs.run = button("Run", runQuery, "primary", "Ctrl/⌘ + Enter");
-    var runbar = el("div", { class: "runbar" }, [refs.run, el("span", { class: "kbd", text: "⌘↵" }), el("span", { class: "spacer" }), refs.pageSize, button("Export CSV", exportCSV, "ghost")]);
+    var runbar = el("div", { class: "runbar" }, [refs.run, el("span", { class: "kbd", text: "⌘↵" }), el("span", { class: "spacer" }), refs.pageSize, dropdown("Export ▾", [{ label: "Export CSV", onClick: exportCSV }, { label: "Export JSON", onClick: exportJSON }, { label: "Export Markdown", onClick: exportMarkdown }])]);
 
     refs.results = el("div", { class: "results" });
     var main = el("div", { class: "main" }, [el("section", { class: "editor-pane" }, [refs.editorWrap, runbar]), el("section", { class: "result-pane" }, [refs.results])]);
@@ -104,6 +116,8 @@
     refs.app = el("div", { class: "app" }, [toolbar, el("div", { class: "body" }, [sidebar, main]), refs.status]);
     document.body.appendChild(refs.file);
     document.body.appendChild(refs.app);
+    refs.toasts = el("div", { class: "toasts" });
+    document.body.appendChild(refs.toasts);
     setupDrop();
     setBusy(true);
     renderLoading("Loading DuckDB engine…");
@@ -157,7 +171,8 @@
       }
       refs.dbLabel.textContent = file.name + "  ·  local, in browser";
       await refreshSchema();
-    } catch (e) { renderError(msg(e)); setStatus("Could not open file", "error"); }
+      notify("Opened " + file.name + " · nothing uploaded", "ok");
+    } catch (e) { renderError(msg(e)); notify("Could not open file: " + msg(e), "error"); }
   }
   async function newDatabase() { if (!conn) return; setEditorValue(""); mode = null; cursor = null; table = null; await refreshSchema(); welcome(); setStatus("In-memory database — create tables or open a file", "ok"); }
   function reload() { if (mode === "table") loadTablePage(table.page || 0); else if (mode === "query" && cursor) runQuery(); }
@@ -355,18 +370,17 @@
         var stmt = await conn.prepare("UPDATE " + qname(table.cat, table.sch, table.name) + " SET " + table.cols.map(function (c) { return q1(c.name) + " = ?"; }).join(", ") + " WHERE " + pkWhere());
         await stmt.query.apply(stmt, vals.concat(existing.key));
         await stmt.close();
-        setStatus("Row updated in " + table.name, "ok");
       } else {
         var cols = [], marks = [], v2 = [];
         table.cols.forEach(function (c) { var raw = inputs[c.name].value; if (raw === "" && !c.pk) return; cols.push(q1(c.name)); marks.push("?"); v2.push(coerce(raw, c.type, c.notnull)); });
-        if (!cols.length) { setStatus("Enter at least the key columns", "error"); return; }
+        if (!cols.length) { notify("Enter at least the key columns", "error"); return; }
         var ins = await conn.prepare("INSERT INTO " + qname(table.cat, table.sch, table.name) + " (" + cols.join(", ") + ") VALUES (" + marks.join(", ") + ")");
         await ins.query.apply(ins, v2);
         await ins.close();
-        setStatus("Row inserted into " + table.name, "ok");
       }
       closeModal(overlay); loadTablePage(table.page || 0);
-    } catch (e) { setStatus("Save failed: " + msg(e), "error"); }
+      toast(kind === "edit" ? "Row updated in " + table.name : "Row added to " + table.name, "ok");
+    } catch (e) { notify("Save failed: " + msg(e), "error"); }
   }
 
   function deleteSelected() {
@@ -375,8 +389,8 @@
     confirmDialog("Delete " + entries.length + " row(s) from " + table.name + "? This cannot be undone.", async function () {
       try {
         for (var i = 0; i < entries.length; i++) { var stmt = await conn.prepare("DELETE FROM " + qname(table.cat, table.sch, table.name) + " WHERE " + pkWhere()); await stmt.query.apply(stmt, entries[i].key); await stmt.close(); }
-        setStatus(entries.length + " row(s) deleted from " + table.name, "ok"); loadTablePage(table.page || 0);
-      } catch (e) { setStatus("Delete failed: " + msg(e), "error"); }
+        loadTablePage(table.page || 0); toast(entries.length + " row(s) deleted from " + table.name, "ok");
+      } catch (e) { notify("Delete failed: " + msg(e), "error"); }
     }, true);
   }
 
@@ -404,18 +418,44 @@
   function renderError(text) { refs.results.innerHTML = ""; refs.results.appendChild(el("div", { class: "error-box" }, [el("div", { class: "error-title", text: "Query error" }), el("pre", { class: "error-msg", text: text })])); lastGrid = null; }
   function welcome() { refs.results.innerHTML = ""; refs.results.appendChild(el("div", { class: "welcome" }, [el("div", { class: "welcome-title", text: "DuckDB Explorer" }), el("div", { class: "welcome-sub", text: "Open a local Parquet / CSV / JSON file (or drag it in) and run SQL. Everything runs in your browser — files are never uploaded." })])); }
 
+  function isBlob(v) { return v instanceof Uint8Array || (v && v.__blob !== undefined); }
+  function saveBlob(blob, filename) { var url = URL.createObjectURL(blob); var a = el("a", { href: url, download: filename }); document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 0); }
+  function haveRows() { if (!lastGrid || !lastGrid.rows.length) { notify("Nothing to export", "error"); return false; } return true; }
   function exportCSV() {
-    if (!lastGrid || !lastGrid.rows.length) { setStatus("Nothing to export", "error"); return; }
-    var esc = function (v) { if (v === null || v === undefined) return ""; var s = v && v.__blob !== undefined ? "" : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    if (!haveRows()) return;
+    var esc = function (v) { if (v === null || v === undefined) return ""; var s = isBlob(v) ? "" : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     var lines = [lastGrid.columns.map(esc).join(",")];
     lastGrid.rows.forEach(function (row) { lines.push(row.map(esc).join(",")); });
-    var url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
-    var a = el("a", { href: url, download: "export.csv" }); document.body.appendChild(a); a.click();
-    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 0);
+    saveBlob(new Blob([lines.join("\n")], { type: "text/csv" }), "export.csv");
+    toast("Exported " + lastGrid.rows.length + " row(s) to CSV", "ok");
+  }
+  function exportJSON() {
+    if (!haveRows()) return;
+    var out = lastGrid.rows.map(function (row) { var o = {}; lastGrid.columns.forEach(function (c, i) { o[c] = isBlob(row[i]) ? null : row[i]; }); return o; });
+    saveBlob(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }), "export.json");
+    toast("Exported " + lastGrid.rows.length + " row(s) to JSON", "ok");
+  }
+  function exportMarkdown() {
+    if (!haveRows()) return;
+    var cell = function (v) { if (v === null || v === undefined) return ""; return (isBlob(v) ? "" : String(v)).replace(/\|/g, "\\|").replace(/\n/g, " "); };
+    var out = ["| " + lastGrid.columns.map(cell).join(" | ") + " |", "| " + lastGrid.columns.map(function () { return "---"; }).join(" | ") + " |"];
+    lastGrid.rows.forEach(function (row) { out.push("| " + row.map(cell).join(" | ") + " |"); });
+    saveBlob(new Blob([out.join("\n")], { type: "text/markdown" }), "export.md");
+    toast("Exported " + lastGrid.rows.length + " row(s) to Markdown", "ok");
   }
   async function closeCursor() { if (cursor && cursor.reader) { try { if (cursor.reader.cancel) await cursor.reader.cancel(); else if (cursor.reader.return) await cursor.reader.return(); } catch (e) {} } cursor = null; }
 
   function setStatus(text, kind) { refs.status.className = "status" + (kind ? " " + kind : ""); refs.status.querySelector(".status-text").textContent = text; }
+  function toast(message, kind) {
+    if (!refs.toasts) return;
+    var t = el("div", { class: "toast " + (kind || "info"), role: "status" }, [el("span", { class: "toast-icon", text: kind === "error" ? "✕" : kind === "ok" ? "✓" : "•" }), el("span", { text: message })]);
+    refs.toasts.appendChild(t);
+    requestAnimationFrame(function () { t.classList.add("show"); });
+    var hide = function () { t.classList.remove("show"); setTimeout(function () { t.remove(); }, 220); };
+    var timer = setTimeout(hide, 2800);
+    t.addEventListener("click", function () { clearTimeout(timer); hide(); });
+  }
+  function notify(message, kind) { setStatus(message, kind); toast(message, kind); }
   function since(t0) { return (performance.now() - t0).toFixed(1) + " ms"; }
   function msg(e) { return (e && (e.message || e.toString())) || "unknown error"; }
 
@@ -447,6 +487,11 @@
       ".btn.danger{color:var(--danger)}.btn.danger:hover:not(:disabled){border-color:var(--danger)}",
       ".btn.danger-solid{background:var(--danger);color:#fff;border-color:transparent}",
       ".select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:6px 8px;font:inherit;cursor:pointer}",
+      ".dropdown{position:relative}",
+      ".menu{position:absolute;right:0;top:calc(100% + 6px);min-width:170px;background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:0 12px 34px rgba(0,0,0,.4);display:none;overflow:hidden;z-index:20}",
+      ".menu.show{display:block}",
+      ".menu-item{display:block;width:100%;text-align:left;background:none;border:0;color:var(--text);padding:9px 14px;cursor:pointer;font:inherit}",
+      ".menu-item:hover{background:var(--panel2)}",
       ".body{flex:1;display:flex;min-height:0}",
       ".sidebar{width:236px;flex-shrink:0;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;min-height:0}",
       ".side-head{padding:10px 12px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)}",
@@ -508,6 +553,12 @@
       ".form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:18px}",
       ".form-field{display:flex;flex-direction:column;gap:5px}",
       ".form-label{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:8px}.form-type{opacity:.7;font-size:10px}",
+      ".toasts{position:fixed;top:14px;right:14px;display:flex;flex-direction:column;gap:8px;z-index:100;max-width:340px}",
+      ".toast{display:flex;align-items:center;gap:9px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-left:3px solid var(--muted);border-radius:9px;padding:10px 14px;font-size:12.5px;box-shadow:0 10px 30px rgba(0,0,0,.4);opacity:0;transform:translateX(16px);transition:opacity .2s ease,transform .2s ease;cursor:pointer}",
+      ".toast.show{opacity:1;transform:none}",
+      ".toast.ok{border-left-color:var(--ok)}.toast.error{border-left-color:var(--danger)}",
+      ".toast-icon{width:16px;height:16px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:10px;color:#fff;background:var(--muted)}",
+      ".toast.ok .toast-icon{background:var(--ok)}.toast.error .toast-icon{background:var(--danger)}",
     ].join("\n");
     return el("style", { text: css });
   }

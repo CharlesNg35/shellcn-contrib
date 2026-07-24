@@ -29,6 +29,19 @@
   }
   function ident(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
 
+  function dropdown(label, items) {
+    var wrap = el("div", { class: "dropdown" });
+    var menu = el("div", { class: "menu" });
+    var open = false;
+    function onDoc(e) { if (!wrap.contains(e.target)) setOpen(false); }
+    function setOpen(v) { open = v; menu.classList.toggle("show", v); if (v) document.addEventListener("click", onDoc); else document.removeEventListener("click", onDoc); }
+    items.forEach(function (it) { var mi = el("button", { class: "menu-item", type: "button" }, [it.label]); mi.addEventListener("click", function () { setOpen(false); it.onClick(); }); menu.appendChild(mi); });
+    var btn = el("button", { class: "btn ghost", type: "button" }, [label]);
+    btn.addEventListener("click", function (e) { e.stopPropagation(); setOpen(!open); });
+    wrap.appendChild(btn); wrap.appendChild(menu);
+    return wrap;
+  }
+
   var SQL_KW = {}, SQL_FN = {};
   "SELECT FROM WHERE INSERT INTO VALUES UPDATE SET DELETE CREATE TABLE VIEW INDEX DROP ALTER ADD COLUMN CONSTRAINT PRIMARY KEY FOREIGN REFERENCES NOT NULL DEFAULT UNIQUE CHECK AUTOINCREMENT AND OR IN IS LIKE GLOB BETWEEN LIMIT OFFSET ORDER BY GROUP HAVING JOIN LEFT RIGHT INNER OUTER FULL CROSS ON AS DISTINCT UNION ALL EXCEPT INTERSECT EXISTS CASE WHEN THEN ELSE END ASC DESC PRAGMA EXPLAIN WITH RECURSIVE BEGIN COMMIT ROLLBACK TRANSACTION IF REPLACE USING NATURAL COLLATE CAST".split(/\s+/).forEach(function (k) { SQL_KW[k] = 1; });
   "COUNT SUM AVG MIN MAX ABS ROUND COALESCE IFNULL NULLIF LENGTH LOWER UPPER SUBSTR TRIM LTRIM RTRIM REPLACE INSTR DATE TIME DATETIME STRFTIME JULIANDAY GROUP_CONCAT TYPEOF HEX QUOTE RANDOM ROW_NUMBER RANK".split(/\s+/).forEach(function (k) { SQL_FN[k] = 1; });
@@ -101,7 +114,7 @@
     refs.pageSize.addEventListener("change", function () { pageSize = parseInt(refs.pageSize.value, 10); reload(); });
 
     refs.run = button("Run", runQuery, "primary", "Ctrl/⌘ + Enter");
-    var runbar = el("div", { class: "runbar" }, [refs.run, el("span", { class: "kbd", text: "⌘↵" }), el("span", { class: "spacer" }), refs.pageSize, button("Export CSV", exportCSV, "ghost")]);
+    var runbar = el("div", { class: "runbar" }, [refs.run, el("span", { class: "kbd", text: "⌘↵" }), el("span", { class: "spacer" }), refs.pageSize, dropdown("Export ▾", [{ label: "Export CSV", onClick: exportCSV }, { label: "Export JSON", onClick: exportJSON }, { label: "Export Markdown", onClick: exportMarkdown }])]);
 
     refs.results = el("div", { class: "results" });
     var main = el("div", { class: "main" }, [el("section", { class: "editor-pane" }, [refs.editorWrap, runbar]), el("section", { class: "result-pane" }, [refs.results])]);
@@ -109,6 +122,8 @@
     refs.app = el("div", { class: "app" }, [toolbar, el("div", { class: "body" }, [sidebar, main]), refs.status]);
     document.body.appendChild(refs.file);
     document.body.appendChild(refs.app);
+    refs.toasts = el("div", { class: "toasts" });
+    document.body.appendChild(refs.toasts);
     setupDrop();
     refs.open.disabled = true; refs.new.disabled = true;
     renderLoading("Loading SQLite engine…");
@@ -138,8 +153,8 @@
       db = new SQL.Database(buf);
       dbName = file.name;
       afterOpen();
-      setStatus("Opened " + file.name + " · " + fmtBytes(file.size) + " · nothing uploaded", "ok");
-    } catch (e) { setStatus("Could not open file: " + msg(e), "error"); }
+      notify("Opened " + file.name + " · " + fmtBytes(file.size) + " · nothing uploaded", "ok");
+    } catch (e) { notify("Could not open file: " + msg(e), "error"); }
   }
   function newDatabase() { closeDB(); db = new SQL.Database(); dbName = "untitled.db"; afterOpen(); setStatus("New empty database", "ok"); }
   function afterOpen() { dirty = false; refs.download.disabled = true; refs.dbLabel.textContent = dbName; setEditorValue(""); mode = null; cursor = null; table = null; refreshSchema(); welcome(); }
@@ -329,15 +344,14 @@
       if (kind === "edit") {
         var vals = table.cols.map(function (c) { return coerce(inputs[c.name].value, c.type, c.notnull); });
         db.run("UPDATE " + ident(table.name) + " SET " + table.cols.map(function (c) { return ident(c.name) + " = ?"; }).join(", ") + " WHERE rowid = ?", vals.concat(existing.rid));
-        setStatus("Row updated in " + table.name, "ok");
       } else {
         var cols = [], marks = [], v2 = [];
         table.cols.forEach(function (c) { var raw = inputs[c.name].value; if (raw === "" && (c.dflt !== null || !c.notnull)) return; cols.push(ident(c.name)); marks.push("?"); v2.push(coerce(raw, c.type, c.notnull)); });
         db.run(cols.length ? "INSERT INTO " + ident(table.name) + " (" + cols.join(", ") + ") VALUES (" + marks.join(", ") + ")" : "INSERT INTO " + ident(table.name) + " DEFAULT VALUES", v2);
-        setStatus("Row inserted into " + table.name, "ok");
       }
       markDirty(); closeModal(overlay); loadTablePage(table.page || 0);
-    } catch (e) { setStatus("Save failed: " + msg(e), "error"); }
+      toast(kind === "edit" ? "Row updated in " + table.name : "Row added to " + table.name, "ok");
+    } catch (e) { notify("Save failed: " + msg(e), "error"); }
   }
 
   function deleteSelected() {
@@ -346,8 +360,8 @@
     confirmDialog("Delete " + ids.length + " row(s) from " + table.name + "? This cannot be undone.", function () {
       try {
         db.run("DELETE FROM " + ident(table.name) + " WHERE rowid IN (" + ids.map(function () { return "?"; }).join(",") + ")", ids.map(Number));
-        markDirty(); setStatus(ids.length + " row(s) deleted from " + table.name, "ok"); loadTablePage(table.page || 0);
-      } catch (e) { setStatus("Delete failed: " + msg(e), "error"); }
+        markDirty(); loadTablePage(table.page || 0); toast(ids.length + " row(s) deleted from " + table.name, "ok");
+      } catch (e) { notify("Delete failed: " + msg(e), "error"); }
     }, true);
   }
 
@@ -377,17 +391,44 @@
     refs.results.appendChild(el("div", { class: "welcome" }, [el("div", { class: "welcome-title", text: db ? "Ready" : "SQLite Explorer" }), el("div", { class: "welcome-sub", text: db ? "Pick a table on the left to browse and edit it, or write SQL and press Run." : "Open a .sqlite/.db file or create a new database. Everything runs in your browser — the file is never uploaded." })]));
   }
 
+  function isBlob(v) { return v instanceof Uint8Array || (v && v.__blob !== undefined); }
   function exportCSV() {
-    if (!lastGrid || !lastGrid.rows.length) { setStatus("Nothing to export", "error"); return; }
-    var esc = function (v) { if (v === null || v === undefined) return ""; var s = v instanceof Uint8Array ? "" : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    if (!haveRows()) return;
+    var esc = function (v) { if (v === null || v === undefined) return ""; var s = isBlob(v) ? "" : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     var lines = [lastGrid.columns.map(esc).join(",")];
     lastGrid.rows.forEach(function (row) { lines.push(row.map(esc).join(",")); });
     saveBlob(new Blob([lines.join("\n")], { type: "text/csv" }), "export.csv");
+    toast("Exported " + lastGrid.rows.length + " row(s) to CSV", "ok");
   }
-  function downloadDatabase() { if (!db) return; try { saveBlob(new Blob([db.export()], { type: "application/octet-stream" }), dbName || "database.db"); } catch (e) { setStatus("Export failed: " + msg(e), "error"); } }
+  function exportJSON() {
+    if (!haveRows()) return;
+    var out = lastGrid.rows.map(function (row) { var o = {}; lastGrid.columns.forEach(function (c, i) { o[c] = isBlob(row[i]) ? null : row[i]; }); return o; });
+    saveBlob(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }), "export.json");
+    toast("Exported " + lastGrid.rows.length + " row(s) to JSON", "ok");
+  }
+  function exportMarkdown() {
+    if (!haveRows()) return;
+    var cell = function (v) { if (v === null || v === undefined) return ""; return (isBlob(v) ? "" : String(v)).replace(/\|/g, "\\|").replace(/\n/g, " "); };
+    var out = ["| " + lastGrid.columns.map(cell).join(" | ") + " |", "| " + lastGrid.columns.map(function () { return "---"; }).join(" | ") + " |"];
+    lastGrid.rows.forEach(function (row) { out.push("| " + row.map(cell).join(" | ") + " |"); });
+    saveBlob(new Blob([out.join("\n")], { type: "text/markdown" }), "export.md");
+    toast("Exported " + lastGrid.rows.length + " row(s) to Markdown", "ok");
+  }
+  function haveRows() { if (!lastGrid || !lastGrid.rows.length) { notify("Nothing to export", "error"); return false; } return true; }
+  function downloadDatabase() { if (!db) return; try { saveBlob(new Blob([db.export()], { type: "application/octet-stream" }), dbName || "database.db"); toast("Downloaded " + (dbName || "database.db"), "ok"); } catch (e) { notify("Export failed: " + msg(e), "error"); } }
   function saveBlob(blob, filename) { var url = URL.createObjectURL(blob); var a = el("a", { href: url, download: filename }); document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 0); }
 
   function setStatus(text, kind) { refs.status.className = "status" + (kind ? " " + kind : ""); refs.status.querySelector(".status-text").textContent = text; }
+  function toast(message, kind) {
+    if (!refs.toasts) return;
+    var t = el("div", { class: "toast " + (kind || "info"), role: "status" }, [el("span", { class: "toast-icon", text: kind === "error" ? "✕" : kind === "ok" ? "✓" : "•" }), el("span", { text: message })]);
+    refs.toasts.appendChild(t);
+    requestAnimationFrame(function () { t.classList.add("show"); });
+    var hide = function () { t.classList.remove("show"); setTimeout(function () { t.remove(); }, 220); };
+    var timer = setTimeout(hide, 2800);
+    t.addEventListener("click", function () { clearTimeout(timer); hide(); });
+  }
+  function notify(message, kind) { setStatus(message, kind); toast(message, kind); }
   function since(t0) { return (performance.now() - t0).toFixed(1) + " ms"; }
   function msg(e) { return (e && (e.message || e.toString())) || "unknown error"; }
   function fmtBytes(n) { if (n < 1024) return n + " B"; if (n < 1048576) return (n / 1024).toFixed(1) + " KB"; return (n / 1048576).toFixed(1) + " MB"; }
@@ -426,6 +467,11 @@
       ".btn.danger:hover:not(:disabled){border-color:var(--danger)}",
       ".btn.danger-solid{background:var(--danger);color:#fff;border-color:transparent}",
       ".select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:6px 8px;font:inherit;cursor:pointer}",
+      ".dropdown{position:relative}",
+      ".menu{position:absolute;right:0;top:calc(100% + 6px);min-width:170px;background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:0 12px 34px rgba(0,0,0,.4);display:none;overflow:hidden;z-index:20}",
+      ".menu.show{display:block}",
+      ".menu-item{display:block;width:100%;text-align:left;background:none;border:0;color:var(--text);padding:9px 14px;cursor:pointer;font:inherit}",
+      ".menu-item:hover{background:var(--panel2)}",
       ".body{flex:1;display:flex;min-height:0}",
       ".sidebar{width:220px;flex-shrink:0;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;min-height:0}",
       ".side-head{padding:10px 12px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)}",
@@ -495,6 +541,12 @@
       ".form-field{display:flex;flex-direction:column;gap:5px}",
       ".form-label{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:8px}",
       ".form-type{opacity:.7;font-size:10px}",
+      ".toasts{position:fixed;top:14px;right:14px;display:flex;flex-direction:column;gap:8px;z-index:100;max-width:340px}",
+      ".toast{display:flex;align-items:center;gap:9px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-left:3px solid var(--muted);border-radius:9px;padding:10px 14px;font-size:12.5px;box-shadow:0 10px 30px rgba(0,0,0,.4);opacity:0;transform:translateX(16px);transition:opacity .2s ease,transform .2s ease;cursor:pointer}",
+      ".toast.show{opacity:1;transform:none}",
+      ".toast.ok{border-left-color:var(--ok)}.toast.error{border-left-color:var(--danger)}",
+      ".toast-icon{width:16px;height:16px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:10px;color:#fff;background:var(--muted)}",
+      ".toast.ok .toast-icon{background:var(--ok)}.toast.error .toast-icon{background:var(--danger)}",
     ].join("\n");
     return el("style", { text: css });
   }
