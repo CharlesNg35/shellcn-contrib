@@ -40,6 +40,22 @@
     return b;
   }
 
+  function confirmDialog(message, onConfirm, danger) {
+    var overlay = el("div", { class: "modal-overlay" });
+    function close() { document.removeEventListener("keydown", onKey); overlay.remove(); }
+    function onKey(e) { if (e.key === "Escape") close(); }
+    var confirmBtn = button(danger ? "Delete" : "Confirm", function () { close(); onConfirm(); }, danger ? "primary danger-solid" : "primary");
+    var box = el("div", { class: "modal" }, [
+      el("div", { class: "modal-msg", text: message }),
+      el("div", { class: "modal-actions" }, [button("Cancel", close, "ghost"), confirmBtn]),
+    ]);
+    overlay.appendChild(box);
+    overlay.addEventListener("click", function (e) { if (e.target === overlay) close(); });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(overlay);
+    confirmBtn.focus();
+  }
+
   function ident(name) {
     return '"' + String(name).replace(/"/g, '""') + '"';
   }
@@ -504,14 +520,16 @@
   function deleteSelected() {
     var ids = Object.keys(selection);
     if (!ids.length || !table) return;
-    try {
-      db.run("DELETE FROM " + ident(table.name) + " WHERE rowid IN (" + ids.map(function () { return "?"; }).join(",") + ")", ids.map(Number));
-      markDirty();
-      setStatus(ids.length + " row(s) deleted from " + table.name, "ok");
-      loadTablePage(table.page || 0);
-    } catch (e) {
-      setStatus("Delete failed: " + msg(e), "error");
-    }
+    confirmDialog("Delete " + ids.length + " row(s) from " + table.name + "? This cannot be undone.", function () {
+      try {
+        db.run("DELETE FROM " + ident(table.name) + " WHERE rowid IN (" + ids.map(function () { return "?"; }).join(",") + ")", ids.map(Number));
+        markDirty();
+        setStatus(ids.length + " row(s) deleted from " + table.name, "ok");
+        loadTablePage(table.page || 0);
+      } catch (e) {
+        setStatus("Delete failed: " + msg(e), "error");
+      }
+    }, true);
   }
 
   function coerce(raw, type, notnull) {
@@ -698,6 +716,11 @@
       ".status-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".drop-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,.72);color:#fff;font-size:16px;border:2px dashed var(--accent);z-index:10;pointer-events:none}",
       ".app.dragging .drop-overlay{display:flex}",
+      ".modal-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(2,6,23,.6);z-index:50}",
+      ".modal{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;max-width:400px;box-shadow:0 10px 40px rgba(0,0,0,.4)}",
+      ".modal-msg{margin-bottom:16px;line-height:1.5}",
+      ".modal-actions{display:flex;gap:8px;justify-content:flex-end}",
+      ".btn.danger-solid{background:var(--danger);color:#fff;border-color:transparent}",
     ].join("\n");
     return el("style", { text: css });
   }
