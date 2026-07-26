@@ -84,6 +84,7 @@ func TestWeaviatePluginIntegration(t *testing.T) {
 	integrationObjects(ctx, t, h, sess, fx)
 	integrationReferences(ctx, t, h, sess, fx)
 	integrationQueries(ctx, t, h, sess, fx)
+	integrationEditorDefaults(ctx, t, h, sess, fx)
 	integrationCluster(ctx, t, h, sess, fx)
 	integrationTenants(ctx, t, h, sess, fx)
 	integrationAliases(ctx, t, h, sess, fx)
@@ -301,6 +302,45 @@ func integrationQueries(ctx context.Context, t *testing.T, h *contribtest.Harnes
 	completions := pageItems(t, h.Call(ctx, rid("graphql.complete"), sess, map[string]string{"collection": fx.doc}, nil, nil))
 	if !containsField(completions, "label", fx.doc) || !containsField(completions, "label", "title") {
 		t.Fatalf("completion route should suggest the collection and its properties")
+	}
+}
+
+// integrationEditorDefaults runs the query editors' shipped defaults the way the
+// panel does on open: resource tokens interpolated, one frame in, one frame out.
+func integrationEditorDefaults(ctx context.Context, t *testing.T, h *contribtest.Harness, sess plugin.Session, fx integrationFixture) {
+	t.Helper()
+	interpolate := strings.NewReplacer(
+		"${resource.name}", fx.doc,
+		"${resource.uid}", fx.doc,
+		"${resource.kind}", "collection",
+		"${resource.namespace}", "",
+		"${resource.scope}", "",
+	).Replace
+
+	run := func(label, route string, params map[string]string, query string) map[string]any {
+		t.Helper()
+		out := h.Stream(ctx, route, sess, params, nil, mustJSON(t, map[string]any{"query": query, "confirm": false}))
+		frames := decodeFrames(t, out)
+		if len(frames) != 1 {
+			t.Fatalf("%s default should produce one frame: %s", label, out)
+		}
+		if frames[0]["error"] != nil {
+			t.Fatalf("%s default must run cleanly: %s", label, out)
+		}
+		if rowCount(frames[0]) == 0 {
+			t.Fatalf("%s default should return rows: %s", label, out)
+		}
+		return frames[0]
+	}
+
+	graphqlFrame := run("GraphQL editor", rid("graphql"), nil, interpolate(graphqlEditorConfig().InitialQuery))
+	if !strings.Contains(fmt.Sprint(graphqlFrame["rows"]), fx.doc) {
+		t.Fatalf("GraphQL editor default should list %s: %#v", fx.doc, graphqlFrame)
+	}
+	searchFrame := run("Vector search editor", rid("search"), map[string]string{"collection": fx.doc},
+		interpolate(searchEditorConfig().InitialQuery))
+	if rowCount(searchFrame) != 3 {
+		t.Fatalf("vector search default should return every seeded object: %#v", searchFrame)
 	}
 }
 

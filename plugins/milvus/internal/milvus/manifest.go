@@ -585,13 +585,16 @@ func entityGridConfig(writable bool) plugin.TableConfig {
 
 func queryEditorConfig() plugin.QueryEditorConfig {
 	return plugin.QueryEditorConfig{
-		Language:          "json",
-		Label:             "Milvus search",
-		ExecuteLabel:      "Run search",
-		RunningLabel:      "Searching…",
-		CancelLabel:       "Cancel",
-		EmptyText:         "Run an ANN search, a full-text search, a scalar filter query, or a primary-key lookup.",
-		InitialQuery:      `{"vector":[0.1,0.2,0.3,0.4],"limit":10,"output":["*"]}`,
+		Language:     "json",
+		Label:        "Milvus query",
+		ExecuteLabel: "Run query",
+		RunningLabel: "Running…",
+		CancelLabel:  "Cancel",
+		// The default lists rows from the loaded collection, which needs no
+		// vector of a matching dimension; the completion templates switch it to
+		// an ANN search, a full-text search, or a primary-key lookup.
+		EmptyText:         "Lists entities from the loaded collection. Add \"vector\", \"text\", or \"ids\" for an ANN search, a full-text search, or a primary-key lookup.",
+		InitialQuery:      `{"filter":"","limit":20,"output":["*"]}`,
 		CompletionRouteID: rid("query.complete"),
 		CompletionParams:  collectionParams(),
 		Exportable:        true,

@@ -256,6 +256,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 		if !hasField(views, "name", viewName) {
 			t.Fatalf("materialized view was not listed: %#v", views)
 		}
+		checkPanelDefaultQueries(ctx, t, h, sess, viewName)
 		h.Call(ctx, "scylladb.view.definition", sess, map[string]string{"keyspace": itKeyspace, "table": viewName}, nil, nil)
 		h.Call(ctx, "scylladb.view.drop", sess, map[string]string{"keyspace": itKeyspace, "view": viewName}, nil, nil)
 		if hasField(pageItems(t, h.Call(ctx, "scylladb.views.list", sess, nil, url.Values{"p.keyspace": {itKeyspace}}, nil)), "name", viewName) {
@@ -499,6 +500,101 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 	}
 
 	h.AssertAllCovered()
+}
+
+// checkPanelDefaultQueries runs every CQL console default the way the panel does:
+// ${resource.*} filled from the identity the console was opened from, then sent
+// through the query stream. A default that errors or returns nothing greets the
+// user with a broken editor, so both are failures here.
+func checkPanelDefaultQueries(ctx context.Context, t *testing.T, h *contribtest.Harness, sess plugin.Session, viewName string) {
+	t.Helper()
+	identities := map[string]plugin.ResourceIdentity{
+		"server":   {Kind: "server", Name: "Keyspaces", UID: "server"},
+		"cluster":  {Kind: "cluster", Name: "Cluster", UID: "cluster"},
+		"keyspace": {Kind: "keyspace", Name: itKeyspace, UID: itKeyspace},
+		"table":    {Kind: "table", Namespace: itKeyspace, Name: itTable, UID: itKeyspace + "." + itTable},
+		"view":     {Kind: "view", Namespace: itKeyspace, Name: viewName, UID: itKeyspace + "." + viewName},
+	}
+	checked := 0
+	for _, rt := range resources() {
+		for _, initial := range initialQueries(rt.Detail.Tabs) {
+			identity, ok := identities[rt.Kind]
+			if !ok {
+				t.Fatalf("resource kind %q ships a CQL console with no seeded identity", rt.Kind)
+			}
+			runDefaultQuery(ctx, t, h, sess, rt.Kind, resolveResourceTokens(t, initial, identity))
+			checked++
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no CQL console defaults were checked")
+	}
+}
+
+// runDefaultQuery retries on an empty result because a freshly created
+// materialized view is populated asynchronously; an error frame fails at once.
+func runDefaultQuery(ctx context.Context, t *testing.T, h *contribtest.Harness, sess plugin.Session, kind, cql string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		frame := decodeFrame(t, h.Stream(ctx, "scylladb.query", sess, nil, nil, mustJSON(t, sqldb.QueryRequest{Query: cql})))
+		if failure, bad := frame["error"]; bad {
+			t.Fatalf("%s console default %q failed: %v", kind, cql, failure)
+		}
+		if rows, _ := frame["rows"].([]any); len(rows) > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s console default %q returned no rows", kind, cql)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("%s console default %q returned no rows: %v", kind, cql, ctx.Err())
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func initialQueries(panels []plugin.Panel) []string {
+	out := []string{}
+	for _, panel := range panels {
+		if dashboard, ok := panel.Config.(plugin.DashboardConfig); ok {
+			out = append(out, initialQueries(dashboard.Cells)...)
+		}
+		if panel.Type != plugin.PanelQueryEditor {
+			continue
+		}
+		if cfg, ok := panel.Config.(plugin.QueryEditorConfig); ok && cfg.InitialQuery != "" {
+			out = append(out, cfg.InitialQuery)
+		}
+	}
+	return out
+}
+
+// resolveResourceTokens mirrors the frontend interpolation, which refuses to
+// substitute a token the opened resource leaves empty.
+func resolveResourceTokens(t *testing.T, template string, identity plugin.ResourceIdentity) string {
+	t.Helper()
+	out := template
+	for token, value := range map[string]string{
+		"${resource.kind}":      identity.Kind,
+		"${resource.scope}":     identity.Scope,
+		"${resource.namespace}": identity.Namespace,
+		"${resource.name}":      identity.Name,
+		"${resource.uid}":       identity.UID,
+	} {
+		if !strings.Contains(out, token) {
+			continue
+		}
+		if value == "" {
+			t.Fatalf("%q uses %s, which a %s resource leaves empty", template, token, identity.Kind)
+		}
+		out = strings.ReplaceAll(out, token, value)
+	}
+	if strings.Contains(out, "${") {
+		t.Fatalf("unresolved token in console default %q", out)
+	}
+	return out
 }
 
 func integrationConfig(ctx context.Context, t *testing.T) map[string]any {

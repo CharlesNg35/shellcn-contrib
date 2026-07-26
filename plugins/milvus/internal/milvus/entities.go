@@ -547,22 +547,89 @@ func queryCompletions(rc *plugin.RequestContext) (any, error) {
 	return plugin.Page[row]{Items: items}, nil
 }
 
+// queryTemplates offers starting points the console can run unedited: the ANN
+// template carries a vector of the collection's own dimension, the scalar
+// templates follow the primary key's type, and a template is only offered when
+// the schema has the field it needs.
 func queryTemplates(schema *entity.Schema) []row {
-	pk := primaryKeyName(schema)
-	vector := annField(schema, false)
-	if vector == "" {
-		vector = "vector"
+	templates := []row{{
+		"label": "List entities", "type": "template", "detail": "query",
+		"apply": `{"filter":"","limit":20,"output":["*"]}`,
+	}}
+	if dense := floatVectorField(schema); dense != nil {
+		templates = append(templates, row{
+			"label": "ANN search", "type": "template", "detail": "vector similarity",
+			"apply": fmt.Sprintf(`{"field":%q,"vector":%s,"limit":10,"output":["*"]}`, dense.Name, jsonValue(sampleVector(fieldDim(dense)))),
+		})
 	}
-	text := annField(schema, true)
-	if text == "" {
-		text = vector
+	if sparse := sparseVectorField(schema); sparse != nil {
+		templates = append(templates, row{
+			"label": "Full-text search", "type": "template", "detail": "BM25 / sparse",
+			"apply": fmt.Sprintf(`{"field":%q,"text":"search terms","limit":10,"output":["*"]}`, sparse.Name),
+		})
 	}
-	return []row{
-		{"label": "ANN search", "type": "template", "detail": "vector similarity", "apply": fmt.Sprintf(`{"field":%q,"vector":[0.1,0.2],"limit":10,"output":["*"]}`, vector)},
-		{"label": "Full-text search", "type": "template", "detail": "BM25 / sparse", "apply": fmt.Sprintf(`{"field":%q,"text":"search terms","limit":10,"output":["*"]}`, text)},
-		{"label": "Scalar filter", "type": "template", "detail": "query", "apply": fmt.Sprintf(`{"filter":"%s >= 0","limit":50,"output":["*"]}`, pk)},
-		{"label": "Primary key lookup", "type": "template", "detail": "get", "apply": `{"ids":[1,2,3],"output":["*"]}`},
+	pk := primaryKeyField(schema)
+	if pk == nil {
+		return templates
 	}
+	filter := pk.Name + " >= 0"
+	var ids any = []int64{1, 2, 3}
+	if pk.DataType == entity.FieldTypeVarChar {
+		filter = pk.Name + ` != ""`
+		ids = []string{"id-1", "id-2"}
+	}
+	return append(templates,
+		row{"label": "Scalar filter", "type": "template", "detail": "query",
+			"apply": fmt.Sprintf(`{"filter":%s,"limit":25,"output":["*"]}`, jsonValue(filter))},
+		row{"label": "Primary key lookup", "type": "template", "detail": "get",
+			"apply": fmt.Sprintf(`{"ids":%s,"output":["*"]}`, jsonValue(ids))},
+	)
+}
+
+// floatVectorField is the only dense type a JSON float array can probe, so it
+// is the only one the ANN template is offered for.
+func floatVectorField(schema *entity.Schema) *entity.Field {
+	for _, f := range schema.Fields {
+		if f.DataType == entity.FieldTypeFloatVector && fieldDim(f) > 0 {
+			return f
+		}
+	}
+	return nil
+}
+
+func sparseVectorField(schema *entity.Schema) *entity.Field {
+	for _, f := range schema.Fields {
+		if f.DataType == entity.FieldTypeSparseVector {
+			return f
+		}
+	}
+	return nil
+}
+
+func fieldDim(f *entity.Field) int {
+	dim, err := strconv.Atoi(f.TypeParams[entity.TypeParamDim])
+	if err != nil || dim <= 0 {
+		return 0
+	}
+	return dim
+}
+
+// sampleVector is the query vector the ANN template ships with: every component
+// is equal, so it is a valid non-zero probe under L2, IP and COSINE alike.
+func sampleVector(dim int) []float64 {
+	values := make([]float64, dim)
+	for i := range values {
+		values[i] = 0.1
+	}
+	return values
+}
+
+func jsonValue(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "null"
+	}
+	return string(data)
 }
 
 func listSavedQueries(rc *plugin.RequestContext) (any, error) {

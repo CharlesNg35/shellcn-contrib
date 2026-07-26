@@ -627,12 +627,14 @@ func nodeMetricsConfig() plugin.MetricsConfig {
 
 func graphqlEditorConfig() plugin.QueryEditorConfig {
 	return plugin.QueryEditorConfig{
-		Language:          "graphql",
-		Label:             "GraphQL",
-		ExecuteLabel:      "Run",
-		RunningLabel:      "Running…",
-		EmptyText:         "Run a Weaviate GraphQL query to see results. Get, Aggregate, and Explore are supported.",
-		InitialQuery:      "{\n  Aggregate {\n    # replace with a collection name\n  }\n}",
+		Language:     "graphql",
+		Label:        "GraphQL",
+		ExecuteLabel: "Run",
+		RunningLabel: "Running…",
+		EmptyText:    "Run a Weaviate GraphQL query to see results. Get, Aggregate, Explore, and schema introspection are supported.",
+		InitialQuery: "# Collections on this server. Replace this with a Get or Aggregate query, for example:\n" +
+			"#   { Get { Article(limit: 10) { title } } }\n" +
+			"{\n  __type(name: \"GetObjectsObj\") {\n    fields {\n      collection: name\n      description\n    }\n  }\n}",
 		CompletionRouteID: rid("graphql.complete"),
 		Exportable:        true,
 	}
@@ -644,8 +646,8 @@ func searchEditorConfig() plugin.QueryEditorConfig {
 		Label:             "Vector search",
 		ExecuteLabel:      "Search",
 		RunningLabel:      "Searching…",
-		EmptyText:         "Describe a search: mode is fetch, nearVector, nearText, hybrid, or bm25. Add where, sort, properties, limit, and target_vector as needed.",
-		InitialQuery:      "{\n  \"mode\": \"hybrid\",\n  \"query\": \"example\",\n  \"alpha\": 0.5,\n  \"limit\": 10\n}",
+		EmptyText:         "Describe a search: mode is fetch, nearVector, bm25, nearText, or hybrid. fetch, nearVector, and bm25 need no vectorizer; nearText and hybrid embed the query text and need one. Add where, sort, properties, limit, and target_vector as needed.",
+		InitialQuery:      "{\n  \"mode\": \"fetch\",\n  \"limit\": 10\n}",
 		CompletionRouteID: rid("graphql.complete"),
 		CompletionParams:  collectionParams(),
 		Exportable:        true,

@@ -111,7 +111,7 @@ func serverResource() plugin.ResourceType {
 			Header: plugin.HeaderSpec{Title: "Keyspaces"},
 			Tabs: []plugin.Panel{
 				{Key: "keyspaces", Label: "Keyspaces", Icon: icon("database"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "scylladb.keyspaces.list"}, Config: plugin.TableConfig{Columns: keyspaceColumns(), ActionIDs: []string{"scylladb.keyspace.create"}, RowActionIDs: []string{"scylladb.keyspace.drop"}, DefaultSort: &plugin.SortKey{Field: "name"}, EmptyText: "No user keyspaces yet.", RefreshIntervalMs: 30000, Exportable: true}},
-				{Key: "console", Label: "CQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: "scylladb.query", Method: plugin.MethodWS}, Config: queryConfig("SELECT release_version FROM system.local;")},
+				{Key: "console", Label: "CQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: "scylladb.query", Method: plugin.MethodWS}, Config: queryConfig("SELECT keyspace_name, durable_writes, replication FROM system_schema.keyspaces LIMIT 25;")},
 				{Key: "saved", Label: "Saved CQL", Icon: icon("bookmark"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "scylladb.queries.list"}, Config: plugin.TableConfig{Columns: savedQueryColumns(), ActionIDs: []string{"scylladb.query.save"}, RowActionIDs: []string{"scylladb.query.delete"}, DefaultSort: &plugin.SortKey{Field: "name"}, EmptyText: "No saved CQL yet. Use Save CQL to keep a statement for this connection.", RefreshIntervalMs: 60000}},
 			},
 		},
@@ -147,7 +147,7 @@ func clusterResource() plugin.ResourceType {
 				{Key: "clients", Label: "Clients", Icon: icon("plug"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "scylladb.clients.list"}, Config: plugin.TableConfig{Columns: clientColumns(), DefaultSort: &plugin.SortKey{Field: "address"}, EmptyText: "No CQL clients connected.", RefreshIntervalMs: 10000}},
 				{Key: "slowlog", Label: "Slow queries", Icon: icon("timer"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "scylladb.slowlog.list"}, Config: plugin.TableConfig{Columns: slowLogColumns(), DefaultSort: &plugin.SortKey{Field: "duration_us", Desc: true}, EmptyText: "No slow queries recorded. Enable the slow-query log on the node to populate system_traces.node_slow_log.", RefreshIntervalMs: 30000, Exportable: true}},
 				{Key: "config", Label: "Configuration", Icon: icon("sliders-horizontal"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "scylladb.config.list"}, Config: plugin.TableConfig{Columns: configColumns(), DefaultSort: &plugin.SortKey{Field: "name"}, EmptyText: "No configuration reported by system.config.", RefreshIntervalMs: 60000, Exportable: true}},
-				{Key: "console", Label: "CQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: "scylladb.query", Method: plugin.MethodWS}, Config: queryConfig("SELECT * FROM system.cluster_status;")},
+				{Key: "console", Label: "CQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: "scylladb.query", Method: plugin.MethodWS}, Config: queryConfig("SELECT peer, dc, rack, status, up, load, owns, tokens FROM system.cluster_status LIMIT 25;")},
 			},
 		},
 	}
@@ -171,7 +171,7 @@ func keyspaceResource() plugin.ResourceType {
 			{Key: "ring", Label: "Token ranges", Icon: icon("circle-dot"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "scylladb.tokenring.list", Params: map[string]string{"keyspace": "${resource.uid}"}}, Config: plugin.TableConfig{Columns: tokenRingColumns(), DefaultSort: &plugin.SortKey{Field: "start_token"}, EmptyText: "No token ranges reported for this keyspace.", RefreshIntervalMs: 60000, Exportable: true}},
 			{Key: "types", Label: "Types", Icon: icon("braces"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "scylladb.types.list", Params: map[string]string{"keyspace": "${resource.uid}"}}, Config: plugin.TableConfig{Columns: typeColumns(), ActionIDs: []string{"scylladb.type.create"}, RowActionIDs: []string{"scylladb.type.drop"}, DefaultSort: &plugin.SortKey{Field: "name"}, EmptyText: "No user-defined types in this keyspace.", RefreshIntervalMs: 60000}},
 			{Key: "functions", Label: "Functions", Icon: icon("function-square"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "scylladb.functions.list", Params: map[string]string{"keyspace": "${resource.uid}"}}, Config: plugin.TableConfig{Columns: functionColumns(), DefaultSort: &plugin.SortKey{Field: "name"}, EmptyText: "No user-defined functions in this keyspace.", RefreshIntervalMs: 60000}},
-			{Key: "query", Label: "CQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: "scylladb.query", Method: plugin.MethodWS}, Config: queryConfig("SELECT * FROM system_schema.tables WHERE keyspace_name = '${resource.name}';")},
+			{Key: "query", Label: "CQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: "scylladb.query", Method: plugin.MethodWS}, Config: queryConfig("SELECT table_name, comment, compaction, default_time_to_live FROM system_schema.tables WHERE keyspace_name = '${resource.name}' LIMIT 25;")},
 		}},
 	}
 }
@@ -194,7 +194,7 @@ func tableResource() plugin.ResourceType {
 			{Key: "large", Label: "Large partitions", Icon: icon("triangle-alert"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "scylladb.table.large", Params: tableParams()}, Config: plugin.TableConfig{Columns: largePartitionColumns(), DefaultSort: &plugin.SortKey{Field: "partition_size", Desc: true}, EmptyText: "No partitions crossed the large-partition threshold.", RefreshIntervalMs: 60000, Exportable: true}},
 			{Key: "compactions", Label: "Compactions", Icon: icon("layers"), Type: plugin.PanelTimeline, Source: &plugin.DataSource{RouteID: "scylladb.compactions.list", Params: tableParams()}, Config: compactionTimelineConfig()},
 			{Key: "definition", Label: "Definition", Icon: icon("code"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "scylladb.table.definition", Params: tableParams()}},
-			{Key: "query", Label: "CQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: "scylladb.query", Method: plugin.MethodWS}, Config: queryConfig("SELECT * FROM \"${resource.namespace}\".\"${resource.name}\" LIMIT 100;")},
+			{Key: "query", Label: "CQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: "scylladb.query", Method: plugin.MethodWS}, Config: queryConfig("SELECT * FROM \"${resource.namespace}\".\"${resource.name}\" LIMIT 25;")},
 		}},
 	}
 }
@@ -211,7 +211,7 @@ func viewResource() plugin.ResourceType {
 		Detail: plugin.DetailView{Header: plugin.HeaderSpec{Title: "${resource.namespace}.${resource.name}"}, Tabs: []plugin.Panel{
 			{Key: "columns", Label: "Columns", Icon: icon("columns-3"), Type: plugin.PanelTable, Source: &plugin.DataSource{RouteID: "scylladb.table.columns", Params: tableParams()}, Config: plugin.TableConfig{Columns: columnColumns(), EmptyText: "No columns.", RefreshIntervalMs: 60000}},
 			{Key: "definition", Label: "Definition", Icon: icon("code"), Type: plugin.PanelDocument, Source: &plugin.DataSource{RouteID: "scylladb.view.definition", Params: tableParams()}},
-			{Key: "query", Label: "CQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: "scylladb.query", Method: plugin.MethodWS}, Config: queryConfig("SELECT * FROM \"${resource.namespace}\".\"${resource.name}\" LIMIT 100;")},
+			{Key: "query", Label: "CQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor, Source: &plugin.DataSource{RouteID: "scylladb.query", Method: plugin.MethodWS}, Config: queryConfig("SELECT * FROM \"${resource.namespace}\".\"${resource.name}\" LIMIT 25;")},
 		}},
 	}
 }

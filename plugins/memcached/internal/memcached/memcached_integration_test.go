@@ -3,6 +3,7 @@ package memcached
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net"
 	"net/url"
 	"os"
@@ -329,6 +330,104 @@ func TestMemcachedReadOnlyIntegration(t *testing.T) {
 	if _, err := routes["memcached.overview"].Handle(plugin.NewRequestContext(ctx, plugin.User{}, sess, nil, nil, nil)); err != nil {
 		t.Fatalf("reads must still work on a read-only connection: %v", err)
 	}
+}
+
+// TestMemcachedInitialQueriesIntegration runs every query editor default from
+// the manifest against a live server, so a shipped default can never greet the
+// operator with an error frame or an empty result.
+func TestMemcachedInitialQueriesIntegration(t *testing.T) {
+	if os.Getenv("SHELLCN_MEMCACHED_INTEGRATION") != "1" {
+		t.Skip("set SHELLCN_MEMCACHED_INTEGRATION=1 to run against memcached")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	cfg := integrationConfig(ctx, t)
+	p := New()
+	sess, err := p.Connect(ctx, plugin.ConnectConfig{Config: cfg, Net: plugintest.DirectTransport()})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = sess.Close() }()
+
+	h := contribtest.NewHarness(t, p.Routes())
+	prefix := "shellcn:default:" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		h.Call(ctx, "memcached.key.store", sess, nil, nil, mustJSONBytes(t, map[string]any{
+			"key": prefix + ":" + name, "mode": "set", "value": name, "ttl": 600,
+		}))
+	}
+
+	defaults := initialQueries(p.Manifest().Tabs)
+	if len(defaults) == 0 {
+		t.Fatal("no query editor defaults found in the manifest")
+	}
+	runInitialQueries(ctx, t, h, sess, defaults)
+
+	// read-only is the connection default, so a default that is not a plain read
+	// would be refused before the operator typed anything.
+	roCfg := maps.Clone(cfg)
+	roCfg["read_only"] = true
+	roSess, err := p.Connect(ctx, plugin.ConnectConfig{Config: roCfg, Net: plugintest.DirectTransport()})
+	if err != nil {
+		t.Fatalf("connect read-only: %v", err)
+	}
+	defer func() { _ = roSess.Close() }()
+	runInitialQueries(ctx, t, h, roSess, defaults)
+}
+
+func runInitialQueries(ctx context.Context, t *testing.T, h *contribtest.Harness, sess plugin.Session, defaults []initialQuery) {
+	t.Helper()
+	for _, def := range defaults {
+		// memcached has no per-resource query editor, so a default must be
+		// runnable verbatim: an unresolved token would reach the server as text.
+		if strings.Contains(def.query, "${") {
+			t.Fatalf("panel %q default %q carries an uninterpolated token", def.panel, def.query)
+		}
+		out := h.Stream(streamCtx(ctx, 20*time.Second), def.routeID, sess, nil, nil,
+			mustJSONBytes(t, consoleRequest{Query: def.query}))
+		frames := decodeFrames(t, out)
+		if len(frames) != 1 {
+			t.Fatalf("panel %q default %q produced %d frames: %s", def.panel, def.query, len(frames), truncate(string(out)))
+		}
+		frame := frames[0]
+		if frame["error"] != nil {
+			t.Fatalf("panel %q default %q errored: %v", def.panel, def.query, frame["error"])
+		}
+		if frame["confirmRequired"] == true {
+			t.Fatalf("panel %q default %q must not need confirmation to open", def.panel, def.query)
+		}
+		count, _ := frame["rowCount"].(float64)
+		if count <= 0 {
+			t.Fatalf("panel %q default %q returned no rows: %s", def.panel, def.query, truncate(string(out)))
+		}
+	}
+}
+
+type initialQuery struct {
+	panel   string
+	routeID string
+	query   string
+}
+
+func initialQueries(panels []plugin.Panel) []initialQuery {
+	out := []initialQuery{}
+	for _, panel := range panels {
+		switch cfg := panel.Config.(type) {
+		case plugin.QueryEditorConfig:
+			if strings.TrimSpace(cfg.InitialQuery) == "" || panel.Source == nil {
+				continue
+			}
+			out = append(out, initialQuery{panel: panel.Key, routeID: panel.Source.RouteID, query: cfg.InitialQuery})
+		case plugin.DashboardConfig:
+			out = append(out, initialQueries(cfg.Cells)...)
+		case plugin.SplitConfig:
+			for _, child := range cfg.Panels {
+				out = append(out, initialQueries([]plugin.Panel{child.Panel})...)
+			}
+		}
+	}
+	return out
 }
 
 func waitForEvents(ctx context.Context, t *testing.T, h *contribtest.Harness, sess plugin.Session, prefix string) []map[string]any {

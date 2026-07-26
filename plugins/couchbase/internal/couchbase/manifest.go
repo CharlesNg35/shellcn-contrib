@@ -197,6 +197,35 @@ func objectDetail(sections []plugin.ObjectDetailSection, watch *plugin.DataSourc
 	return plugin.ObjectDetailConfig{Sections: sections, RawToggle: true, Watch: watch}
 }
 
+// keyspaceBucketExpr and keyspaceScopeExpr recover the bucket and the scope of a
+// system:keyspaces row: the row describing a bucket's default scope and default
+// collection carries neither field, and only the bucket name in `id`.
+const (
+	keyspaceBucketExpr = "IFMISSING(k.`bucket`, k.`id`)"
+	keyspaceScopeExpr  = "IFMISSING(k.`scope`, \"_default\")"
+)
+
+// keyspaceCatalog lists the keyspaces an operator can query. It needs no index
+// and projects the catalog row itself, so the grid shows one column per catalog
+// field instead of a single nested document.
+func keyspaceCatalog(where string) string {
+	statement := "SELECT k.* FROM system:keyspaces k"
+	if where != "" {
+		statement += " WHERE " + where
+	}
+	return statement + " ORDER BY k.`path` LIMIT 25;"
+}
+
+// collectionSample reads documents straight out of a collection. It relies on no
+// user-built index: the Query service serves it with a sequential scan.
+func collectionSample(where string) string {
+	statement := "SELECT META(d).id AS id, d.* FROM `${resource.scope}`.`${resource.namespace}`.`${resource.name}` d"
+	if where != "" {
+		statement += " WHERE " + where
+	}
+	return statement + " LIMIT 25;"
+}
+
 func queryConfig(label, initial string, params map[string]string) plugin.QueryEditorConfig {
 	return plugin.QueryEditorConfig{
 		Language:          "sql",
@@ -446,10 +475,12 @@ func clusterResource() plugin.ResourceType {
 					Config: timelineConfig(nil, "No cluster events recorded yet.")},
 				{Key: "query", Label: "SQL++", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor,
 					Source: &plugin.DataSource{RouteID: rid("query"), Method: plugin.MethodWS},
-					Config: queryConfig("SQL++", "SELECT * FROM system:keyspaces;", nil)},
+					Config: queryConfig("SQL++", keyspaceCatalog(""), nil)},
 				{Key: "advisor", Label: "Index advisor", Icon: icon("lightbulb"), Type: plugin.PanelQueryEditor,
 					Source: &plugin.DataSource{RouteID: rid("advisor"), Method: plugin.MethodWS},
-					Config: advisorConfig("SELECT * FROM system:keyspaces WHERE `bucket` IS NOT MISSING;")},
+					// Unordered: sorting the catalog makes the plan recommend an
+					// index on the system keyspace, which cannot be created.
+					Config: advisorConfig("SELECT k.* FROM system:keyspaces k LIMIT 25;")},
 				{Key: "saved", Label: "Saved queries", Icon: icon("bookmark"), Type: plugin.PanelTable,
 					Source: &plugin.DataSource{RouteID: rid("queries.list")},
 					Config: plugin.TableConfig{Columns: savedQueryColumns(), DefaultSort: &plugin.SortKey{Field: "name"},
@@ -578,7 +609,7 @@ func bucketResource() plugin.ResourceType {
 						EmptyText: "No indexes on this bucket."}},
 				{Key: "query", Label: "SQL++", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor,
 					Source: &plugin.DataSource{RouteID: rid("query"), Method: plugin.MethodWS, Params: bucketParams},
-					Config: queryConfig("SQL++", "SELECT * FROM system:keyspaces WHERE `bucket` = \"${resource.name}\";", bucketParams)},
+					Config: queryConfig("SQL++", keyspaceCatalog(keyspaceBucketExpr+" = \"${resource.name}\""), bucketParams)},
 			},
 		},
 	}
@@ -684,7 +715,8 @@ func scopeResource() plugin.ResourceType {
 						EmptyText: "This scope has no collections yet."}},
 				{Key: "query", Label: "SQL++", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor,
 					Source: &plugin.DataSource{RouteID: rid("query"), Method: plugin.MethodWS, Params: keyspaceParams()},
-					Config: queryConfig("SQL++", "SELECT * FROM system:keyspaces WHERE `scope` = \"${resource.name}\";", keyspaceParams())},
+					Config: queryConfig("SQL++", keyspaceCatalog(keyspaceBucketExpr+" = \"${resource.scope}\" AND "+
+						keyspaceScopeExpr+" = \"${resource.name}\""), keyspaceParams())},
 			},
 		},
 	}
@@ -751,10 +783,10 @@ func collectionResource() plugin.ResourceType {
 					}}}, nil)},
 				{Key: "query", Label: "SQL++", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor,
 					Source: &plugin.DataSource{RouteID: rid("query"), Method: plugin.MethodWS, Params: keyspaceParams()},
-					Config: queryConfig("SQL++", "SELECT META(d).id, d.* FROM `${resource.scope}`.`${resource.namespace}`.`${resource.name}` d LIMIT 100;", keyspaceParams())},
+					Config: queryConfig("SQL++", collectionSample(""), keyspaceParams())},
 				{Key: "advisor", Label: "Index advisor", Icon: icon("lightbulb"), Type: plugin.PanelQueryEditor,
 					Source: &plugin.DataSource{RouteID: rid("advisor"), Method: plugin.MethodWS, Params: keyspaceParams()},
-					Config: advisorConfig("SELECT * FROM `${resource.scope}`.`${resource.namespace}`.`${resource.name}` WHERE type = \"example\";")},
+					Config: advisorConfig(collectionSample("d.type = \"example\""))},
 			},
 		},
 	}

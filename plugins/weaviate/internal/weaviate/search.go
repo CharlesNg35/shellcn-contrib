@@ -578,6 +578,9 @@ func graphqlTable(resp *models.GraphQLResponse) row {
 		}
 	}
 	if len(records) == 0 {
+		records = nestedRecords(resp.Data)
+	}
+	if len(records) == 0 {
 		data := map[string]any{}
 		for key, value := range resp.Data {
 			data[key] = value
@@ -594,6 +597,52 @@ func graphqlTable(resp *models.GraphQLResponse) row {
 		rows = append(rows, cells)
 	}
 	return row{"columns": columns, "rows": rows, "rowCount": len(rows)}
+}
+
+// nestedRecords tabulates the shapes the Get/Aggregate/Explore walk does not
+// cover — introspection and meta queries — by flattening the first list of
+// objects found at or one level below the response root.
+func nestedRecords(data map[string]models.JSONObject) []map[string]any {
+	for _, key := range sortedKeys(data) {
+		if records := objectList(data[key]); len(records) > 0 {
+			return records
+		}
+		nested, ok := data[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, child := range sortedKeys(nested) {
+			if records := objectList(nested[child]); len(records) > 0 {
+				return records
+			}
+		}
+	}
+	return nil
+}
+
+func objectList(value any) []map[string]any {
+	items, ok := value.([]any)
+	if !ok || len(items) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			return nil
+		}
+		out = append(out, flatten(entry, ""))
+	}
+	return out
+}
+
+func sortedKeys[T any](data map[string]T) []string {
+	keys := make([]string, 0, len(data))
+	for key := range data {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func asList(value any) []any {

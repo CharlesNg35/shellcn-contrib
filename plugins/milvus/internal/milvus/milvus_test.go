@@ -3,6 +3,7 @@ package milvus
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"slices"
 	"sort"
@@ -645,12 +646,45 @@ func TestQueryCompletionTemplatesAreRunnable(t *testing.T) {
 	schema := entity.NewSchema().
 		WithField(entity.NewField().WithName("id").WithDataType(entity.FieldTypeInt64).WithIsPrimaryKey(true)).
 		WithField(entity.NewField().WithName("vector").WithDataType(entity.FieldTypeFloatVector).WithDim(4))
+	byLabel := map[string]queryRequest{}
 	for _, tpl := range queryTemplates(schema) {
 		apply, _ := tpl["apply"].(string)
 		var req queryRequest
 		if err := json.Unmarshal([]byte(apply), &req); err != nil {
 			t.Fatalf("template %v is not valid JSON: %v", tpl["label"], err)
 		}
+		byLabel[fmt.Sprint(tpl["label"])] = req
+	}
+	// A search vector of any other length is rejected by the segment core, so
+	// the template must follow the field's own dimension.
+	if got := len(byLabel["ANN search"].Vector); got != 4 {
+		t.Fatalf("the ANN template must carry a 4-dimensional vector, got %d", got)
+	}
+	if got := byLabel["Scalar filter"].Filter; got != "id >= 0" {
+		t.Fatalf("unexpected scalar filter template %q", got)
+	}
+	if _, ok := byLabel["Full-text search"]; ok {
+		t.Fatal("a schema without a sparse field must not offer a full-text template")
+	}
+
+	varchar := entity.NewSchema().
+		WithField(entity.NewField().WithName("key").WithDataType(entity.FieldTypeVarChar).WithIsPrimaryKey(true).WithMaxLength(64)).
+		WithField(entity.NewField().WithName("sparse").WithDataType(entity.FieldTypeSparseVector))
+	labels := map[string]string{}
+	for _, tpl := range queryTemplates(varchar) {
+		labels[fmt.Sprint(tpl["label"])] = fmt.Sprint(tpl["apply"])
+	}
+	if _, ok := labels["ANN search"]; ok {
+		t.Fatal("a schema without a float vector field must not offer an ANN template")
+	}
+	if got := labels["Scalar filter"]; got != `{"filter":"key != \"\"","limit":25,"output":["*"]}` {
+		t.Fatalf("a VarChar primary key needs a string filter, got %s", got)
+	}
+	if got := labels["Primary key lookup"]; !strings.Contains(got, `"ids":["id-1"`) {
+		t.Fatalf("a VarChar primary key needs string ids, got %s", got)
+	}
+	if _, ok := labels["Full-text search"]; !ok {
+		t.Fatal("a sparse field must offer a full-text template")
 	}
 }
 

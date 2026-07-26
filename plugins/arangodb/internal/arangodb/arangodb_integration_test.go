@@ -498,6 +498,133 @@ func TestArangoDBReadOnlyIntegration(t *testing.T) {
 	}
 }
 
+// TestArangoDBPanelDefaultsIntegration runs the pre-filled query of every AQL
+// editor exactly as the browser sends it: ${resource.*} resolved from the
+// identity the panel was opened with, then through the query stream.
+func TestArangoDBPanelDefaultsIntegration(t *testing.T) {
+	if os.Getenv("SHELLCN_ARANGODB_INTEGRATION") != "1" {
+		t.Skip("set SHELLCN_ARANGODB_INTEGRATION=1 to run against ArangoDB")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	endpoint, password := arangoEndpoint(ctx, t)
+	database := "shellcn_defaults_" + time.Now().UTC().Format("20060102150405")
+
+	p := New()
+	sess, err := p.Connect(ctx, plugin.ConnectConfig{
+		Config: connectionConfig(endpoint, password, defaultDatabase), Net: plugintest.DirectTransport(),
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = sess.Close() }()
+
+	h := contribtest.NewHarness(t, p.Routes())
+	dbParams := map[string]string{"database": database}
+	h.Call(ctx, rid("database.create"), sess, nil, nil, mustJSON(t, map[string]any{"name": database, "replication_factor": 1}))
+	t.Cleanup(func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		h.CallNoFail(cleanup, rid("database.drop"), sess, dbParams)
+	})
+	for _, spec := range []map[string]any{
+		{"name": "people", "type": "document"},
+		{"name": "companies", "type": "document"},
+		{"name": "works_at", "type": "edge"},
+	} {
+		h.Call(ctx, rid("collection.create"), sess, dbParams, nil, mustJSON(t, spec))
+	}
+	for collection, values := range map[string][]map[string]any{
+		"people":    {{"_key": "ada", "name": "Ada"}, {"_key": "bob", "name": "Bob"}},
+		"companies": {{"_key": "acme", "name": "Acme"}},
+		"works_at":  {{"_from": "people/ada", "_to": "companies/acme"}, {"_from": "people/bob", "_to": "companies/acme"}},
+	} {
+		for _, value := range values {
+			h.Call(ctx, rid("document.insert"), sess, map[string]string{"database": database, "collection": collection}, nil,
+				mustJSON(t, map[string]any{"values": value}))
+		}
+	}
+	h.Call(ctx, rid("graph.create"), sess, dbParams, nil, mustJSON(t, map[string]any{
+		"name": "employment", "edge_collection": "works_at", "from": "people", "to": "companies",
+	}))
+
+	identities := map[string]plugin.ResourceIdentity{
+		kindDatabase:   {Kind: kindDatabase, Name: database, UID: database},
+		kindCollection: {Kind: kindCollection, Namespace: database, Name: "people", UID: encodeID(kindCollection, database, "people")},
+		kindGraph:      {Kind: kindGraph, Namespace: database, Name: "employment", UID: encodeID(kindGraph, database, "employment")},
+	}
+	panels := queryEditorPanels(t, p.Manifest())
+	if len(panels) != len(identities) {
+		t.Fatalf("expected %d AQL editors, found %d", len(identities), len(panels))
+	}
+	for _, panel := range panels {
+		identity, ok := identities[panel.kind]
+		if !ok {
+			t.Fatalf("no seeded resource for kind %q", panel.kind)
+		}
+		query := resolveResourceTokens(panel.query, identity)
+		params := make(map[string]string, len(panel.params))
+		for key, value := range panel.params {
+			params[key] = resolveResourceTokens(value, identity)
+		}
+		frames := decodeFrames(t, runStreamRaw(t, h, ctx, rid("query"), sess, params,
+			string(mustJSON(t, map[string]any{"query": query, "confirm": false}))+"\n", 60*time.Second))
+		if len(frames) != 1 {
+			t.Fatalf("%s default: expected one frame, got %#v", panel.kind, frames)
+		}
+		if message, failed := frames[0]["error"]; failed {
+			t.Fatalf("%s default failed: %v\n%s", panel.kind, message, query)
+		}
+		if fmt.Sprint(frames[0]["rowCount"]) == "0" {
+			t.Fatalf("%s default returned no rows:\n%s", panel.kind, query)
+		}
+	}
+}
+
+type editorPanel struct {
+	kind   string
+	query  string
+	params map[string]string
+}
+
+func queryEditorPanels(t *testing.T, manifest plugin.Manifest) []editorPanel {
+	t.Helper()
+	panels := make([]editorPanel, 0, 3)
+	for _, resource := range manifest.Resources {
+		for _, tab := range resource.Detail.Tabs {
+			if tab.Type != plugin.PanelQueryEditor {
+				continue
+			}
+			config, ok := tab.Config.(plugin.QueryEditorConfig)
+			if !ok {
+				t.Fatalf("%s/%s: unexpected editor config %T", resource.Kind, tab.Key, tab.Config)
+			}
+			if strings.TrimSpace(config.InitialQuery) == "" {
+				t.Fatalf("%s/%s: query editor without a pre-filled query", resource.Kind, tab.Key)
+			}
+			params := map[string]string{}
+			if tab.Source != nil {
+				for key, value := range tab.Source.Params {
+					params[key] = value
+				}
+			}
+			panels = append(panels, editorPanel{kind: resource.Kind, query: config.InitialQuery, params: params})
+		}
+	}
+	return panels
+}
+
+func resolveResourceTokens(value string, identity plugin.ResourceIdentity) string {
+	return strings.NewReplacer(
+		"${resource.kind}", identity.Kind,
+		"${resource.scope}", identity.Scope,
+		"${resource.namespace}", identity.Namespace,
+		"${resource.name}", identity.Name,
+		"${resource.uid}", identity.UID,
+	).Replace(value)
+}
+
 func connectionConfig(endpoint, password, database string) map[string]any {
 	return map[string]any{
 		"endpoint": endpoint, "database": database,

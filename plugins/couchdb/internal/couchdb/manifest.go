@@ -517,8 +517,9 @@ func databaseResource() plugin.ResourceType {
 					Config: plugin.QueryEditorConfig{
 						Language: "json", Label: "Mango selector",
 						ExecuteLabel: "Find", RunningLabel: "Finding...",
-						EmptyText:         "Run a Mango query. The body is POSTed to /{db}/_find and the chosen index is reported with every result.",
-						InitialQuery:      "{\n  \"selector\": {},\n  \"limit\": 25\n}",
+						EmptyText: "Run a Mango query. The body is POSTed to /{db}/_find and the chosen index is reported with every result. " +
+							"The default selector matches every document through the built-in _all_docs index.",
+						InitialQuery:      "{\n  \"selector\": {\n    \"_id\": { \"$gt\": null }\n  },\n  \"limit\": 25\n}",
 						CompletionRouteID: rid("mango.complete"),
 						CompletionParams:  dbParams(),
 						Exportable:        true,

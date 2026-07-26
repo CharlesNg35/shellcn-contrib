@@ -525,7 +525,7 @@ func provisionCluster(ctx context.Context, t *testing.T, host string, management
 	}
 
 	if status, body := post("/node/controller/setupServices", url.Values{"services": {"kv,n1ql,index"}}, false); status >= 400 &&
-		!strings.Contains(body, "cannot change node services") {
+		status != http.StatusUnauthorized && !strings.Contains(body, "cannot change node services") {
 		t.Fatalf("setupServices: %d %s", status, body)
 	}
 	if status, body := post("/pools/default", url.Values{"memoryQuota": {"512"}, "indexMemoryQuota": {"512"}}, false); status >= 400 {

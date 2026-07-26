@@ -123,7 +123,7 @@ func databaseResource() plugin.ResourceType {
 					Config: plugin.GraphConfig{Layout: plugin.GraphLayoutGrid, FitView: true}},
 				{Key: "aql", Label: "AQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor,
 					Source: &plugin.DataSource{RouteID: rid("query"), Method: plugin.MethodWS, Params: databaseParams()},
-					Config: queryEditorConfig("FOR doc IN _users LIMIT 25 RETURN doc", databaseParams())},
+					Config: queryEditorConfig(databaseInitialAQL, databaseParams())},
 				{Key: "slow", Label: "Slow AQL", Icon: icon("history"), Type: plugin.PanelTimeline,
 					Source: &plugin.DataSource{RouteID: rid("queries.slow"), Params: databaseParams()},
 					Config: plugin.TimelineConfig{TimestampField: "started", TitleField: "state", BodyField: "query",
@@ -176,7 +176,7 @@ func collectionResource() plugin.ResourceType {
 						SaveMethod: plugin.MethodPut, SaveParams: params, SaveBodyKey: "schema", RefreshField: "content"}},
 				{Key: "aql", Label: "AQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor,
 					Source: &plugin.DataSource{RouteID: rid("query"), Method: plugin.MethodWS, Params: map[string]string{"database": "${resource.namespace}"}},
-					Config: queryEditorConfig("FOR doc IN `${resource.name}` LIMIT 25 RETURN doc", map[string]string{"database": "${resource.namespace}"})},
+					Config: queryEditorConfig(collectionInitialAQL, map[string]string{"database": "${resource.namespace}"})},
 			},
 		},
 	}
@@ -214,7 +214,7 @@ func graphResource() plugin.ResourceType {
 						RefreshIntervalMs: 60000, Exportable: true, EmptyText: "This graph has no vertex collections."}},
 				{Key: "aql", Label: "AQL", Icon: icon("square-terminal"), Type: plugin.PanelQueryEditor,
 					Source: &plugin.DataSource{RouteID: rid("query"), Method: plugin.MethodWS, Params: map[string]string{"database": "${resource.namespace}"}},
-					Config: queryEditorConfig("FOR v, e, p IN 1..2 ANY @start GRAPH \"${resource.name}\" LIMIT 25 RETURN p", map[string]string{"database": "${resource.namespace}"})},
+					Config: queryEditorConfig(graphInitialAQL, map[string]string{"database": "${resource.namespace}"})},
 			},
 		},
 	}
@@ -484,6 +484,28 @@ func actions() []plugin.Action {
 			OnSuccess:   &plugin.ActionSuccess{Navigate: plugin.NavigateList}},
 	}
 }
+
+// The three AQL editors open pre-filled. Every default runs on any freshly
+// created database without bind parameters, indexes or system collections that
+// only exist in _system, and returns rows that describe what is actually there.
+const (
+	databaseInitialAQL = "FOR c IN COLLECTIONS()\n" +
+		"  FILTER !STARTS_WITH(c.name, \"_\")\n" +
+		"  SORT c.name\n" +
+		"  LIMIT 25\n" +
+		"  RETURN { collection: c.name, documents: COLLECTION_COUNT(c.name) }"
+
+	collectionInitialAQL = "FOR doc IN `${resource.name}`\n" +
+		"  LIMIT 25\n" +
+		"  RETURN doc"
+
+	graphInitialAQL = "/* Traverse the graph by copying a vertex _id into the start position:\n" +
+		"   FOR v, e, p IN 1..2 ANY \"collection/key\" GRAPH `${resource.name}` LIMIT 25 RETURN p */\n" +
+		"FOR g IN _graphs\n" +
+		"  FILTER g._key == \"${resource.name}\"\n" +
+		"  FOR def IN g.edgeDefinitions\n" +
+		"    RETURN { edge: def.collection, from: def.from, to: def.to, edges: COLLECTION_COUNT(def.collection) }"
+)
 
 func queryEditorConfig(initial string, params map[string]string) plugin.QueryEditorConfig {
 	return plugin.QueryEditorConfig{

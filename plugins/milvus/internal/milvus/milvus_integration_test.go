@@ -153,6 +153,32 @@ func TestMilvusPluginIntegration(t *testing.T) {
 		t.Fatalf("completions missing the vector field: %#v", completions)
 	}
 
+	// The console ships with a pre-filled query and a set of templates; both run
+	// unedited against whatever schema the opened collection has.
+	canned := []string{queryEditorConfig().InitialQuery}
+	for _, item := range completions {
+		if item["type"] == "template" {
+			canned = append(canned, fmt.Sprint(item["apply"]))
+		}
+	}
+	if len(canned) < 5 {
+		t.Fatalf("expected the query templates in the completions: %#v", completions)
+	}
+	for _, query := range canned {
+		frame := firstFrame(t, h.Stream(ctx, rid("query"), sess, collScope, nil,
+			mustJSONLine(t, map[string]any{"query": query, "confirm": false})))
+		if frame["error"] != nil {
+			t.Fatalf("default query %s failed: %v", query, frame["error"])
+		}
+		if frame["confirmRequired"] != nil {
+			t.Fatalf("default query %s must not need a confirmation: %#v", query, frame)
+		}
+	}
+	if rows := toInt(firstFrame(t, h.Stream(ctx, rid("query"), sess, collScope, nil,
+		mustJSONLine(t, map[string]any{"query": queryEditorConfig().InitialQuery})))["rowCount"]); rows < 1 {
+		t.Fatal("the pre-filled query must return rows on a seeded collection")
+	}
+
 	// Saved queries live in scoped plugin storage, so they need a storage bridge.
 	store := &fakeStorage{}
 	saved := callWithStorage(ctx, t, h.Route(rid("query.save")), sess, store, nil, mustJSON(t, map[string]any{

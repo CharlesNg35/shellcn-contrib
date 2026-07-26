@@ -67,6 +67,7 @@ func TestCouchDBPluginIntegration(t *testing.T) {
 
 	integrationDocuments(ctx, t, h, sess, db, endpoint)
 	integrationMango(ctx, t, h, sess, db)
+	integrationQueryEditorDefaults(ctx, t, h, sess, db)
 	integrationDesign(ctx, t, h, sess, db)
 	integrationReplication(ctx, t, h, sess, db, backup)
 	integrationStreams(ctx, t, h, sess, db)
@@ -285,6 +286,87 @@ func integrationMango(ctx context.Context, t *testing.T, h *contribtest.Harness,
 	}
 
 	h.Call(ctx, rid("index.delete"), sess, map[string]string{"db": db, "ddoc": "mango-indexes", "name": "by-kind"}, nil, nil)
+}
+
+// integrationQueryEditorDefaults runs every InitialQuery the manifest ships
+// through its own stream route, with the ${resource.*} tokens resolved exactly
+// as the frontend resolves them. A default must execute without an error frame
+// and return rows on a seeded database, with no index the user has to build.
+func integrationQueryEditorDefaults(ctx context.Context, t *testing.T, h *contribtest.Harness, sess plugin.Session, db string) {
+	t.Helper()
+	identity := plugin.ResourceIdentity{Kind: "database", Name: db, UID: db}
+	panels := queryEditorPanels(New().Manifest())
+	if len(panels) == 0 {
+		t.Fatal("the manifest declares no query editor panel")
+	}
+	for _, panel := range panels {
+		config, ok := panel.Config.(plugin.QueryEditorConfig)
+		if !ok || strings.TrimSpace(config.InitialQuery) == "" {
+			t.Fatalf("query editor %q ships no initial query", panel.Key)
+		}
+		if panel.Source == nil {
+			t.Fatalf("query editor %q has no source route", panel.Key)
+		}
+		params := map[string]string{}
+		for key, value := range panel.Source.Params {
+			params[key] = resolveResourceTokens(value, identity)
+		}
+		frame := mustJSON(t, mangoRequest{Query: resolveResourceTokens(config.InitialQuery, identity)})
+		out := h.Stream(ctx, panel.Source.RouteID, sess, params, nil, append(frame, '\n'))
+		first := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
+		if first == "" {
+			t.Fatalf("query editor %q default produced no frame", panel.Key)
+		}
+		var failure struct {
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(first), &failure); err != nil {
+			t.Fatalf("decode %q default frame: %v (%s)", panel.Key, err, first)
+		}
+		if failure.Error != "" {
+			t.Fatalf("query editor %q default errored: %s", panel.Key, failure.Error)
+		}
+		var result mangoResult
+		if err := json.Unmarshal([]byte(first), &result); err != nil {
+			t.Fatalf("decode %q default result: %v (%s)", panel.Key, err, first)
+		}
+		if result.RowCount == 0 {
+			t.Fatalf("query editor %q default returned no rows: %#v", panel.Key, result)
+		}
+		if result.Index == "" {
+			t.Fatalf("query editor %q default resolved no index: %#v", panel.Key, result)
+		}
+	}
+}
+
+func queryEditorPanels(manifest plugin.Manifest) []plugin.Panel {
+	var panels []plugin.Panel
+	var walk func(items []plugin.Panel)
+	walk = func(items []plugin.Panel) {
+		for _, item := range items {
+			if item.Type == plugin.PanelQueryEditor {
+				panels = append(panels, item)
+			}
+			if dashboard, ok := item.Config.(plugin.DashboardConfig); ok {
+				walk(dashboard.Cells)
+			}
+		}
+	}
+	for _, resource := range manifest.Resources {
+		walk(resource.Detail.Tabs)
+	}
+	return panels
+}
+
+// resolveResourceTokens mirrors the frontend's ${resource.*} interpolation.
+func resolveResourceTokens(text string, identity plugin.ResourceIdentity) string {
+	return strings.NewReplacer(
+		"${resource.name}", identity.Name,
+		"${resource.scope}", identity.Scope,
+		"${resource.namespace}", identity.Namespace,
+		"${resource.uid}", identity.UID,
+		"${resource.kind}", identity.Kind,
+	).Replace(text)
 }
 
 func integrationDesign(ctx context.Context, t *testing.T, h *contribtest.Harness, sess plugin.Session, db string) {
