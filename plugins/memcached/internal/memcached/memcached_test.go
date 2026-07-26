@@ -520,6 +520,9 @@ func TestSlabSceneRendersErrorAndEmptyStates(t *testing.T) {
 type fakeServer struct {
 	listener net.Listener
 	replies  map[string]string
+
+	mu     sync.Mutex
+	counts map[string]int
 }
 
 func newFakeServer(t *testing.T, replies map[string]string) *fakeServer {
@@ -528,7 +531,7 @@ func newFakeServer(t *testing.T, replies map[string]string) *fakeServer {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	server := &fakeServer{listener: listener, replies: replies}
+	server := &fakeServer{listener: listener, replies: replies, counts: map[string]int{}}
 	go server.serve()
 	t.Cleanup(func() { _ = listener.Close() })
 	return server
@@ -553,6 +556,9 @@ func (f *fakeServer) handle(conn net.Conn) {
 			return
 		}
 		command := strings.TrimRight(line, "\r\n")
+		f.mu.Lock()
+		f.counts[command]++
+		f.mu.Unlock()
 		reply, ok := f.replies[command]
 		if !ok {
 			reply = "ERROR\r\n"
@@ -571,9 +577,19 @@ func (f *fakeServer) transport() plugin.NetTransport {
 	})
 }
 
+func (f *fakeServer) commandCount(command string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.counts[command]
+}
+
 func fakeSession(t *testing.T, replies map[string]string, config map[string]any) *Session {
 	t.Helper()
-	server := newFakeServer(t, replies)
+	return fakeSessionOn(t, newFakeServer(t, replies), config)
+}
+
+func fakeSessionOn(t *testing.T, server *fakeServer, config map[string]any) *Session {
+	t.Helper()
 	host, port, err := net.SplitHostPort(server.listener.Addr().String())
 	if err != nil {
 		t.Fatalf("split host port: %v", err)
@@ -929,6 +945,328 @@ func TestKeyScanStopsAtTheConfiguredCap(t *testing.T) {
 	// The abandoned connection must not poison the pool for the next caller.
 	if err := s.HealthCheck(context.Background()); err != nil {
 		t.Fatalf("session unusable after a truncated scan: %v", err)
+	}
+}
+
+const metadumpAll = "lru_crawler metadump all"
+
+func keyDumpReplies(count int) map[string]string {
+	var dump strings.Builder
+	for i := 0; i < count; i++ {
+		dump.WriteString("key=k" + strconv.Itoa(i) + " exp=-1 la=1700000000 cas=1 fetch=no cls=1 size=70\r\n")
+	}
+	dump.WriteString("END\r\n")
+	return map[string]string{"version": "VERSION 1.6.45\r\n", metadumpAll: dump.String()}
+}
+
+type decodedKeysPage struct {
+	Items      []map[string]any `json:"items"`
+	NextCursor string           `json:"nextCursor"`
+	Total      *int             `json:"total"`
+	Truncated  bool             `json:"truncated"`
+	ScanLimit  int              `json:"scanLimit"`
+}
+
+func decodeKeysPage(t *testing.T, value any) decodedKeysPage {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal page: %v", err)
+	}
+	var page decodedKeysPage
+	if err := json.Unmarshal(raw, &page); err != nil {
+		t.Fatalf("decode page: %v", err)
+	}
+	return page
+}
+
+func pageKeys(page decodedKeysPage) []string {
+	out := make([]string, 0, len(page.Items))
+	for _, item := range page.Items {
+		out = append(out, item["key"].(string))
+	}
+	return out
+}
+
+// Paging the key browser must not re-crawl the keyspace: the LRU crawler has no
+// server-side paging, so one crawl per page turns a browse pass into a full dump
+// per page and the server only runs one crawler at a time.
+func TestKeyBrowserPagesFromOneCrawl(t *testing.T) {
+	server := newFakeServer(t, keyDumpReplies(6))
+	s := fakeSessionOn(t, server, nil)
+	h := contribtest.NewHarness(t, New().Routes())
+	ctx := context.Background()
+
+	var seen []string
+	cursor := ""
+	for pages := 0; ; pages++ {
+		if pages > 5 {
+			t.Fatal("paging did not terminate")
+		}
+		query := url.Values{"limit": []string{"2"}}
+		if cursor != "" {
+			query.Set("cursor", cursor)
+		}
+		page := decodeKeysPage(t, h.Call(ctx, "memcached.keys.list", s, nil, query, nil))
+		if page.Total == nil || *page.Total != 6 {
+			t.Fatalf("every page must report the snapshot size: %+v", page.Total)
+		}
+		if page.Truncated {
+			t.Fatalf("a complete crawl must not report a cap: %+v", page)
+		}
+		seen = append(seen, pageKeys(page)...)
+		cursor = page.NextCursor
+		if cursor == "" {
+			break
+		}
+	}
+	want := []string{"k0", "k1", "k2", "k3", "k4", "k5"}
+	if strings.Join(seen, ",") != strings.Join(want, ",") {
+		t.Fatalf("paging lost or reordered keys: %v", seen)
+	}
+	if got := server.commandCount(metadumpAll); got != 1 {
+		t.Fatalf("a browse pass must crawl once, crawled %d times", got)
+	}
+}
+
+// A search term and a re-sort are served from the same snapshot: the crawler has
+// no server-side filter, so re-crawling per term would be pure waste.
+func TestKeyBrowserFiltersAndSortsTheSnapshot(t *testing.T) {
+	server := newFakeServer(t, keyDumpReplies(4))
+	s := fakeSessionOn(t, server, nil)
+	h := contribtest.NewHarness(t, New().Routes())
+	ctx := context.Background()
+
+	h.Call(ctx, "memcached.keys.list", s, nil, nil, nil)
+	filtered := decodeKeysPage(t, h.Call(ctx, "memcached.keys.list", s, nil, url.Values{"filter": []string{"K2"}}, nil))
+	if keys := pageKeys(filtered); len(keys) != 1 || keys[0] != "k2" {
+		t.Fatalf("the search term must filter the snapshot: %v", keys)
+	}
+	if filtered.Total == nil || *filtered.Total != 1 {
+		t.Fatalf("the total must reflect the filtered snapshot: %+v", filtered.Total)
+	}
+	descending := decodeKeysPage(t, h.Call(ctx, "memcached.keys.list", s, nil, url.Values{"sort": []string{"-key"}}, nil))
+	if keys := pageKeys(descending); len(keys) != 4 || keys[0] != "k3" {
+		t.Fatalf("sort not applied to the snapshot: %v", keys)
+	}
+	unsorted := decodeKeysPage(t, h.Call(ctx, "memcached.keys.list", s, nil, nil, nil))
+	if keys := pageKeys(unsorted); len(keys) != 4 || keys[0] != "k0" {
+		t.Fatalf("sorting one view must not reorder the snapshot: %v", keys)
+	}
+	if got := server.commandCount(metadumpAll); got != 1 {
+		t.Fatalf("filtering and sorting must reuse the crawl, crawled %d times", got)
+	}
+}
+
+func TestKeyBrowserReportsTheScanCap(t *testing.T) {
+	server := newFakeServer(t, keyDumpReplies(20))
+	s := fakeSessionOn(t, server, map[string]any{"scan_limit": 100})
+	s.opts.ScanLimit = 3
+	h := contribtest.NewHarness(t, New().Routes())
+
+	page := decodeKeysPage(t, h.Call(context.Background(), "memcached.keys.list", s, nil, nil, nil))
+	if !page.Truncated || page.ScanLimit != 3 {
+		t.Fatalf("a capped crawl must be reported: %+v", page)
+	}
+	if page.Total == nil || *page.Total != 3 || len(page.Items) != 3 {
+		t.Fatalf("the total must report the capped snapshot honestly: %+v", page)
+	}
+}
+
+// A stale snapshot must be replaced, and only once: the cursor keeps advancing
+// through the crawl that is already cached.
+func TestKeyBrowserRecrawlsAfterTheSnapshotTTL(t *testing.T) {
+	server := newFakeServer(t, keyDumpReplies(3))
+	s := fakeSessionOn(t, server, nil)
+	h := contribtest.NewHarness(t, New().Routes())
+	ctx := context.Background()
+
+	h.Call(ctx, "memcached.keys.list", s, nil, nil, nil)
+	s.scanMu.Lock()
+	s.snapshot.takenAt = time.Now().Add(-keySnapshotTTL - time.Second)
+	s.scanMu.Unlock()
+	h.Call(ctx, "memcached.keys.list", s, nil, nil, nil)
+	h.Call(ctx, "memcached.keys.list", s, nil, nil, nil)
+	if got := server.commandCount(metadumpAll); got != 2 {
+		t.Fatalf("an expired snapshot must crawl exactly once more, crawled %d times", got)
+	}
+}
+
+func TestKeySnapshotFreshness(t *testing.T) {
+	now := time.Now()
+	var missing *keySnapshot
+	if missing.fresh(classScopeAll, now) {
+		t.Fatal("a missing snapshot is never fresh")
+	}
+	snap := &keySnapshot{class: classScopeAll, takenAt: now}
+	if !snap.fresh(classScopeAll, now) {
+		t.Fatal("a just-taken snapshot must be fresh")
+	}
+	if snap.fresh("1", now) {
+		t.Fatal("a snapshot of another slab class must not be reused")
+	}
+	if snap.fresh(classScopeAll, now.Add(keySnapshotTTL)) {
+		t.Fatal("the snapshot must expire at the TTL")
+	}
+}
+
+func TestKeySnapshotExpiryReleasesOnlyItsOwnCrawl(t *testing.T) {
+	s := fakeSession(t, keyDumpReplies(2), nil)
+	if _, err := s.browseKeys(context.Background(), classScopeAll, "", nil, "", 10); err != nil {
+		t.Fatalf("browse: %v", err)
+	}
+	s.scanMu.Lock()
+	current := s.snapshot
+	s.scanMu.Unlock()
+
+	s.expireSnapshot(&keySnapshot{class: classScopeAll, takenAt: time.Now()})
+	s.scanMu.Lock()
+	kept := s.snapshot == current
+	s.scanMu.Unlock()
+	if !kept {
+		t.Fatal("an expiring crawl must not release the one that replaced it")
+	}
+
+	s.expireSnapshot(current)
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+	if s.snapshot != nil || s.expiry != nil {
+		t.Fatal("the crawl and its timer must be released at the TTL")
+	}
+}
+
+func TestKeyBrowserSnapshotDroppedOnWriteAndClose(t *testing.T) {
+	replies := keyDumpReplies(2)
+	replies["delete k0"] = "DELETED\r\n"
+	server := newFakeServer(t, replies)
+	s := fakeSessionOn(t, server, nil)
+	h := contribtest.NewHarness(t, New().Routes())
+	ctx := context.Background()
+
+	h.Call(ctx, "memcached.keys.list", s, nil, nil, nil)
+	h.Call(ctx, "memcached.key.delete", s, map[string]string{"key": "k0"}, nil, nil)
+	s.scanMu.Lock()
+	dropped := s.snapshot == nil
+	s.scanMu.Unlock()
+	if !dropped {
+		t.Fatal("a delete must drop the cached crawl")
+	}
+	h.Call(ctx, "memcached.keys.list", s, nil, nil, nil)
+	if got := server.commandCount(metadumpAll); got != 2 {
+		t.Fatalf("the listing after a write must be fresh, crawled %d times", got)
+	}
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	s.scanMu.Lock()
+	held := s.snapshot != nil
+	s.scanMu.Unlock()
+	if held {
+		t.Fatal("closing the session must release the cached crawl")
+	}
+	if _, err := s.browseKeys(ctx, classScopeAll, "", nil, "", 10); err == nil {
+		t.Fatal("a closed session must not serve key pages")
+	}
+}
+
+// The console runs the same writes the key routes do, so a "delete" typed there
+// must invalidate the cached crawl too; otherwise the browser keeps listing a key
+// the user just removed until the snapshot TTL lapses.
+func TestKeyBrowserSnapshotDroppedOnConsoleWrite(t *testing.T) {
+	replies := keyDumpReplies(2)
+	replies["delete k0"] = "DELETED\r\n"
+	replies["get k0"] = "END\r\n"
+	server := newFakeServer(t, replies)
+	s := fakeSessionOn(t, server, nil)
+	h := contribtest.NewHarness(t, New().Routes())
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	h.Call(ctx, "memcached.keys.list", s, nil, nil, nil)
+	s.scanMu.Lock()
+	cached := s.snapshot != nil
+	s.scanMu.Unlock()
+	if !cached {
+		t.Fatal("the first listing must cache its crawl")
+	}
+
+	frames := decodeFrames(t, h.Stream(ctx, "memcached.console", s, nil, nil, []byte("{\"query\":\"delete k0\"}\n")))
+	if len(frames) != 1 {
+		t.Fatalf("expected one frame, got %d: %+v", len(frames), frames)
+	}
+	if _, failed := frames[0]["error"]; failed {
+		t.Fatalf("the console delete must succeed: %+v", frames[0])
+	}
+
+	s.scanMu.Lock()
+	dropped := s.snapshot == nil
+	s.scanMu.Unlock()
+	if !dropped {
+		t.Fatal("a console write must drop the cached crawl")
+	}
+	h.Call(ctx, "memcached.keys.list", s, nil, nil, nil)
+	if got := server.commandCount(metadumpAll); got != 2 {
+		t.Fatalf("the listing after a console write must be fresh, crawled %d times", got)
+	}
+
+	// A read-only console command leaves the snapshot alone: re-crawling for a
+	// "get" would put the per-page crawl storm straight back.
+	reads := decodeFrames(t, h.Stream(ctx, "memcached.console", s, nil, nil, []byte("{\"query\":\"get k0\"}\n")))
+	if len(reads) != 1 {
+		t.Fatalf("expected one frame, got %d: %+v", len(reads), reads)
+	}
+	if _, failed := reads[0]["error"]; failed {
+		t.Fatalf("the console read must succeed: %+v", reads[0])
+	}
+	h.Call(ctx, "memcached.keys.list", s, nil, nil, nil)
+	if got := server.commandCount(metadumpAll); got != 2 {
+		t.Fatalf("a console read must not invalidate the crawl, crawled %d times", got)
+	}
+}
+
+func TestKeyBrowserRejectsAnInvalidCursor(t *testing.T) {
+	s := fakeSession(t, keyDumpReplies(2), nil)
+	if _, err := s.browseKeys(context.Background(), classScopeAll, "", nil, "-1", 10); !errors.Is(err, plugin.ErrInvalidInput) {
+		t.Fatalf("a negative cursor must be rejected, got %v", err)
+	}
+	if _, err := s.browseKeys(context.Background(), classScopeAll, "", nil, "abc", 10); !errors.Is(err, plugin.ErrInvalidInput) {
+		t.Fatalf("a non-numeric cursor must be rejected, got %v", err)
+	}
+	page, err := s.browseKeys(context.Background(), classScopeAll, "", nil, "99", 10)
+	if err != nil {
+		t.Fatalf("browse: %v", err)
+	}
+	if len(page.Rows) != 0 || page.Next != "" {
+		t.Fatalf("a cursor past the end must return an empty last page: %+v", page)
+	}
+}
+
+// The server runs one LRU crawler at a time, so concurrent pages must queue
+// behind a single crawl rather than racing into BUSY.
+func TestKeyBrowserSerializesConcurrentPages(t *testing.T) {
+	server := newFakeServer(t, keyDumpReplies(8))
+	s := fakeSessionOn(t, server, nil)
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			page, err := s.browseKeys(ctx, classScopeAll, "", nil, strconv.Itoa(i%4*2), 2)
+			if err != nil {
+				t.Errorf("browse: %v", err)
+				return
+			}
+			if len(page.Rows) != 2 || page.Total != 8 {
+				t.Errorf("unexpected page: %+v", page)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if got := server.commandCount(metadumpAll); got != 1 {
+		t.Fatalf("concurrent pages must share one crawl, crawled %d times", got)
 	}
 }
 

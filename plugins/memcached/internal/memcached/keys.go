@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,10 @@ const (
 	// relativeTTLMax is memcached's 30 day boundary: a larger expiration value is
 	// read as an absolute Unix timestamp instead of a relative TTL.
 	relativeTTLMax = 60 * 60 * 24 * 30
+
+	// keySnapshotTTL is how long one crawl backs the key browser before the next
+	// page takes a fresh one.
+	keySnapshotTTL = 20 * time.Second
 )
 
 // keyRow is one entry in the key browser list.
@@ -70,6 +75,161 @@ func (s *Session) scanKeys(ctx context.Context, class string) (metadumpResult, e
 		return out.Retire, nil
 	})
 	return res, err
+}
+
+// keySnapshot is one crawl of a slab-class scope, rendered once. view memoizes
+// the last (search term, sort) projection of rows so advancing the cursor is a
+// slice rather than a re-filter.
+type keySnapshot struct {
+	class     string
+	rows      []plugin.TableRow
+	truncated bool
+	takenAt   time.Time
+
+	viewKey string
+	viewSet bool
+	view    []plugin.TableRow
+}
+
+func (snap *keySnapshot) fresh(class string, now time.Time) bool {
+	return snap != nil && snap.class == class && now.Sub(snap.takenAt) < keySnapshotTTL
+}
+
+// project filters and orders the snapshot for one (term, sort) pair. The rows
+// are never mutated after the crawl, so a projection can alias them.
+func (snap *keySnapshot) project(term string, sortKeys []plugin.SortKey) []plugin.TableRow {
+	viewKey := term + "\x00" + fmt.Sprint(sortKeys)
+	if snap.viewSet && snap.viewKey == viewKey {
+		return snap.view
+	}
+	view := snap.rows
+	if term != "" {
+		lowered := strings.ToLower(term)
+		view = make([]plugin.TableRow, 0, len(snap.rows))
+		for _, row := range snap.rows {
+			if strings.Contains(strings.ToLower(rowKey(row)), lowered) {
+				view = append(view, row)
+			}
+		}
+	}
+	if len(sortKeys) > 0 {
+		ordered := make([]plugin.TableRow, len(view))
+		copy(ordered, view)
+		view = plugin.SortRows(ordered, sortKeys)
+	}
+	snap.viewKey, snap.viewSet, snap.view = viewKey, true, view
+	return view
+}
+
+// keyPage is one slice of a cached crawl. Truncated marks a crawl that stopped
+// at the scan cap, so the browser can say the listing is partial.
+type keyPage struct {
+	Rows      []plugin.TableRow
+	Total     int
+	Next      string
+	Truncated bool
+}
+
+// browseKeys serves one page of the key browser. memcached has no key-space
+// index, so listing keys means an "lru_crawler metadump" of the whole keyspace,
+// and the server runs one crawler at a time: crawling per page turns a browse
+// pass into as many full crawls as there are pages. One crawl per class scope is
+// kept for keySnapshotTTL instead, so advancing the cursor, changing the search
+// term, or re-sorting never touches the server.
+func (s *Session) browseKeys(ctx context.Context, class, term string, sortKeys []plugin.SortKey, cursor string, limit int) (keyPage, error) {
+	offset := 0
+	if cursor != "" {
+		parsed, err := strconv.Atoi(cursor)
+		if err != nil || parsed < 0 {
+			return keyPage{}, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+		}
+		offset = parsed
+	}
+	if limit <= 0 || limit > s.opts.PageLimit {
+		limit = s.opts.PageLimit
+	}
+
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+	if err := s.ensureOpen(); err != nil {
+		return keyPage{}, err
+	}
+
+	snap := s.snapshot
+	if !snap.fresh(class, time.Now()) {
+		fresh, err := s.crawlSnapshot(ctx, class)
+		if err != nil {
+			return keyPage{}, err
+		}
+		snap = fresh
+		s.clearSnapshot()
+		s.snapshot = fresh
+		s.expiry = time.AfterFunc(keySnapshotTTL, func() { s.expireSnapshot(fresh) })
+	}
+
+	view := snap.project(term, sortKeys)
+	total := len(view)
+	if offset > total {
+		offset = total
+	}
+	end := min(offset+limit, total)
+	next := ""
+	if end < total {
+		next = strconv.Itoa(end)
+	}
+	return keyPage{Rows: view[offset:end], Total: total, Next: next, Truncated: snap.truncated}, nil
+}
+
+func (s *Session) crawlSnapshot(ctx context.Context, class string) (*keySnapshot, error) {
+	dump, err := s.scanKeys(ctx, class)
+	if err != nil {
+		return nil, err
+	}
+	taken := time.Now()
+	now := taken.Unix()
+	rows := make([]plugin.TableRow, 0, len(dump.Items))
+	for _, item := range dump.Items {
+		rows = append(rows, rowOf(metaItemToRow(item, now)))
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rowKey(rows[i]) < rowKey(rows[j]) })
+	return &keySnapshot{class: class, rows: rows, truncated: dump.Truncated, takenAt: taken}, nil
+}
+
+// dropKeySnapshot forces the next page to take a fresh crawl. Every write path
+// calls it so an edited, deleted, or flushed key never lingers in the browser.
+func (s *Session) dropKeySnapshot() {
+	if s == nil {
+		return
+	}
+	s.scanMu.Lock()
+	s.clearSnapshot()
+	s.scanMu.Unlock()
+}
+
+// expireSnapshot releases the crawl once its TTL passes, so a session left idle
+// on the key browser does not keep a whole keyspace dump resident.
+func (s *Session) expireSnapshot(snap *keySnapshot) {
+	s.scanMu.Lock()
+	if s.snapshot == snap {
+		s.clearSnapshot()
+	}
+	s.scanMu.Unlock()
+}
+
+// clearSnapshot releases the cached crawl. The caller holds scanMu.
+func (s *Session) clearSnapshot() {
+	s.snapshot = nil
+	if s.expiry != nil {
+		s.expiry.Stop()
+		s.expiry = nil
+	}
+}
+
+func rowKey(row plugin.TableRow) string {
+	if key, ok := row["key"].(string); ok {
+		return key
+	}
+	return fmt.Sprint(row["key"])
 }
 
 func metaItemToRow(item metaItem, now int64) keyRow {
@@ -227,6 +387,9 @@ func (s *Session) store(ctx context.Context, req storeRequest) error {
 			return fmt.Errorf("%w: cas mode requires a CAS id", plugin.ErrInvalidInput)
 		}
 		err = s.client.CompareAndSwap(item)
+	}
+	if err == nil {
+		s.dropKeySnapshot()
 	}
 	return mapClientError(err)
 }

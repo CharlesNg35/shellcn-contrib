@@ -100,6 +100,11 @@ func runConsoleCommand(rc *plugin.RequestContext, s *Session, enc *json.Encoder,
 		return enc.Encode(map[string]any{"error": err.Error()})
 	}
 	rc.Audit(plugin.AuditAllowed, params, nil)
+	// A console "set"/"delete"/"flush_all" changes the keyspace just like the key
+	// routes do, so it has to drop the cached crawl the key browser pages from.
+	if spec.Class != classRead {
+		s.dropKeySnapshot()
+	}
 	return enc.Encode(renderConsoleResult(spec, out, time.Since(started)))
 }
 

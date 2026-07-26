@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -118,6 +119,45 @@ func TestMemcachedPluginIntegration(t *testing.T) {
 	keys := pageRowItems(t, h.Call(ctx, "memcached.keys.list", sess, nil, nil, nil))
 	if !hasKey(keys, key) || !hasKey(keys, counter) {
 		t.Fatalf("stored keys missing from the scan: %+v", keys)
+	}
+
+	// Paging must slice one crawl: the crawler has no server-side paging, so the
+	// snapshot behind the first page has to still back the next one.
+	live, err := unwrap(sess)
+	if err != nil {
+		t.Fatalf("unwrap session: %v", err)
+	}
+	first := decodeKeysPage(t, h.Call(ctx, "memcached.keys.list", sess, nil, url.Values{"limit": []string{"1"}}, nil))
+	live.scanMu.Lock()
+	crawl := live.snapshot
+	live.scanMu.Unlock()
+	if first.NextCursor == "" || crawl == nil {
+		t.Fatalf("expected a paged listing backed by a cached crawl: %+v", first)
+	}
+	second := decodeKeysPage(t, h.Call(ctx, "memcached.keys.list", sess, nil, url.Values{
+		"limit": []string{"1"}, "cursor": []string{first.NextCursor},
+	}, nil))
+	live.scanMu.Lock()
+	reused := live.snapshot == crawl
+	live.scanMu.Unlock()
+	if !reused {
+		t.Fatal("advancing the cursor must not re-crawl the keyspace")
+	}
+	if len(second.Items) != 1 || second.Items[0]["key"] == first.Items[0]["key"] {
+		t.Fatalf("the second page must continue the crawl: %+v", second.Items)
+	}
+	filtered := decodeKeysPage(t, h.Call(ctx, "memcached.keys.list", sess, nil, url.Values{"filter": []string{key}}, nil))
+	if len(filtered.Items) != 1 || filtered.Items[0]["key"] != key {
+		t.Fatalf("the search term must filter the crawl: %+v", filtered.Items)
+	}
+	h.Call(ctx, "memcached.key.store", sess, nil, nil, mustJSONBytes(t, map[string]any{
+		"key": prefix + ":paged", "mode": "set", "value": "x",
+	}))
+	live.scanMu.Lock()
+	dropped := live.snapshot == nil
+	live.scanMu.Unlock()
+	if !dropped {
+		t.Fatal("a write must drop the cached crawl so the next listing is honest")
 	}
 
 	// Slab and LRU statistics.

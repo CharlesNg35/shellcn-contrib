@@ -7,6 +7,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
 
@@ -23,6 +24,12 @@ type Session struct {
 	admin  *connPool
 	events *eventHub
 	closed atomic.Bool
+
+	// scanMu serializes the LRU crawler, which the server runs one at a time,
+	// and guards the cached crawl the key browser pages from.
+	scanMu   sync.Mutex
+	snapshot *keySnapshot
+	expiry   *time.Timer
 }
 
 func connect(ctx context.Context, cfg plugin.ConnectConfig) (plugin.Session, error) {
@@ -84,6 +91,7 @@ func (s *Session) OpenChannel(context.Context, plugin.ChannelRequest) (plugin.Ch
 
 func (s *Session) Close() error {
 	s.closed.Store(true)
+	s.dropKeySnapshot()
 	if s.events != nil {
 		s.events.stop()
 	}

@@ -186,47 +186,25 @@ func listKeys(rc *plugin.RequestContext) (any, error) {
 	}
 	ctx, cancel := context.WithTimeout(rc.Ctx, s.opts.scanTimeout())
 	defer cancel()
-	dump, err := s.scanKeys(ctx, class)
+	page, err := s.browseKeys(ctx, class, req.Search(), req.Sort, req.Cursor, req.Limit)
 	if err != nil {
 		return nil, err
 	}
+	total := page.Total
+	out := keysPage{Page: plugin.Page[plugin.TableRow]{Items: page.Rows, NextCursor: page.Next, Total: &total}, Truncated: page.Truncated}
+	if page.Truncated {
+		out.ScanLimit = s.opts.ScanLimit
+	}
+	return out, nil
+}
 
-	now := time.Now().Unix()
-	rows := make([]plugin.TableRow, 0, len(dump.Items))
-	term := strings.ToLower(req.Search())
-	for _, item := range dump.Items {
-		if term != "" && !strings.Contains(strings.ToLower(item.Key), term) {
-			continue
-		}
-		rows = append(rows, rowOf(metaItemToRow(item, now)))
-	}
-	plugin.SortRows(rows, req.Sort)
-	if len(req.Sort) == 0 {
-		sort.SliceStable(rows, func(i, j int) bool { return fmt.Sprint(rows[i]["key"]) < fmt.Sprint(rows[j]["key"]) })
-	}
-
-	limit := req.Limit
-	if limit <= 0 || limit > s.opts.PageLimit {
-		limit = s.opts.PageLimit
-	}
-	offset := 0
-	if req.Cursor != "" {
-		parsed, err := strconv.Atoi(req.Cursor)
-		if err != nil || parsed < 0 {
-			return nil, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
-		}
-		offset = parsed
-	}
-	total := len(rows)
-	if offset > total {
-		offset = total
-	}
-	end := min(offset+limit, total)
-	next := ""
-	if end < total {
-		next = strconv.Itoa(end)
-	}
-	return plugin.Page[plugin.TableRow]{Items: rows[offset:end], NextCursor: next, Total: &total}, nil
+// keysPage is the paged listing plus the crawl cap signal. The embedded page
+// keeps the wire contract (items, nextCursor, total) unchanged; truncated and
+// scanLimit tell the browser the listing stopped at the cap.
+type keysPage struct {
+	plugin.Page[plugin.TableRow]
+	Truncated bool `json:"truncated,omitempty"`
+	ScanLimit int  `json:"scanLimit,omitempty"`
 }
 
 func readKeyRoute(rc *plugin.RequestContext) (any, error) {
@@ -325,6 +303,7 @@ func deleteKeyRoute(rc *plugin.RequestContext) (any, error) {
 	if err := mapClientError(s.client.Delete(key)); err != nil {
 		return nil, err
 	}
+	s.dropKeySnapshot()
 	return actionResult{OK: true, Message: "deleted " + key}, nil
 }
 
@@ -350,6 +329,7 @@ func touchKeyRoute(rc *plugin.RequestContext) (any, error) {
 	if err := mapClientError(s.client.Touch(in.Key, ttl)); err != nil {
 		return nil, err
 	}
+	s.dropKeySnapshot()
 	return actionResult{OK: true, Message: fmt.Sprintf("touched %s to %d seconds", in.Key, ttl)}, nil
 }
 
@@ -384,6 +364,7 @@ func counterRoute(rc *plugin.RequestContext, up bool) (any, error) {
 	if err != nil {
 		return nil, mapClientError(err)
 	}
+	s.dropKeySnapshot()
 	return actionResult{OK: true, Value: strconv.FormatUint(value, 10)}, nil
 }
 
@@ -669,7 +650,12 @@ func flushAll(rc *plugin.RequestContext) (any, error) {
 	if in.Delay < 0 {
 		return nil, fmt.Errorf("%w: delay cannot be negative", plugin.ErrInvalidInput)
 	}
-	return s.adminCommand(rc, fmt.Sprintf("flush_all %d", in.Delay), "OK")
+	out, err := s.adminCommand(rc, fmt.Sprintf("flush_all %d", in.Delay), "OK")
+	if err != nil {
+		return nil, err
+	}
+	s.dropKeySnapshot()
+	return out, nil
 }
 
 func resetStats(rc *plugin.RequestContext) (any, error) {
