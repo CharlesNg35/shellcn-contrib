@@ -113,7 +113,7 @@
 
     refs.pageSize = el("select", { class: "select", title: "Rows per page" });
     [25, 50, 100, 200, 500].forEach(function (n) { var o = el("option", { value: String(n), text: n + " rows" }); if (n === pageSize) o.selected = true; refs.pageSize.appendChild(o); });
-    refs.pageSize.addEventListener("change", function () { pageSize = parseInt(refs.pageSize.value, 10); reload(); });
+    refs.pageSize.addEventListener("change", function () { pageSize = parseInt(refs.pageSize.value, 10); if (table) table.page = 0; reload(); });
 
     refs.search = el("input", { type: "search", class: "input", placeholder: "Search rows…", title: "Filter rows of the browsed table" });
     refs.search.disabled = true;
