@@ -951,7 +951,7 @@ func actions() []plugin.Action {
 			Params: map[string]string{"id": "${record.id}"}, Bulk: true,
 			Confirm: true, ConfirmText: "Delete the selected saved statement(s)?"},
 
-		{ID: rid("console.open"), Label: "Open web console", Icon: icon("external-link"),
+		{ID: rid("console.open"), Label: "Web console", Icon: icon("external-link"),
 			RouteID: rid("console.url"), Open: plugin.OpenURL},
 	}
 }
