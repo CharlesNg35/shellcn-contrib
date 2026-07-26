@@ -26,11 +26,11 @@ func Routes() []plugin.Route {
 
 		{ID: rid("tenants.tree"), Method: plugin.MethodGet, Path: "/tree/tenants", Permission: "chroma.tenants.read", Risk: plugin.RiskSafe, AuditEvent: rid("tenants.tree"), Handle: tenantsTree},
 		{ID: rid("databases.tree"), Method: plugin.MethodGet, Path: "/tree/tenants/{tenant}/databases", Permission: "chroma.databases.read", Risk: plugin.RiskSafe, AuditEvent: rid("databases.tree"), Handle: databasesTree},
-		{ID: rid("tenant.read"), Method: plugin.MethodGet, Path: "/tenants/{tenant}", Permission: "chroma.tenants.read", Risk: plugin.RiskSafe, AuditEvent: rid("tenant.read"), Handle: tenantRead},
+		{ID: rid("tenant.read"), Method: plugin.MethodGet, Path: "/tenant", Permission: "chroma.tenants.read", Risk: plugin.RiskSafe, AuditEvent: rid("tenant.read"), Handle: tenantRead},
 		{ID: rid("tenant.create"), Method: plugin.MethodPost, Path: "/tenants", Permission: "chroma.tenants.write", Risk: plugin.RiskWrite, AuditEvent: rid("tenant.create"), Input: nameSchema("Tenant", "Tenant name"), Handle: tenantCreate},
 
-		{ID: rid("databases.list"), Method: plugin.MethodGet, Path: "/tenants/{tenant}/databases", Permission: "chroma.databases.read", Risk: plugin.RiskSafe, AuditEvent: rid("databases.list"), Handle: databasesList},
-		{ID: rid("database.create"), Method: plugin.MethodPost, Path: "/tenants/{tenant}/databases", Permission: "chroma.databases.write", Risk: plugin.RiskWrite, AuditEvent: rid("database.create"), Input: nameSchema("Database", "Database name"), Handle: databaseCreate},
+		{ID: rid("databases.list"), Method: plugin.MethodGet, Path: "/databases", Permission: "chroma.databases.read", Risk: plugin.RiskSafe, AuditEvent: rid("databases.list"), Handle: databasesList},
+		{ID: rid("database.create"), Method: plugin.MethodPost, Path: "/databases", Permission: "chroma.databases.write", Risk: plugin.RiskWrite, AuditEvent: rid("database.create"), Input: nameSchema("Database", "Database name"), Handle: databaseCreate},
 		{ID: rid("database.delete"), Method: plugin.MethodDelete, Path: "/tenants/{tenant}/databases/{database}", Permission: "chroma.databases.delete", Risk: plugin.RiskDestructive, AuditEvent: rid("database.delete"), Handle: databaseDelete},
 
 		{ID: rid("collections.list"), Method: plugin.MethodGet, Path: "/collections", Permission: "chroma.collections.read", Risk: plugin.RiskSafe, AuditEvent: rid("collections.list"), Handle: collectionsList},
