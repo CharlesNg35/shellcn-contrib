@@ -184,8 +184,6 @@ func deleteDesignDoc(rc *plugin.RequestContext) (any, error) {
 	return row{"ok": true, "name": ddoc}, nil
 }
 
-// --- views ---------------------------------------------------------------------
-
 func (s *Session) viewDefinition(rc *plugin.RequestContext, db, ddoc, view string) (row, error) {
 	doc, err := s.fetchDocument(rc, db, "_design/"+ddoc, nil)
 	if err != nil {

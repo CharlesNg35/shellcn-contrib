@@ -5,6 +5,7 @@
   var DUCK = null, adb = null, conn = null;
   var pageSize = 50, mode = null, cursor = null, table = null, selection = {};
   var refs = {}, lastGrid = null, searchTimer = null;
+  var cursorScanLimit = 50000;
 
   function applyTheme(theme, colors) {
     document.body.dataset.theme = theme === "light" ? "light" : "dark";
@@ -247,15 +248,19 @@
     mode = "table"; table.page = pageIndex; selection = {};
     var qn = qname(table.cat, table.sch, table.name);
     var where = searchWhere();
-    var total = 0;
-    try { var c = await conn.query("SELECT count(*) AS n FROM " + qn + where); total = Number(c.toArray()[0].n); } catch (e) {}
+    // An unfiltered count(*) comes from metadata, a filtered one scans the whole file — so search pages on an extra row and shows no total.
+    var total = null;
+    if (!where) { try { var c = await conn.query("SELECT count(*) AS n FROM " + qn); total = Number(c.toArray()[0].n); } catch (e) { total = null; } }
     var offset = pageIndex * pageSize;
     var names = table.cols.map(function (c) { return c.name; });
     var rows = [];
-    try { var res = await conn.query("SELECT * FROM " + qn + where + " LIMIT " + pageSize + " OFFSET " + offset); rows = res.toArray().map(function (r) { var o = r.toJSON ? r.toJSON() : r; return names.map(function (n) { return normalize(o[n]); }); }); }
+    try { var res = await conn.query("SELECT * FROM " + qn + where + " LIMIT " + (pageSize + 1) + " OFFSET " + offset); rows = res.toArray().map(function (r) { var o = r.toJSON ? r.toJSON() : r; return names.map(function (n) { return normalize(o[n]); }); }); }
     catch (e) { renderError(msg(e)); return; }
-    grid(names, rows, { start: offset, total: total, editable: table.editable, hasPrev: pageIndex > 0, hasNext: offset + rows.length < total, onPrev: function () { loadTablePage(pageIndex - 1); }, onNext: function () { loadTablePage(pageIndex + 1); } });
-    setStatus(table.name + " · " + total + " row(s)" + (table.search ? " matching “" + table.search + "”" : "") + (table.editable ? " · editable" : ""), "ok");
+    var hasNext = rows.length > pageSize;
+    if (hasNext) rows = rows.slice(0, pageSize);
+    grid(names, rows, { start: offset, total: total, editable: table.editable, hasPrev: pageIndex > 0, hasNext: hasNext, onPrev: function () { loadTablePage(pageIndex - 1); }, onNext: function () { loadTablePage(pageIndex + 1); } });
+    var count = total != null ? total + " row(s)" : "rows " + (rows.length ? offset + 1 : 0) + "–" + (offset + rows.length) + (hasNext ? "+" : "");
+    setStatus(table.name + " · " + count + (table.search ? " matching “" + table.search + "”" : "") + (table.editable ? " · editable" : ""), "ok");
   }
 
   function isReadQuery(text) {
@@ -274,7 +279,8 @@
     try {
       if (isReadQuery(text)) {
         mode = "query"; table = null;
-        cursor = { reader: await conn.send(text.replace(/;+\s*$/, "")), columns: null, rows: [], done: false };
+        var statement = text.replace(/;+\s*$/, "");
+        cursor = { text: statement, reader: await conn.send(statement), columns: null, rows: [], base: 0, done: false };
         await renderCursorPage(0);
         setStatus("Query ran in " + since(t0), "ok");
       } else {
@@ -288,8 +294,10 @@
     finally { setBusy(false); }
   }
 
+  // cursor.rows is a window starting at cursor.base, not the whole stream: paging forward must not pin every row already walked past.
   async function fill(upto) {
-    while (cursor.rows.length < upto && !cursor.done) {
+    if (upto > cursorScanLimit) { cursor.capped = true; upto = cursorScanLimit; }
+    while (cursor.base + cursor.rows.length < upto && !cursor.done) {
       var nx = await cursor.reader.next();
       if (nx.done) { cursor.done = true; break; }
       var batch = nx.value;
@@ -299,11 +307,25 @@
     }
     if (!cursor.columns && cursor.reader.schema) cursor.columns = cursor.reader.schema.fields.map(function (f) { return f.name; });
   }
+  function trimCursor(pageIndex) {
+    var keepFrom = Math.max(0, (pageIndex - 1) * pageSize);
+    if (keepFrom > cursor.base) { cursor.rows = cursor.rows.slice(keepFrom - cursor.base); cursor.base = keepFrom; }
+  }
+  async function rewindCursor() {
+    try { if (cursor.reader.cancel) await cursor.reader.cancel(); else if (cursor.reader.return) await cursor.reader.return(); } catch (e) {}
+    cursor.reader = await conn.send(cursor.text);
+    cursor.rows = []; cursor.base = 0; cursor.done = false;
+  }
   async function renderCursorPage(pageIndex) {
-    await fill((pageIndex + 1) * pageSize + 1);
     var start = pageIndex * pageSize;
-    var rows = cursor.rows.slice(start, start + pageSize);
-    grid(cursor.columns || [], rows, { start: start, total: cursor.done ? cursor.rows.length : null, editable: false, hasPrev: pageIndex > 0, hasNext: cursor.rows.length > start + pageSize, onPrev: function () { renderCursorPage(pageIndex - 1); }, onNext: function () { renderCursorPage(pageIndex + 1); } });
+    if (start < cursor.base) await rewindCursor();
+    await fill(start + pageSize + 1);
+    trimCursor(pageIndex);
+    var from = start - cursor.base;
+    var rows = cursor.rows.slice(from, from + pageSize);
+    var end = cursor.base + cursor.rows.length;
+    grid(cursor.columns || [], rows, { start: start, total: cursor.done ? end : null, editable: false, hasPrev: pageIndex > 0, hasNext: end > start + pageSize, onPrev: function () { renderCursorPage(pageIndex - 1); }, onNext: function () { renderCursorPage(pageIndex + 1); } });
+    if (cursor.capped && !cursor.warned) { cursor.warned = true; notify("Stopped after " + cursorScanLimit + " rows — add a LIMIT or WHERE to page further", "error"); }
   }
 
   function normalize(v) {

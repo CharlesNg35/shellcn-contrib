@@ -462,8 +462,6 @@ func latestHistoryState(history []row) string {
 	return defaultString(stringOf(history[0]["type"]), "running")
 }
 
-// --- replication topology graph -------------------------------------------------
-
 // shortenEndpoint collapses a URL that points back at this connection into the
 // bare database name, so a local-to-local replication reads as one hop between
 // two databases instead of two opaque URLs.

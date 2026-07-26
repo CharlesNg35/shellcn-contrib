@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/charlesng35/shellcn-contrib/shared/broker"
@@ -102,12 +104,56 @@ func overview(rc *plugin.RequestContext) (any, error) {
 	return out, nil
 }
 
+// managementPageSize is the management API's ceiling for page_size.
+const managementPageSize = 500
+
+// listPaged fetches one server-side page of a management list endpoint. The
+// un-paginated form of /api/queues, /api/exchanges, and /api/consumers ships
+// every item in the vhost with its full per-item stats block, which is the
+// documented way to stall the management node.
+func listPaged(rc *plugin.RequestContext, s *Session, apiPath, columns string) (plugin.Page[row], error) {
+	req, err := rc.Page()
+	if err != nil {
+		return plugin.Page[row]{}, err
+	}
+	number := 1
+	if req.Cursor != "" {
+		parsed, convErr := strconv.Atoi(req.Cursor)
+		if convErr != nil || parsed < 1 {
+			return plugin.Page[row]{}, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+		}
+		number = parsed
+	}
+	size := min(req.Limit, managementPageSize)
+	q := url.Values{"page": {strconv.Itoa(number)}, "page_size": {strconv.Itoa(size)}}
+	if columns != "" {
+		q.Set("columns", columns)
+	}
+	if term := req.Search(); term != "" {
+		q.Set("name", term)
+		q.Set("use_regex", "false")
+	}
+	var out pagedList
+	if err := s.get(rc.Ctx, apiPath+"?"+q.Encode(), &out); err != nil {
+		return plugin.Page[row]{}, err
+	}
+	if !out.Paginated {
+		// Broker ignored the page window; fall back to slicing what it sent.
+		return broker.PageRows(rc, out.Items)
+	}
+	next := ""
+	if number < out.PageCount {
+		next = strconv.Itoa(number + 1)
+	}
+	total := out.FilteredCount
+	return plugin.Page[row]{Items: plugin.SortRows(out.Items, req.Sort), NextCursor: next, Total: &total}, nil
+}
+
 func treeQueues(rc *plugin.RequestContext) (any, error) {
-	res, err := listQueues(rc)
+	page, err := queuesPage(rc)
 	if err != nil {
 		return nil, err
 	}
-	page := res.(plugin.Page[row])
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name, vhost := fmt.Sprint(item["name"]), fmt.Sprint(item["vhost"])
@@ -118,11 +164,10 @@ func treeQueues(rc *plugin.RequestContext) (any, error) {
 }
 
 func treeExchanges(rc *plugin.RequestContext) (any, error) {
-	res, err := listExchanges(rc)
+	page, err := exchangesPage(rc)
 	if err != nil {
 		return nil, err
 	}
-	page := res.(plugin.Page[row])
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name, vhost := fmt.Sprint(item["name"]), fmt.Sprint(item["vhost"])
@@ -132,19 +177,27 @@ func treeExchanges(rc *plugin.RequestContext) (any, error) {
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
 }
 
-func listQueues(rc *plugin.RequestContext) (any, error) {
+// queueListColumns is the projection the queue grid and tree actually render.
+// Without it every row carries the queue's full stats, rates, and GC blocks.
+const queueListColumns = "name,vhost,messages,messages_ready,messages_unacknowledged,consumers,state,durable,auto_delete,type,node"
+
+func queuesPage(rc *plugin.RequestContext) (plugin.Page[row], error) {
 	s, err := rabbitSession(rc)
 	if err != nil {
-		return nil, err
+		return plugin.Page[row]{}, err
 	}
-	var rows []row
-	if err := s.get(rc.Ctx, "/api/queues/"+apiVHost(s.opts.VHost), &rows); err != nil {
-		return nil, err
+	page, err := listPaged(rc, s, "/api/queues/"+apiVHost(s.opts.VHost), queueListColumns)
+	if err != nil {
+		return plugin.Page[row]{}, err
 	}
-	for _, r := range rows {
+	for _, r := range page.Items {
 		r["ref"] = plugin.ResourceIdentity{Kind: "queue", Namespace: fmt.Sprint(r["vhost"]), Name: fmt.Sprint(r["name"]), UID: fmt.Sprint(r["vhost"]) + "/" + fmt.Sprint(r["name"])}
 	}
-	return broker.PageRows(rc, rows)
+	return page, nil
+}
+
+func listQueues(rc *plugin.RequestContext) (any, error) {
+	return queuesPage(rc)
 }
 
 func queueOverview(rc *plugin.RequestContext) (any, error) {
@@ -225,17 +278,19 @@ func deleteQueue(rc *plugin.RequestContext) (any, error) {
 	return actionResult{OK: true}, s.delete(rc.Ctx, "/api/queues/"+apiVHost(vhostParam(rc))+"/"+apiName(rc.Param("queue")))
 }
 
-func listExchanges(rc *plugin.RequestContext) (any, error) {
+const exchangeListColumns = "name,vhost,type,durable,auto_delete,internal"
+
+func exchangesPage(rc *plugin.RequestContext) (plugin.Page[row], error) {
 	s, err := rabbitSession(rc)
 	if err != nil {
-		return nil, err
+		return plugin.Page[row]{}, err
 	}
-	var rows []row
-	if err := s.get(rc.Ctx, "/api/exchanges/"+apiVHost(s.opts.VHost), &rows); err != nil {
-		return nil, err
+	page, err := listPaged(rc, s, "/api/exchanges/"+apiVHost(s.opts.VHost), exchangeListColumns)
+	if err != nil {
+		return plugin.Page[row]{}, err
 	}
-	filtered := rows[:0]
-	for _, r := range rows {
+	filtered := page.Items[:0]
+	for _, r := range page.Items {
 		name := fmt.Sprint(r["name"])
 		if name == "" {
 			continue
@@ -243,7 +298,12 @@ func listExchanges(rc *plugin.RequestContext) (any, error) {
 		r["ref"] = plugin.ResourceIdentity{Kind: "exchange", Namespace: fmt.Sprint(r["vhost"]), Name: name, UID: fmt.Sprint(r["vhost"]) + "/" + name}
 		filtered = append(filtered, r)
 	}
-	return broker.PageRows(rc, filtered)
+	page.Items = filtered
+	return page, nil
+}
+
+func listExchanges(rc *plugin.RequestContext) (any, error) {
+	return exchangesPage(rc)
 }
 
 func exchangeOverview(rc *plugin.RequestContext) (any, error) {
@@ -397,29 +457,29 @@ func deleteBinding(rc *plugin.RequestContext) (any, error) {
 	return actionResult{OK: true}, s.delete(rc.Ctx, path)
 }
 
+const consumerListColumns = "consumer_tag,queue,channel_details,ack_required,prefetch_count"
+
 func listConsumers(rc *plugin.RequestContext) (any, error) {
 	s, err := rabbitSession(rc)
 	if err != nil {
-		return nil, err
-	}
-	var rows []row
-	if err := s.get(rc.Ctx, "/api/consumers/"+apiVHost(s.opts.VHost), &rows); err != nil {
 		return nil, err
 	}
 	queue := strings.TrimSpace(rc.Param("queue"))
 	if queue == "" {
 		queue = strings.TrimSpace(rc.Query().Get("p.queue"))
 	}
-	if queue != "" {
-		filtered := rows[:0]
-		for _, r := range rows {
-			if q, ok := r["queue"].(map[string]any); ok && fmt.Sprint(q["name"]) == queue {
-				filtered = append(filtered, r)
-			}
-		}
-		rows = filtered
+	if queue == "" {
+		return listPaged(rc, s, "/api/consumers/"+apiVHost(s.opts.VHost), consumerListColumns)
 	}
-	return broker.PageRows(rc, rows)
+	// A queue's own consumers come off the queue document, so scoping the tab to
+	// one queue never enumerates the vhost and filters afterwards.
+	var out struct {
+		ConsumerDetails []row `json:"consumer_details"`
+	}
+	if err := s.get(rc.Ctx, "/api/queues/"+apiVHost(vhostParam(rc))+"/"+apiName(queue)+"?columns=consumer_details", &out); err != nil {
+		return nil, err
+	}
+	return broker.PageRows(rc, out.ConsumerDetails)
 }
 
 func publishMessage(rc *plugin.RequestContext) (any, error) {

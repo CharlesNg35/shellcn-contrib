@@ -9,10 +9,14 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/charlesng35/shellcn-contrib/shared/broker"
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
+
+// describeConcurrency bounds the in-flight per-collection detail fetches.
+const describeConcurrency = 8
 
 type envelope struct {
 	Result json.RawMessage `json:"result"`
@@ -110,36 +114,63 @@ func overview(rc *plugin.RequestContext) (any, error) {
 }
 
 func treeCollections(rc *plugin.RequestContext) (any, error) {
-	res, err := listCollections(rc)
+	page, err := collectionNamePage(rc)
 	if err != nil {
 		return nil, err
 	}
-	page := res.(plugin.Page[row])
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
 		ref := plugin.ResourceIdentity{Kind: "collection", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "collection:" + name, Label: name, Icon: icon("database"), Ref: &ref, Leaf: true})
 	}
-	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
+	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
 }
 
 func listCollections(rc *plugin.RequestContext) (any, error) {
+	page, err := collectionNamePage(rc)
+	if err != nil {
+		return nil, err
+	}
+	describeCollections(rc, page.Items)
+	return page, nil
+}
+
+// collectionNamePage pages the bare name list. Qdrant's /collections has no
+// limit parameter and per-tenant deployments run thousands of collections, so
+// only the rows this page returns are ever described.
+func collectionNamePage(rc *plugin.RequestContext) (plugin.Page[row], error) {
 	var out struct {
 		Collections []row `json:"collections"`
 	}
 	if err := qdrantAPI(rc, http.MethodGet, "/collections", nil, nil, &out); err != nil {
-		return nil, err
+		return plugin.Page[row]{}, err
 	}
 	for _, item := range out.Collections {
 		name := fmt.Sprint(item["name"])
-		var detail row
-		if err := qdrantAPI(rc, http.MethodGet, "/collections/"+url.PathEscape(name), nil, nil, &detail); err == nil {
-			merge(item, detail)
-		}
 		item["ref"] = plugin.ResourceIdentity{Kind: "collection", Name: name, UID: name}
 	}
 	return broker.PageRows(rc, out.Collections)
+}
+
+// describeCollections fills in config, vector and point counts for one page of
+// rows; each goroutine owns one row, so the maps are never shared.
+func describeCollections(rc *plugin.RequestContext, rows []row) {
+	sem := make(chan struct{}, describeConcurrency)
+	var wg sync.WaitGroup
+	for _, item := range rows {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(item row) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			var detail row
+			if err := qdrantAPI(rc, http.MethodGet, "/collections/"+url.PathEscape(fmt.Sprint(item["name"])), nil, nil, &detail); err == nil {
+				merge(item, detail)
+			}
+		}(item)
+	}
+	wg.Wait()
 }
 
 func readCollection(rc *plugin.RequestContext) (any, error) {
@@ -248,11 +279,11 @@ func listPoints(rc *plugin.RequestContext) (any, error) {
 	}
 	body := row{"limit": limit, "with_payload": true, "with_vector": true}
 	if req.Cursor != "" {
-		body["offset"] = req.Cursor
+		body["offset"] = pointID(req.Cursor)
 	}
 	var out struct {
-		Points     []row `json:"points"`
-		NextOffset any   `json:"next_page_offset"`
+		Points     []row           `json:"points"`
+		NextOffset json.RawMessage `json:"next_page_offset"`
 	}
 	if err := qdrantAPI(rc, http.MethodPost, "/collections/"+url.PathEscape(collectionParam(rc))+"/points/scroll", nil, body, &out); err != nil {
 		return nil, err
@@ -262,8 +293,8 @@ func listPoints(rc *plugin.RequestContext) (any, error) {
 		item["ref"] = plugin.ResourceIdentity{Kind: "point", Name: id, UID: id, Namespace: collectionParam(rc)}
 	}
 	next := ""
-	if out.NextOffset != nil {
-		next = fmt.Sprint(out.NextOffset)
+	if raw := strings.TrimSpace(string(out.NextOffset)); raw != "" && raw != "null" {
+		next = strings.Trim(raw, `"`)
 	}
 	return plugin.Page[row]{Items: plugin.FilterRows(out.Points, req.Search()), NextCursor: next}, nil
 }

@@ -294,8 +294,6 @@ func nodesList(rc *plugin.RequestContext) (any, error) {
 	return broker.PageRows(rc, rows)
 }
 
-// --- cluster event log ------------------------------------------------------
-
 type logEntry struct {
 	Node       string  `json:"node"`
 	Type       string  `json:"type"`

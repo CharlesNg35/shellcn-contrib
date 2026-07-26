@@ -16,8 +16,10 @@ import (
 )
 
 type graphPayload struct {
-	Nodes []graphNode `json:"nodes"`
-	Edges []graphEdge `json:"edges"`
+	Nodes     []graphNode `json:"nodes"`
+	Edges     []graphEdge `json:"edges"`
+	Truncated bool        `json:"truncated,omitempty"`
+	Limit     int         `json:"limit,omitempty"`
 }
 
 type graphNode struct {

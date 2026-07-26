@@ -4,19 +4,29 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/charlesng35/shellcn-contrib/shared/broker"
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
-// databaseInfos reads every database's info document. CouchDB 2.2+ answers
-// /_dbs_info in one round trip; older nodes fall back to one GET per database.
-func (s *Session) databaseInfos(rc *plugin.RequestContext) ([]row, error) {
-	names := s.databaseNames(rc)
-	if len(names) == 0 {
-		return []row{}, nil
+// dbsInfoBatch is the server-side cap on /_dbs_info keys
+// (max_db_number_for_dbs_info_req), so the enrichment is chunked to match.
+const dbsInfoBatch = 100
+
+// databaseInfos reads the info document of the names on the current page only.
+// CouchDB 2.2+ answers /_dbs_info in one round trip per batch; older nodes fall
+// back to one GET per database, still bounded by the page.
+func (s *Session) databaseInfos(rc *plugin.RequestContext, names []string) ([]row, error) {
+	out := make([]row, 0, len(names))
+	for start := 0; start < len(names); start += dbsInfoBatch {
+		end := min(start+dbsInfoBatch, len(names))
+		out = append(out, s.databaseInfoBatch(rc, names[start:end])...)
 	}
+	return out, nil
+}
+
+func (s *Session) databaseInfoBatch(rc *plugin.RequestContext, names []string) []row {
 	var bulk []struct {
 		Key  string `json:"key"`
 		Info row    `json:"info"`
@@ -29,7 +39,7 @@ func (s *Session) databaseInfos(rc *plugin.RequestContext) ([]row, error) {
 			}
 			out = append(out, databaseRow(entry.Key, entry.Info))
 		}
-		return out, nil
+		return out
 	}
 
 	out := make([]row, 0, len(names))
@@ -40,7 +50,7 @@ func (s *Session) databaseInfos(rc *plugin.RequestContext) ([]row, error) {
 		}
 		out = append(out, databaseRow(name, info))
 	}
-	return out, nil
+	return out
 }
 
 // databaseRow flattens a CouchDB db info document and adds the fragmentation
@@ -86,16 +96,41 @@ func databasePartitioned(info row) bool {
 	return false
 }
 
+// databasePage resolves the requested page of database names. CouchDB has no
+// server-side name filter, so a search term narrows the page that was fetched
+// rather than the whole server.
+func databasePage(rc *plugin.RequestContext, s *Session) ([]string, string, error) {
+	page, err := rc.Page()
+	if err != nil {
+		return nil, "", err
+	}
+	names, next := s.databaseNamePage(rc, page.Cursor, page.Limit)
+	if q := page.Search(); q != "" {
+		kept := make([]string, 0, len(names))
+		for _, name := range names {
+			if strings.Contains(strings.ToLower(name), strings.ToLower(q)) {
+				kept = append(kept, name)
+			}
+		}
+		names = kept
+	}
+	return names, next, nil
+}
+
 func listDatabases(rc *plugin.RequestContext) (any, error) {
 	s, err := session(rc)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.databaseInfos(rc)
+	names, next, err := databasePage(rc, s)
 	if err != nil {
 		return nil, err
 	}
-	return broker.PageRows(rc, rows)
+	rows, err := s.databaseInfos(rc, names)
+	if err != nil {
+		return nil, err
+	}
+	return plugin.Page[row]{Items: rows, NextCursor: next}, nil
 }
 
 func treeDatabases(rc *plugin.RequestContext) (any, error) {
@@ -103,7 +138,10 @@ func treeDatabases(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	names := s.databaseNames(rc)
+	names, next, err := databasePage(rc, s)
+	if err != nil {
+		return nil, err
+	}
 	nodes := make([]plugin.TreeNode, 0, len(names))
 	for _, name := range names {
 		ref := plugin.ResourceIdentity{Kind: "database", Name: name, UID: name}
@@ -111,16 +149,22 @@ func treeDatabases(rc *plugin.RequestContext) (any, error) {
 			Key: "database:" + name, Label: name, Icon: icon("database"), Ref: &ref, Leaf: true,
 		})
 	}
-	return plugin.Page[plugin.TreeNode]{Items: nodes}, nil
+	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: next}, nil
 }
 
+// watchDatabases refreshes only the page the panel is showing; enumerating every
+// database on each tick is unbounded on a per-user-database deployment.
 func watchDatabases(rc *plugin.RequestContext, client plugin.ClientStream) error {
 	s, err := session(rc)
 	if err != nil {
 		return err
 	}
 	return pollWatch(rc, client, 10*time.Second, func() ([]plugin.ResourceEvent, error) {
-		rows, err := s.databaseInfos(rc)
+		names, _, err := databasePage(rc, s)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := s.databaseInfos(rc, names)
 		if err != nil {
 			return nil, err
 		}

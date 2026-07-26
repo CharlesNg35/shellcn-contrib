@@ -56,7 +56,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 		_ = execCQL(cleanupCtx, s, `DROP KEYSPACE IF EXISTS "`+itKeyspace+`"`)
 	})
 
-	// --- keyspace lifecycle -------------------------------------------------
+	// Keyspace lifecycle.
 	h.Call(ctx, "scylladb.keyspace.create", sess, nil, nil, mustJSON(t, map[string]any{
 		"name":                   itKeyspace,
 		"replication_class":      "NetworkTopologyStrategy",
@@ -92,7 +92,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 		t.Fatalf("keyspace %q is still listed after drop", dropKS)
 	}
 
-	// --- table + column + index DDL ----------------------------------------
+	// Table + column + index DDL.
 	ksParams := map[string]string{"keyspace": itKeyspace}
 	h.Call(ctx, "scylladb.table.create", sess, ksParams, nil, mustJSON(t, map[string]any{
 		"name": itTable,
@@ -128,7 +128,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 		t.Fatalf("definition tab did not render the CREATE TABLE statement: %#v", definition["cql"])
 	}
 
-	// --- editable data grid -------------------------------------------------
+	// Editable data grid.
 	if err := execCQL(ctx, s, fmt.Sprintf(`INSERT INTO %s (id, name, access_token, region) VALUES (%s, 'alice', 'secret-token', 'eu')`,
 		qualified(itKeyspace, itTable), itRowID)); err != nil {
 		t.Fatalf("seed row: %v", err)
@@ -232,7 +232,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 		t.Fatal("a non-primary-key row key must be rejected")
 	}
 
-	// --- partition locator --------------------------------------------------
+	// Partition locator.
 	located := h.Call(ctx, "scylladb.partition.locate", sess, tableParamValues, nil, mustJSON(t, map[string]any{
 		"partition_key": map[string]any{"id": itRowID},
 	})).(row)
@@ -246,7 +246,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 		t.Fatalf("partition owner must name a replica and a shard: %#v", owner)
 	}
 
-	// --- views, types, functions -------------------------------------------
+	// Views, types, functions.
 	viewName := itTable + "_by_name"
 	mvErr := execCQL(ctx, s, fmt.Sprintf(
 		`CREATE MATERIALIZED VIEW %s AS SELECT * FROM %s WHERE name IS NOT NULL AND id IS NOT NULL PRIMARY KEY (name, id)`,
@@ -291,7 +291,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 	// is exercised without assuming one exists.
 	h.CallNoFail(ctx, "scylladb.function.overview", sess, map[string]string{"id": itKeyspace + ".missing()"})
 
-	// --- navigation trees ---------------------------------------------------
+	// Navigation trees.
 	tree := treeItems(t, h.Call(ctx, "scylladb.keyspaces.tree", sess, nil, nil, nil))
 	if !hasTreeLabel(tree, itKeyspace) {
 		t.Fatalf("keyspace tree is missing the test keyspace: %#v", tree)
@@ -307,7 +307,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 		t.Fatal("node tree is empty")
 	}
 
-	// --- cluster, nodes, topology ------------------------------------------
+	// Cluster, nodes, topology.
 	clusterPage := pageItems(t, h.Call(ctx, "scylladb.cluster.list", sess, nil, nil, nil))
 	if len(clusterPage) != 1 {
 		t.Fatalf("cluster list must return exactly one row: %#v", clusterPage)
@@ -373,7 +373,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 	h.Call(ctx, "scylladb.slowlog.list", sess, nil, nil, nil)
 	h.Call(ctx, "scylladb.completion", sess, nil, nil, nil)
 
-	// --- CQL console --------------------------------------------------------
+	// CQL console.
 	consoleOut := string(h.Stream(ctx, "scylladb.query", sess, nil, nil, []byte(
 		`{"query":"SELECT release_version FROM system.local;"}`+"\n"+
 			`{"query":"TRUNCATE `+itKeyspace+`.does_not_exist;"}`+"\n")))
@@ -399,7 +399,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 		t.Fatal("no query is running, so cancel should report nothing cancelled")
 	}
 
-	// --- tracing ------------------------------------------------------------
+	// Tracing.
 	traced := h.Call(ctx, "scylladb.trace.run", sess, nil, nil, mustJSON(t, map[string]any{
 		"query": fmt.Sprintf("SELECT * FROM %s LIMIT 10", qualified(itKeyspace, itTable)),
 	})).(row)
@@ -423,7 +423,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 		t.Fatalf("trace %s was not listed", sessionID)
 	}
 
-	// --- streams ------------------------------------------------------------
+	// Streams.
 	// Server-push streams run until their context ends, so each one gets its own
 	// budget rather than sharing a single deadline.
 	clusterFrame := decodeFrame(t, streamOnce(ctx, t, h, "scylladb.cluster.metrics", sess, nil))
@@ -462,7 +462,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 		t.Fatalf("topology canvas did not expose shard hit targets: %s", truncate(canvasOut))
 	}
 
-	// --- saved queries (storage-scoped) -------------------------------------
+	// Saved queries (storage-scoped).
 	storage := newFakeStorage()
 	saveRoute := h.Route("scylladb.query.save")
 	saved, err := saveRoute.Handle(plugin.NewRequestContext(ctx, plugin.User{ID: "u1"}, sess, nil, nil, mustJSON(t, map[string]any{
@@ -485,7 +485,7 @@ func TestScyllaDBPluginIntegration(t *testing.T) {
 		t.Fatalf("delete saved CQL: %v", err)
 	}
 
-	// --- table teardown -----------------------------------------------------
+	// Table teardown.
 	h.Call(ctx, "scylladb.column.drop", sess, map[string]string{"keyspace": itKeyspace, "table": itTable, "name": "access_token"}, nil, nil)
 	h.Call(ctx, "scylladb.table.truncate", sess, tableParamValues, nil, nil)
 	if remaining := pageItems(t, h.Call(ctx, "scylladb.table.rows", sess, tableParamValues, nil, nil)); len(remaining) != 0 {

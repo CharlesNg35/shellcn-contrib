@@ -627,14 +627,22 @@ func aggregateScopedList(rc *plugin.RequestContext, scopes []row, apiPath func(s
 	if page.Search() != "" {
 		q.Set("name", page.Search())
 	}
-	items := make([]row, 0)
-	for _, scope := range scopes {
+	limit := boundedLimit(page.Limit, s.opts.PageLimit)
+	cursor, err := parseAggregateCursor(page.Cursor)
+	if err != nil {
+		return plugin.Page[row]{}, err
+	}
+	items := make([]row, 0, limit)
+	for cursor.Scope < len(scopes) && len(items) < limit {
+		scope := scopes[cursor.Scope]
 		scopeID := text(scope, "id")
 		if scopeID == "" {
+			cursor = aggregateCursor{Scope: cursor.Scope + 1, Page: 1}
 			continue
 		}
 		scopeQ := cloneValues(q)
-		listed, _, err := fetchList(rc.Ctx, s, apiPath(scopeID), scopeQ, s.opts.PageLimit, func(r row) row {
+		scopeQ.Set("page", strconv.Itoa(cursor.Page))
+		listed, info, err := fetchList(rc.Ctx, s, apiPath(scopeID), scopeQ, limit, func(r row) row {
 			if mapRow != nil {
 				return mapRow(r, scope)
 			}
@@ -643,27 +651,61 @@ func aggregateScopedList(rc *plugin.RequestContext, scopes []row, apiPath func(s
 		if err != nil {
 			return plugin.Page[row]{}, err
 		}
-		items = append(items, listed...)
-	}
-	sortRows(items, page.Sort)
-	total := len(items)
-	offset, err := offsetCursor(page.Cursor)
-	if err != nil {
-		return plugin.Page[row]{}, err
-	}
-	limit := boundedLimit(page.Limit, s.opts.PageLimit)
-	if offset > len(items) {
-		offset = len(items)
-	}
-	end := offset + limit
-	if end > len(items) {
-		end = len(items)
+		if cursor.Offset > len(listed) {
+			cursor.Offset = len(listed)
+		}
+		listed = listed[cursor.Offset:]
+		take := min(limit-len(items), len(listed))
+		items = append(items, listed[:take]...)
+		if take < len(listed) {
+			cursor.Offset += take
+			break
+		}
+		cursor.Offset = 0
+		if info.TotalPages > 0 && info.Page < info.TotalPages {
+			cursor.Page = info.Page + 1
+			continue
+		}
+		cursor = aggregateCursor{Scope: cursor.Scope + 1, Page: 1}
 	}
 	next := ""
-	if end < len(items) {
-		next = strconv.Itoa(end)
+	if cursor.Scope < len(scopes) {
+		next = cursor.String()
 	}
-	return plugin.Page[row]{Items: items[offset:end], NextCursor: next, Total: &total}, nil
+	sortRows(items, page.Sort)
+	// No Total: the fan-out never sees the whole collection, and len() of a
+	// partial materialization is exactly the number that was wrong before.
+	return plugin.Page[row]{Items: items, NextCursor: next}, nil
+}
+
+// aggregateCursor resumes an account-wide fan-out at the scope, upstream page,
+// and row it stopped on. Without it, page 3 of an aggregated list re-issues one
+// Cloudflare call per zone before slicing 50 rows out of the concatenation.
+type aggregateCursor struct {
+	Scope  int
+	Page   int
+	Offset int
+}
+
+func (c aggregateCursor) String() string {
+	return strconv.Itoa(c.Scope) + ":" + strconv.Itoa(c.Page) + ":" + strconv.Itoa(c.Offset)
+}
+
+func parseAggregateCursor(raw string) (aggregateCursor, error) {
+	if raw == "" {
+		return aggregateCursor{Page: 1}, nil
+	}
+	parts := strings.Split(raw, ":")
+	if len(parts) != 3 {
+		return aggregateCursor{}, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+	}
+	scope, scopeErr := strconv.Atoi(parts[0])
+	number, pageErr := strconv.Atoi(parts[1])
+	offset, offsetErr := strconv.Atoi(parts[2])
+	if scopeErr != nil || pageErr != nil || offsetErr != nil || scope < 0 || number < 1 || offset < 0 {
+		return aggregateCursor{}, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+	}
+	return aggregateCursor{Scope: scope, Page: number, Offset: offset}, nil
 }
 
 func zonesForAggregation(rc *plugin.RequestContext) ([]row, error) {
@@ -712,17 +754,6 @@ func boundedLimit(requested, configured int) int {
 		return plugin.MaxPageLimit
 	}
 	return requested
-}
-
-func offsetCursor(raw string) (int, error) {
-	if raw == "" {
-		return 0, nil
-	}
-	offset, err := strconv.Atoi(raw)
-	if err != nil || offset < 0 {
-		return 0, fmt.Errorf("%w: cursor must be a non-negative offset", plugin.ErrInvalidInput)
-	}
-	return offset, nil
 }
 
 func cloneValues(in url.Values) url.Values {

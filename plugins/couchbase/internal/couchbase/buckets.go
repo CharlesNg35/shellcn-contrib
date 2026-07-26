@@ -323,8 +323,6 @@ func bucketCompact(rc *plugin.RequestContext) (any, error) {
 	return actionResult{OK: true, Message: "compaction started for " + name}, nil
 }
 
-// --- bucket statistics ------------------------------------------------------
-
 type bucketSamples map[string][]float64
 
 // last reads the newest sample; the stats API returns a rolling window.
@@ -476,8 +474,6 @@ func (s *Session) bucketFrame(ctx context.Context, name string) (map[string]any,
 	frame["cmdSet"] = round1(samples.last("cmd_set"))
 	return frame, nil
 }
-
-// --- scopes and collections -------------------------------------------------
 
 type collectionManifest struct {
 	UID    string `json:"uid"`

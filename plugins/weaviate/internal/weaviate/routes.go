@@ -134,7 +134,7 @@ func overview(rc *plugin.RequestContext) (any, error) {
 		"modules":     moduleNames(meta.Modules),
 		"moduleCount": len(moduleNames(meta.Modules)),
 	}
-	if dump, err := s.client.schema.Getter().Do(rc.Ctx); err == nil {
+	if dump, err := s.schema(rc.Ctx); err == nil {
 		out["collections"] = len(dump.Classes)
 		out["vectorizers"] = distinctVectorizers(dump.Classes)
 	}
@@ -244,9 +244,9 @@ func treeCollections(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	dump, err := s.client.schema.Getter().Do(rc.Ctx)
+	dump, err := s.schema(rc.Ctx)
 	if err != nil {
-		return nil, mapError(err)
+		return nil, err
 	}
 	classes := sortedClasses(dump.Classes)
 	nodes := make([]plugin.TreeNode, 0, len(classes))
@@ -281,9 +281,9 @@ func listCollections(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	dump, err := s.client.schema.Getter().Do(rc.Ctx)
+	dump, err := s.schema(rc.Ctx)
 	if err != nil {
-		return nil, mapError(err)
+		return nil, err
 	}
 	stats, _ := clusterStats(rc)
 	rows := make([]row, 0, len(dump.Classes))
@@ -441,6 +441,7 @@ func createCollection(rc *plugin.RequestContext) (any, error) {
 	if err := s.client.schema.ClassCreator().WithClass(class).Do(rc.Ctx); err != nil {
 		return nil, mapError(err)
 	}
+	s.forgetSchema()
 	record(rc, "schema", plugin.SeveritySuccess, "Collection created", name)
 	return row{"ok": true, "name": name}, nil
 }
@@ -474,6 +475,7 @@ func updateCollection(rc *plugin.RequestContext) (any, error) {
 	if err := s.client.schema.ClassUpdater().WithClass(&class).Do(rc.Ctx); err != nil {
 		return nil, mapError(err)
 	}
+	s.forgetSchema()
 	record(rc, "schema", plugin.SeverityInfo, "Collection definition updated", name)
 	updated, err := s.client.schema.ClassGetter().WithClassName(name).Do(rc.Ctx)
 	if err != nil {
@@ -497,6 +499,7 @@ func deleteCollection(rc *plugin.RequestContext) (any, error) {
 	if err := s.client.schema.ClassDeleter().WithClassName(name).Do(rc.Ctx); err != nil {
 		return nil, mapError(err)
 	}
+	s.forgetSchema()
 	record(rc, "schema", plugin.SeverityDanger, "Collection deleted", name)
 	return row{"ok": true, "name": name}, nil
 }
@@ -570,6 +573,7 @@ func createProperty(rc *plugin.RequestContext) (any, error) {
 	if err := s.client.schema.PropertyCreator().WithClassName(name).WithProperty(property).Do(rc.Ctx); err != nil {
 		return nil, mapError(err)
 	}
+	s.forgetSchema()
 	record(rc, "schema", plugin.SeverityInfo, "Property added", name+"."+propertyName)
 	return row{"ok": true, "name": propertyName, "collection": name}, nil
 }

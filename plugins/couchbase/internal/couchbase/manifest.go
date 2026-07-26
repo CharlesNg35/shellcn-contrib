@@ -87,8 +87,6 @@ func tree() []plugin.TreeGroup {
 	}
 }
 
-// --- tree routes ------------------------------------------------------------
-
 // treeBuckets carries the whole bucket summary as node data so a detail opened
 // from the sidebar holds the same row as one opened from the bucket list; the
 // bucket actions prefill their forms from it.
@@ -177,8 +175,6 @@ func treeCollections(rc *plugin.RequestContext) (any, error) {
 	}
 	return plugin.Page[plugin.TreeNode]{Items: nodes}, nil
 }
-
-// --- panels -----------------------------------------------------------------
 
 // resourceWatchSource binds a resource list to the generic watch stream.
 func resourceWatchSource(kind string, params map[string]string) *plugin.DataSource {
@@ -411,8 +407,6 @@ func dataMapConfig() plugin.CanvasConfig {
 		Instructions:   "Use the arrow keys to move between collections, Home and End to jump to the first or last one. Each bar is one collection, sized by its share of the largest collection in the bucket.",
 	}
 }
-
-// --- resources --------------------------------------------------------------
 
 func resources() []plugin.ResourceType {
 	return []plugin.ResourceType{
@@ -923,8 +917,6 @@ func replicationResource() plugin.ResourceType {
 		},
 	}
 }
-
-// --- actions ----------------------------------------------------------------
 
 func actions() []plugin.Action {
 	return []plugin.Action{

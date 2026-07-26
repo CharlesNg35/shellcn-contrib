@@ -90,6 +90,37 @@ func (s *Session) do(req *http.Request, out any) error {
 	return nil
 }
 
+// pagedList is the management API's pagination envelope. Endpoints that predate
+// pagination — and brokers asked for a page they do not implement — answer with
+// a bare array instead, so the decoder accepts both and flags which it got.
+type pagedList struct {
+	Items         []row `json:"items"`
+	Page          int   `json:"page"`
+	PageCount     int   `json:"page_count"`
+	FilteredCount int   `json:"filtered_count"`
+
+	Paginated bool `json:"-"`
+}
+
+func (p *pagedList) UnmarshalJSON(data []byte) error {
+	if trimmed := bytes.TrimLeft(data, " \t\r\n"); len(trimmed) > 0 && trimmed[0] == '[' {
+		var items []row
+		if err := json.Unmarshal(data, &items); err != nil {
+			return err
+		}
+		*p = pagedList{Items: items}
+		return nil
+	}
+	type envelope pagedList
+	var out envelope
+	if err := json.Unmarshal(data, &out); err != nil {
+		return err
+	}
+	*p = pagedList(out)
+	p.Paginated = true
+	return nil
+}
+
 func apiVHost(vhost string) string {
 	return url.PathEscape(vhost)
 }

@@ -33,6 +33,14 @@ func (e confirmationError) Error() string { return e.message }
 
 var dialect = sqldb.Dialect{QuoteIdent: quoteIdent, Placeholder: sqldb.AtPlaceholder}
 
+// Scan ceilings. scanCap bounds any catalog listing materialized in memory; the
+// graph caps bound the ERD payload shipped to the browser.
+const (
+	scanCap        = plugin.MaxPageLimit * 10
+	graphColumnCap = plugin.MaxPageLimit * 20
+	graphEdgeCap   = plugin.MaxPageLimit * 10
+)
+
 func routes() []plugin.Route {
 	return []plugin.Route{
 		{ID: "mssql.databases.tree", Method: plugin.MethodGet, Path: "/tree/databases", Permission: "mssql.databases.read", Risk: plugin.RiskSafe, AuditEvent: "mssql.databases.tree", Handle: treeDatabases},
@@ -365,12 +373,36 @@ func listTables(rc *plugin.RequestContext) (any, error) {
 	return relationList(rc, "U", "table")
 }
 
+// graphPayload is the ERD plus a truncated flag telling the panel the diagram
+// stopped at the cap; the embedded payload keeps the (nodes, edges) wire contract.
+type graphPayload struct {
+	sqldb.GraphPayload
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// graphDatabase resolves the one database the ERD is built from. The graph never
+// fans out across every database on the instance: without an explicit scope it
+// falls back to the session's database.
+func graphDatabase(rc *plugin.RequestContext, s *Session) (string, error) {
+	database, err := optionalIdent(rc.Query().Get("p.database"))
+	if err != nil {
+		return "", err
+	}
+	if database != "" {
+		return database, nil
+	}
+	if s.opts.Database == "" {
+		return "", fmt.Errorf("%w: database is required", plugin.ErrInvalidInput)
+	}
+	return safeIdent(s.opts.Database)
+}
+
 func relationGraph(rc *plugin.RequestContext) (any, error) {
 	s, err := mssqlSession(rc)
 	if err != nil {
 		return nil, err
 	}
-	databases, err := targetDatabases(rc, s)
+	database, err := graphDatabase(rc, s)
 	if err != nil {
 		return nil, err
 	}
@@ -378,22 +410,16 @@ func relationGraph(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	columns := []sqldb.TableColumn{}
-	fks := []sqldb.ForeignKey{}
-	for _, database := range databases {
-		colRows, err := queryRows(rc.Ctx, s, fmt.Sprintf(`
-SELECT TABLE_SCHEMA AS table_schema, TABLE_NAME AS table_name, COLUMN_NAME AS column_name, DATA_TYPE AS data_type
+	colRows, colCapped, err := queryRowsCapped(rc.Ctx, s, fmt.Sprintf(`
+SELECT TOP (@p2) TABLE_SCHEMA AS table_schema, TABLE_NAME AS table_name, COLUMN_NAME AS column_name, DATA_TYPE AS data_type
 FROM %[1]s.INFORMATION_SCHEMA.COLUMNS
 WHERE (@p1 = '' OR TABLE_SCHEMA = @p1)
-ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION`, quoteIdent(database)), []any{schema})
-		if err != nil {
-			return nil, err
-		}
-		for _, r := range colRows {
-			columns = append(columns, sqldb.TableColumnFromRow(r))
-		}
-		fkRows, err := queryRows(rc.Ctx, s, fmt.Sprintf(`
-SELECT fk.name AS constraint_name,
+ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION`, quoteIdent(database)), []any{schema, graphColumnCap}, graphColumnCap)
+	if err != nil {
+		return nil, err
+	}
+	fkRows, fkCapped, err := queryRowsCapped(rc.Ctx, s, fmt.Sprintf(`
+SELECT TOP (@p2) fk.name AS constraint_name,
        cs.name AS child_schema, ct.name AS child_table, cc.name AS child_column,
        ps.name AS parent_schema, pt.name AS parent_table, pc.name AS parent_column
 FROM %[1]s.sys.foreign_keys fk
@@ -405,15 +431,20 @@ JOIN %[1]s.sys.tables pt ON pt.object_id = fkc.referenced_object_id
 JOIN %[1]s.sys.schemas ps ON ps.schema_id = pt.schema_id
 JOIN %[1]s.sys.columns pc ON pc.object_id = fkc.referenced_object_id AND pc.column_id = fkc.referenced_column_id
 WHERE (@p1 = '' OR cs.name = @p1)
-ORDER BY fk.name, fkc.constraint_column_id`, quoteIdent(database)), []any{schema})
-		if err != nil {
-			return nil, err
-		}
-		for _, r := range fkRows {
-			fks = append(fks, sqldb.ForeignKeyFromRow(r))
-		}
+ORDER BY fk.name, fkc.constraint_column_id`, quoteIdent(database)), []any{schema, graphEdgeCap}, graphEdgeCap)
+	if err != nil {
+		return nil, err
 	}
-	return sqldb.RelationGraph(columns, fks), nil
+	columns := make([]sqldb.TableColumn, 0, len(colRows))
+	for _, r := range colRows {
+		columns = append(columns, sqldb.TableColumnFromRow(r))
+	}
+	fks := make([]sqldb.ForeignKey, 0, len(fkRows))
+	for _, r := range fkRows {
+		fks = append(fks, sqldb.ForeignKeyFromRow(r))
+	}
+	truncated := colCapped || fkCapped || len(colRows) >= graphColumnCap || len(fkRows) >= graphEdgeCap
+	return graphPayload{GraphPayload: sqldb.RelationGraph(columns, fks), Truncated: truncated}, nil
 }
 
 func listViews(rc *plugin.RequestContext) (any, error) {
@@ -798,15 +829,6 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 			return nil, err
 		}
 	}
-	countClause, countArgs := dialect.SearchClause("NVARCHAR(MAX)", cols, filter, 1)
-	countWhere := ""
-	if countClause != "" {
-		countWhere = " WHERE " + countClause
-	}
-	var total64 int64
-	if err := s.db.QueryRowContext(rc.Ctx, "SELECT COUNT_BIG(*) FROM "+qualified(database, schema, table)+countWhere, countArgs...).Scan(&total64); err != nil {
-		return nil, mssqlErr(err)
-	}
 	orderBy := " ORDER BY (SELECT NULL)"
 	if len(req.Sort) > 0 {
 		col, err := safeIdent(req.Sort[0].Field)
@@ -825,10 +847,17 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 	if dataClause != "" {
 		dataWhere = " WHERE " + dataClause
 	}
-	dataArgs := append([]any{offset, limit}, dataSearch...)
+	// One row past the page tells us whether a next page exists, so the grid
+	// never pays for a COUNT_BIG(*) over the whole table.
+	dataArgs := append([]any{offset, limit + 1}, dataSearch...)
 	rows, err := queryRows(rc.Ctx, s, fmt.Sprintf("SELECT * FROM %s%s%s OFFSET @p1 ROWS FETCH NEXT @p2 ROWS ONLY", qualified(database, schema, table), dataWhere, orderBy), dataArgs)
 	if err != nil {
 		return nil, err
+	}
+	next := ""
+	if len(rows) > limit {
+		rows = rows[:limit]
+		next = strconv.Itoa(offset + limit)
 	}
 	pk, err := primaryKeyColumns(rc.Ctx, s, database, schema, table)
 	if err != nil {
@@ -840,13 +869,8 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	attachForeignKeys(rows, fks)
-	total := int(total64)
 	redactRows(rows, s.opts.RedactPatterns)
-	next := ""
-	if offset+len(rows) < total {
-		next = strconv.Itoa(offset + len(rows))
-	}
-	return plugin.Page[row]{Items: rows, NextCursor: next, Total: &total}, nil
+	return plugin.Page[row]{Items: rows, NextCursor: next}, nil
 }
 
 // foreignKeys maps each FK column to the referenced table's ref, attached under
@@ -1770,22 +1794,34 @@ func executeStatement(ctx context.Context, runner sqlRunner, s *Session, stateme
 }
 
 func queryRows(ctx context.Context, s *Session, sqlText string, args []any) ([]row, error) {
+	rows, _, err := queryRowsCapped(ctx, s, sqlText, args, scanCap)
+	return rows, err
+}
+
+// queryRowsCapped stops materializing at max and reports whether the result set
+// still had rows.
+func queryRowsCapped(ctx context.Context, s *Session, sqlText string, args []any, max int) ([]row, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.opts.QueryTimeout)
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
-		return nil, mssqlErr(err)
+		return nil, false, mssqlErr(err)
 	}
 	defer func() { _ = rows.Close() }()
 	columns, err := rows.Columns()
 	if err != nil {
-		return nil, mssqlErr(err)
+		return nil, false, mssqlErr(err)
 	}
 	out := []row{}
+	truncated := false
 	for rows.Next() {
+		if len(out) >= max {
+			truncated = true
+			break
+		}
 		values, err := scanValues(rows, columns)
 		if err != nil {
-			return nil, mssqlErr(err)
+			return nil, false, mssqlErr(err)
 		}
 		r := row{}
 		for i, name := range columns {
@@ -1795,10 +1831,12 @@ func queryRows(ctx context.Context, s *Session, sqlText string, args []any) ([]r
 		}
 		out = append(out, r)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, mssqlErr(err)
+	if !truncated {
+		if err := rows.Err(); err != nil {
+			return nil, false, mssqlErr(err)
+		}
 	}
-	return out, nil
+	return out, truncated, nil
 }
 
 func scanValues(rows *sql.Rows, columns []string) ([]any, error) {
@@ -1852,13 +1890,18 @@ func statementsRequireReview(statements []string) bool {
 }
 
 func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
+	return pageScannedRows(rc, rows, false)
+}
+
+// pageScannedRows slices an in-memory listing. A truncated scan omits Total so
+// the grid never shows a count it knows is short.
+func pageScannedRows(rc *plugin.RequestContext, rows []row, truncated bool) (plugin.Page[row], error) {
 	req, err := rc.Page()
 	if err != nil {
 		return plugin.Page[row]{}, err
 	}
 	rows = filterRows(rows, req.Search())
 	sortRows(rows, req.Sort)
-	total := len(rows)
 	start, err := offsetCursor(req.Cursor)
 	if err != nil {
 		return plugin.Page[row]{}, err
@@ -1871,7 +1914,12 @@ func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
 	if end < len(rows) {
 		next = strconv.Itoa(end)
 	}
-	return plugin.Page[row]{Items: rows[start:end], NextCursor: next, Total: &total}, nil
+	page := plugin.Page[row]{Items: rows[start:end], NextCursor: next}
+	if !truncated {
+		total := len(rows)
+		page.Total = &total
+	}
+	return page, nil
 }
 
 func treeFromPage(rc *plugin.RequestContext, kind string, iconName string, labelKey string, load func(*plugin.RequestContext) (any, error)) (any, error) {

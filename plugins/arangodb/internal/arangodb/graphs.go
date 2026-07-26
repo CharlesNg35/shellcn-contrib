@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	driver "github.com/arangodb/go-driver/v2/arangodb"
@@ -131,7 +132,6 @@ func vertexSummary(properties map[string]any) string {
 	return strings.Join(parts, ", ")
 }
 
-// graphDefinition reads a named graph's edge definitions and orphan collections.
 func (s *Session) graphDefinition(ctx context.Context, database, name string) (driver.Graph, error) {
 	db, err := s.database(ctx, database)
 	if err != nil {
@@ -385,6 +385,20 @@ FOR vertex, edge IN 1..@depth ANY @start GRAPH @graph
 	return builder.prune(), nil
 }
 
+// schemaGraphBudget caps how many collections the database map renders. The ERD
+// ships whole to the browser, so an unbounded catalogue would be both a request
+// storm and a panel that cannot be drawn.
+const schemaGraphBudget = 300
+
+// schemaGraphPayload adds the truncation notice the ERD panel needs when the
+// database holds more collections than the budget.
+type schemaGraphPayload struct {
+	sqldb.GraphPayload
+	Truncated   bool `json:"truncated,omitempty"`
+	Budget      int  `json:"budget,omitempty"`
+	Collections int  `json:"collections,omitempty"`
+}
+
 // schemaGraph is the database-level map: one ERD node per collection listing its
 // sampled attributes, with an edge per observed edge-collection relationship.
 func schemaGraph(rc *plugin.RequestContext) (any, error) {
@@ -403,15 +417,29 @@ func schemaGraph(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, arangoErr(err)
 	}
-	payload := sqldb.GraphPayload{Nodes: []sqldb.GraphNode{}, Edges: []sqldb.GraphEdge{}}
-	known := map[string]bool{}
-	edgeCollections := make([]string, 0, 4)
+	byName := make(map[string]driver.Collection, len(collections))
+	names := make([]string, 0, len(collections))
 	for _, collection := range collections {
 		name := collection.Name()
 		if strings.HasPrefix(name, "_") {
 			continue
 		}
-		props, err := collection.Properties(ctx)
+		byName[name] = collection
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := schemaGraphPayload{GraphPayload: sqldb.GraphPayload{Nodes: []sqldb.GraphNode{}, Edges: []sqldb.GraphEdge{}}}
+	if len(names) > schemaGraphBudget {
+		out.Truncated, out.Budget, out.Collections = true, schemaGraphBudget, len(names)
+		names = names[:schemaGraphBudget]
+	}
+
+	fields := s.sampleFieldsBatch(rc.Ctx, database, names)
+	payload := &out.GraphPayload
+	known := map[string]bool{}
+	edgeCollections := make([]string, 0, 4)
+	for _, name := range names {
+		props, err := byName[name].Properties(ctx)
 		if err != nil {
 			continue
 		}
@@ -422,7 +450,7 @@ func schemaGraph(rc *plugin.RequestContext) (any, error) {
 		}
 		known[name] = true
 		payload.Nodes = append(payload.Nodes, sqldb.GraphNode{
-			ID: name, Label: name, Group: group, Fields: s.sampleFields(rc.Ctx, database, name),
+			ID: name, Label: name, Group: group, Fields: fields[name],
 		})
 	}
 	for _, name := range edgeCollections {
@@ -448,7 +476,7 @@ FOR edge IN @@col
 		}
 	}
 	payload.Edges = dedupeEdges(payload.Edges)
-	return payload, nil
+	return out, nil
 }
 
 func dedupeEdges(edges []sqldb.GraphEdge) []sqldb.GraphEdge {
@@ -465,21 +493,61 @@ func dedupeEdges(edges []sqldb.GraphEdge) []sqldb.GraphEdge {
 	return out
 }
 
-func (s *Session) sampleFields(ctx context.Context, database, collection string) []sqldb.GraphField {
-	rows, err := s.queryRows(ctx, database, "FOR doc IN @@col LIMIT @limit RETURN doc",
-		map[string]any{"@col": collection, "limit": 25}, 25)
-	if err != nil {
+const (
+	// sampleFieldsSize is how many documents describe one collection's shape.
+	sampleFieldsSize = 25
+	// sampleFieldsChunk keeps each batched query small enough to plan quickly
+	// while still collapsing the per-collection round trips.
+	sampleFieldsChunk = 25
+)
+
+// sampleFieldsBatch derives the ERD attribute list for many collections at once.
+// The server collapses the sample to distinct attribute/type pairs, so the
+// response stays small however large the sampled documents are.
+func (s *Session) sampleFieldsBatch(ctx context.Context, database string, names []string) map[string][]sqldb.GraphField {
+	out := make(map[string][]sqldb.GraphField, len(names))
+	for start := 0; start < len(names); start += sampleFieldsChunk {
+		batch := names[start:min(start+sampleFieldsChunk, len(names))]
+		parts := make([]string, 0, len(batch))
+		bind := map[string]any{"limit": sampleFieldsSize}
+		for i, name := range batch {
+			key := "c" + strconv.Itoa(i)
+			bind["@"+key] = name
+			parts = append(parts, key+": (FOR doc IN @@"+key+" LIMIT @limit FOR attr IN ATTRIBUTES(doc)"+
+				" COLLECT name = attr, kind = TYPENAME(doc[attr]) RETURN [name, kind])")
+		}
+		value, err := s.queryOne(ctx, database, "RETURN {"+strings.Join(parts, ", ")+"}", bind)
+		if err != nil {
+			continue
+		}
+		sampled := asMap(value)
+		for i, name := range batch {
+			out[name] = graphFields(sampled["c"+strconv.Itoa(i)])
+		}
+	}
+	return out
+}
+
+// graphFields turns the sampled [attribute, type] pairs into ERD fields. A null
+// sample must not fix an attribute's type, so a concrete type still wins.
+func graphFields(sample any) []sqldb.GraphField {
+	pairs, ok := sample.([]any)
+	if !ok {
 		return nil
 	}
 	kinds := map[string]string{}
-	for _, doc := range rows {
-		for name, value := range doc {
-			if name == "_rev" || name == "_id" {
-				continue
-			}
-			if existing, ok := kinds[name]; !ok || existing == "null" {
-				kinds[name] = jsonKind(value)
-			}
+	for _, pair := range pairs {
+		items, ok := pair.([]any)
+		if !ok || len(items) != 2 {
+			continue
+		}
+		name, _ := items[0].(string)
+		kind, _ := items[1].(string)
+		if name == "" || name == "_rev" || name == "_id" {
+			continue
+		}
+		if existing, seen := kinds[name]; !seen || existing == "null" {
+			kinds[name] = kind
 		}
 	}
 	fields := make([]sqldb.GraphField, 0, len(kinds))

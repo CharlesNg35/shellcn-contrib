@@ -478,7 +478,6 @@ func (c *textConn) authenticate(ctx context.Context, username, password string, 
 	return fmt.Errorf("%w: unexpected authentication reply %q", plugin.ErrUnauthorized, line)
 }
 
-// version runs "version" and returns the bare version string.
 func (c *textConn) version(ctx context.Context, timeout time.Duration) (string, error) {
 	restore := c.deadline(ctx, timeout)
 	defer restore()

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -235,7 +236,7 @@ func TestOverviewReportsServerFacts(t *testing.T) {
 
 func TestCollectionsListCarriesRefAndCounts(t *testing.T) {
 	sess, _ := newTestSession(t)
-	page := call(t, sess, rid("collections.list"), nil, nil, nil).(plugin.Page[row])
+	page := call(t, sess, rid("collections.list"), nil, nil, nil).(collectionsPage)
 	if len(page.Items) != 1 {
 		t.Fatalf("expected one collection, got %#v", page.Items)
 	}
@@ -246,6 +247,59 @@ func TestCollectionsListCarriesRefAndCounts(t *testing.T) {
 	ref, ok := item["ref"].(plugin.ResourceIdentity)
 	if !ok || ref.Kind != "collection" || ref.UID != "11111111-2222-3333-4444-555555555555" || ref.Namespace != "default_database" {
 		t.Fatalf("unexpected ref: %#v", item["ref"])
+	}
+}
+
+func TestCollectionsListPagesOnTheServer(t *testing.T) {
+	base := &fakeChroma{t: t}
+	var mu sync.Mutex
+	counts := 0
+	limit := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v2/tenants/default_tenant/databases/default_database/collections":
+			mu.Lock()
+			limit = r.URL.Query().Get("limit")
+			mu.Unlock()
+			asked, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+			items := make([]string, 0, asked)
+			for i := range asked {
+				items = append(items, `{"id":"id-`+strconv.Itoa(i)+`","name":"c`+strconv.Itoa(i)+`","dimension":3}`)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[` + strings.Join(items, ",") + `]`))
+		case strings.HasSuffix(r.URL.Path, "/count"):
+			mu.Lock()
+			counts++
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`3`))
+		default:
+			base.ServeHTTP(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	sess, err := New().Connect(context.Background(), plugin.ConnectConfig{
+		Config: map[string]any{"endpoint": srv.URL},
+		Net:    plugintest.DirectTransport(),
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = sess.Close() }()
+
+	out := call(t, sess, rid("collections.list"), nil, url.Values{"limit": []string{"5"}}, nil).(collectionsPage)
+	if len(out.Items) != 5 || out.NextCursor != "5" {
+		t.Fatalf("expected one bounded page, got %d items (next %q)", len(out.Items), out.NextCursor)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if limit != "6" {
+		t.Fatalf("the server should page the fetch, asked for limit %q", limit)
+	}
+	if counts != 5 {
+		t.Fatalf("expected 5 record counts, got %d", counts)
 	}
 }
 

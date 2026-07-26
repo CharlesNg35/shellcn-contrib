@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
@@ -47,6 +51,48 @@ func TestCollectionsList(t *testing.T) {
 	page := out.(plugin.Page[row])
 	if len(page.Items) != 1 || page.Items[0]["name"] != "docs" || page.Items[0]["points_count"] == nil {
 		t.Fatalf("unexpected page: %#v", page.Items)
+	}
+}
+
+func TestCollectionsListDescribesOnlyThePage(t *testing.T) {
+	var mu sync.Mutex
+	details := 0
+	names := make([]string, 0, 200)
+	for i := range 200 {
+		names = append(names, fmt.Sprintf(`{"name":"c%03d"}`, i))
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/collections" {
+			_, _ = w.Write([]byte(`{"status":"ok","result":{"collections":[` + strings.Join(names, ",") + `]}}`))
+			return
+		}
+		mu.Lock()
+		details++
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"status":"ok","result":{"status":"green","points_count":3}}`))
+	}))
+	defer srv.Close()
+
+	p := New()
+	sess, err := p.Connect(context.Background(), plugin.ConnectConfig{Config: map[string]any{"endpoint": srv.URL}, Net: plugintest.DirectTransport()})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = sess.Close() }()
+	routes := plugintest.RouteMap(p.Routes())
+	rc := plugin.NewRequestContext(context.Background(), plugin.User{}, sess, nil, url.Values{"limit": []string{"10"}}, nil)
+	out, err := routes[rid("collections.list")].Handle(rc)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	page := out.(plugin.Page[row])
+	if len(page.Items) != 10 || page.NextCursor == "" {
+		t.Fatalf("expected one bounded page, got %d items (next %q)", len(page.Items), page.NextCursor)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if details != 10 {
+		t.Fatalf("expected 10 detail fetches, got %d", details)
 	}
 }
 

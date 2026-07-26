@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	driver "github.com/arangodb/go-driver/v2/arangodb"
@@ -13,6 +15,9 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
+// collectionsList slices the requested page out of the collection catalogue
+// first and only then reads properties and counts, so the per-collection round
+// trips are bounded by the page size instead of the database's collection count.
 func collectionsList(rc *plugin.RequestContext) (any, error) {
 	s, err := session(rc)
 	if err != nil {
@@ -23,6 +28,14 @@ func collectionsList(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	req, err := rc.Page()
+	if err != nil {
+		return nil, err
+	}
+	offset, err := cursorOffset(req.Cursor)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(rc.Ctx, s.opts.Timeout)
 	defer cancel()
 	collections, err := db.Collections(ctx)
@@ -30,18 +43,42 @@ func collectionsList(rc *plugin.RequestContext) (any, error) {
 		return nil, arangoErr(err)
 	}
 	includeSystem := strings.EqualFold(paramOrQuery(rc, "system"), "true")
-	rows := make([]row, 0, len(collections))
+	search := strings.ToLower(strings.TrimSpace(req.Search()))
+	byName := make(map[string]driver.Collection, len(collections))
+	names := make([]string, 0, len(collections))
 	for _, collection := range collections {
 		name := collection.Name()
-		system := strings.HasPrefix(name, "_")
-		if system && !includeSystem {
+		if strings.HasPrefix(name, "_") && !includeSystem {
 			continue
 		}
+		if search != "" && !strings.Contains(strings.ToLower(name), search) {
+			continue
+		}
+		byName[name] = collection
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(req.Sort) > 0 && req.Sort[0].Field == "name" && req.Sort[0].Desc {
+		slices.Reverse(names)
+	}
+
+	total := len(names)
+	start := min(offset, total)
+	end := min(start+req.Limit, total)
+	next := ""
+	if end < total {
+		next = strconv.Itoa(end)
+	}
+	page := names[start:end]
+	counts := s.collectionCounts(rc.Ctx, database, page)
+	rows := make([]row, 0, len(page))
+	for i, name := range page {
+		collection := byName[name]
 		item := row{
 			"name":     name,
 			"database": database,
 			"type":     "document",
-			"system":   system,
+			"system":   strings.HasPrefix(name, "_"),
 			"status":   "unknown",
 			"ref":      plugin.ResourceIdentity{Kind: kindCollection, Namespace: database, Name: name, UID: encodeID(kindCollection, database, name)},
 		}
@@ -53,12 +90,40 @@ func collectionsList(rc *plugin.RequestContext) (any, error) {
 			item["wait_for_sync"] = props.WaitForSync
 			item["key_type"] = string(props.KeyOptions.Type)
 		}
-		if count, err := collection.Count(ctx); err == nil {
-			item["documents"] = count
+		if i < len(counts) {
+			item["documents"] = counts[i]
 		}
 		rows = append(rows, item)
 	}
-	return pageRows(rc, rows)
+	return plugin.Page[row]{Items: rows, NextCursor: next, Total: &total}, nil
+}
+
+// collectionCounts reads the stored document count of every collection on the
+// page in one round trip; LENGTH() answers from the collection's own counter.
+func (s *Session) collectionCounts(ctx context.Context, database string, names []string) []int64 {
+	if len(names) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(names))
+	bind := make(map[string]any, len(names))
+	for i, name := range names {
+		key := "c" + strconv.Itoa(i)
+		bind["@"+key] = name
+		parts = append(parts, "LENGTH(@@"+key+")")
+	}
+	value, err := s.queryOne(ctx, database, "RETURN ["+strings.Join(parts, ", ")+"]", bind)
+	if err != nil {
+		return nil
+	}
+	list, ok := value.([]any)
+	if !ok || len(list) != len(names) {
+		return nil
+	}
+	counts := make([]int64, 0, len(list))
+	for _, item := range list {
+		counts = append(counts, numberOf(map[string]any{"n": item}, "n"))
+	}
+	return counts
 }
 
 func collectionRead(rc *plugin.RequestContext) (any, error) {

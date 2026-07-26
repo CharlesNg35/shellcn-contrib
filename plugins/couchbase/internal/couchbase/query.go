@@ -342,8 +342,6 @@ var n1qlKeywords = []string{
 	"EXPLAIN", "ADVISE", "INFER", "PREPARE", "EXECUTE", "META", "ARRAY", "OBJECT_VALUES",
 }
 
-// --- saved queries ----------------------------------------------------------
-
 const savedQueryCollection = "saved_queries"
 
 type savedQuery struct {

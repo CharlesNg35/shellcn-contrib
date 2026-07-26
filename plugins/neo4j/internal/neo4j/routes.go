@@ -165,25 +165,93 @@ func labelsList(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	db := databaseName(rc)
-	rows, err := queryRows(rc.Ctx, s, db, `
-MATCH (n)
-UNWIND labels(n) AS label
-WITH label, count(n) AS nodes
-OPTIONAL MATCH (m)
-WHERE label IN labels(m)
-UNWIND keys(m) AS prop
-RETURN label AS name, nodes, collect(DISTINCT prop)[0..25] AS properties
-ORDER BY name`, nil)
+	names, next, err := catalogueNames(rc, s, db, "db.labels()", "label")
+	if err != nil {
+		return nil, err
+	}
+	counts, err := unionByName(rc.Ctx, s, db, names, func(name, param string) string {
+		return "MATCH (n:" + quoteCypherName(name) + ") WITH count(n) AS nodes RETURN " + param + " AS name, nodes"
+	})
+	if err != nil {
+		return nil, err
+	}
+	props, err := unionByName(rc.Ctx, s, db, names, func(name, param string) string {
+		return "MATCH (n:" + quoteCypherName(name) + ") WITH n LIMIT " + propertyProbeLimit +
+			" UNWIND keys(n) AS prop WITH collect(DISTINCT prop)[0..25] AS properties RETURN " + param + " AS name, properties"
+	})
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]row, 0, len(names))
+	for _, name := range names {
+		rows = append(rows, row{
+			"name":       name,
+			"database":   db,
+			"nodes":      counts[name]["nodes"],
+			"properties": strings.Join(stringSlice(props[name]["properties"]), ", "),
+			"ref":        plugin.ResourceIdentity{Kind: "label", Namespace: db, Name: name, UID: db + ":" + name},
+		})
+	}
+	return plugin.Page[row]{Items: rows, NextCursor: next}, nil
+}
+
+// propertyProbeLimit bounds the property-name sample taken per label or
+// relationship type: enough to describe the shape, never a full scan.
+const propertyProbeLimit = "100"
+
+// catalogueNames reads one bounded page of names from the metadata store
+// (`db.labels()` / `db.relationshipTypes()`), which never touches the data.
+func catalogueNames(rc *plugin.RequestContext, s *Session, db, call, field string) ([]string, string, error) {
+	page, err := rc.Page()
+	if err != nil {
+		return nil, "", err
+	}
+	skip := cursorOffset(page.Cursor)
+	query := "CALL " + call + " YIELD " + field + " WITH " + field + " AS name"
+	params := map[string]any{"skip": skip, "limit": page.Limit}
+	if q := page.Search(); q != "" {
+		query += " WHERE toLower(name) CONTAINS toLower($q)"
+		params["q"] = q
+	}
+	query += " RETURN name ORDER BY name SKIP $skip LIMIT $limit"
+	rows, err := queryRows(rc.Ctx, s, db, query, params)
+	if err != nil {
+		return nil, "", err
+	}
+	names := make([]string, 0, len(rows))
+	for _, r := range rows {
+		names = append(names, fmt.Sprint(r["name"]))
+	}
+	next := ""
+	if len(names) == page.Limit {
+		next = strconv.Itoa(skip + len(names))
+	}
+	return names, next, nil
+}
+
+// unionByName evaluates one branch per name of the current page in a single
+// round trip and keys the rows back by name. Each branch keeps its aggregation
+// alone on a WITH so Neo4j answers it from the count store in constant time.
+func unionByName(ctx context.Context, s *Session, db string, names []string, branch func(name, param string) string) (map[string]row, error) {
+	out := map[string]row{}
+	if len(names) == 0 {
+		return out, nil
+	}
+	parts := make([]string, 0, len(names))
+	params := make(map[string]any, len(names))
+	for i, name := range names {
+		key := "name" + strconv.Itoa(i)
+		params[key] = name
+		parts = append(parts, branch(name, "$"+key))
+	}
+	rows, err := queryRows(ctx, s, db, strings.Join(parts, "\nUNION ALL\n"), params)
 	if err != nil {
 		return nil, err
 	}
 	for _, r := range rows {
-		name := fmt.Sprint(r["name"])
-		r["database"] = db
-		r["properties"] = strings.Join(stringSlice(r["properties"]), ", ")
-		r["ref"] = plugin.ResourceIdentity{Kind: "label", Namespace: db, Name: name, UID: db + ":" + name}
+		out[fmt.Sprint(r["name"])] = r
 	}
-	return broker.PageRows(rc, rows)
+	return out, nil
 }
 
 func labelOverview(rc *plugin.RequestContext) (any, error) {
@@ -223,21 +291,34 @@ func relationshipTypesList(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	db := databaseName(rc)
-	rows, err := queryRows(rc.Ctx, s, db, `
-MATCH ()-[r]->()
-WITH type(r) AS name, count(r) AS relationships, collect(DISTINCT keys(r))[0..100] AS property_sets
-RETURN name, relationships, property_sets AS properties
-ORDER BY name`, nil)
+	names, next, err := catalogueNames(rc, s, db, "db.relationshipTypes()", "relationshipType")
 	if err != nil {
 		return nil, err
 	}
-	for _, r := range rows {
-		name := fmt.Sprint(r["name"])
-		r["database"] = db
-		r["properties"] = compactValue(r["properties"])
-		r["ref"] = plugin.ResourceIdentity{Kind: "relationship_type", Namespace: db, Name: name, UID: db + ":" + name}
+	counts, err := unionByName(rc.Ctx, s, db, names, func(name, param string) string {
+		return "MATCH ()-[r:" + quoteCypherName(name) + "]->() WITH count(r) AS relationships RETURN " + param + " AS name, relationships"
+	})
+	if err != nil {
+		return nil, err
 	}
-	return broker.PageRows(rc, rows)
+	props, err := unionByName(rc.Ctx, s, db, names, func(name, param string) string {
+		return "MATCH ()-[r:" + quoteCypherName(name) + "]->() WITH r LIMIT " + propertyProbeLimit +
+			" UNWIND keys(r) AS prop WITH collect(DISTINCT prop)[0..25] AS properties RETURN " + param + " AS name, properties"
+	})
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]row, 0, len(names))
+	for _, name := range names {
+		rows = append(rows, row{
+			"name":          name,
+			"database":      db,
+			"relationships": counts[name]["relationships"],
+			"properties":    strings.Join(stringSlice(props[name]["properties"]), ", "),
+			"ref":           plugin.ResourceIdentity{Kind: "relationship_type", Namespace: db, Name: name, UID: db + ":" + name},
+		})
+	}
+	return plugin.Page[row]{Items: rows, NextCursor: next}, nil
 }
 
 func relationshipTypeOverview(rc *plugin.RequestContext) (any, error) {
@@ -756,30 +837,21 @@ func relationshipUpdate(rc *plugin.RequestContext) (any, error) {
 	return editorContent(rows[0]["properties"])
 }
 
+// The graph views stream the first `limit` matches and stop. Ranking by degree
+// would force a global sort of every relationship in the database before all but
+// `limit` rows are discarded, so the payload reports itself as truncated instead.
 func graphRoute(rc *plugin.RequestContext) (any, error) {
-	return graphQuery(rc, databaseName(rc), `
-MATCH (a)-[r]->(b)
-WITH a, r, b, count { (a)--() } + count { (b)--() } AS degree
-ORDER BY degree DESC
-RETURN a, r, b LIMIT $limit`, nil)
+	return graphQuery(rc, databaseName(rc), "MATCH (a)-[r]->(b) RETURN a, r, b LIMIT $limit", nil)
 }
 
 func labelGraph(rc *plugin.RequestContext) (any, error) {
 	db, label := databaseName(rc), rc.Param("label")
-	return graphQuery(rc, db, `
-MATCH (a:`+quoteCypherName(label)+`)-[r]-(b)
-WITH a, r, b, count { (a)--() } + count { (b)--() } AS degree
-ORDER BY degree DESC
-RETURN a, r, b LIMIT $limit`, nil)
+	return graphQuery(rc, db, "MATCH (a:"+quoteCypherName(label)+")-[r]-(b) RETURN a, r, b LIMIT $limit", nil)
 }
 
 func relationshipTypeGraph(rc *plugin.RequestContext) (any, error) {
 	db, typ := databaseName(rc), rc.Param("type")
-	return graphQuery(rc, db, `
-MATCH (a)-[r:`+quoteCypherName(typ)+`]->(b)
-WITH a, r, b, count { (a)--() } + count { (b)--() } AS degree
-ORDER BY degree DESC
-RETURN a, r, b LIMIT $limit`, nil)
+	return graphQuery(rc, db, "MATCH (a)-[r:"+quoteCypherName(typ)+"]->(b) RETURN a, r, b LIMIT $limit", nil)
 }
 
 // nodeGraph returns a node's immediate neighbourhood for click-to-expand: the
@@ -800,7 +872,8 @@ func graphQuery(rc *plugin.RequestContext, db, query string, params map[string]a
 	if params == nil {
 		params = map[string]any{}
 	}
-	params["limit"] = s.opts.PageLimit
+	limit := s.opts.PageLimit
+	params["limit"] = limit
 	ctx, cancel := context.WithTimeout(rc.Ctx, s.opts.QueryTimeout)
 	defer cancel()
 	session := s.driver.NewSession(ctx, driver.SessionConfig{DatabaseName: db, AccessMode: driver.AccessModeRead, FetchSize: s.opts.FetchSize})
@@ -814,6 +887,9 @@ func graphQuery(rc *plugin.RequestContext, db, query string, params map[string]a
 		return nil, neo4jErr(err)
 	}
 	graph := graphPayload{Nodes: []graphNode{}, Edges: []graphEdge{}}
+	if len(records) >= limit {
+		graph.Truncated, graph.Limit = true, limit
+	}
 	seenNodes, seenEdges := map[string]bool{}, map[string]bool{}
 	for _, record := range records {
 		for _, value := range record.Values {

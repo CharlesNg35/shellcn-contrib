@@ -124,13 +124,36 @@ func readTrace(rc *plugin.RequestContext) (any, error) {
 	return rows[0], nil
 }
 
+// spanBudget caps how many spans one trace contributes to the span grid. A
+// fan-out-heavy trace routinely carries tens of thousands of spans and the grid
+// renders one page of them.
+const spanBudget = plugin.MaxPageLimit
+
+// spansPage embeds the unchanged paged wire contract and adds the budget signal:
+// truncated and spanLimit tell the panel the span list is partial, rather than
+// reporting a total that is only the cap. Traces under budget answer with the
+// plain page.
+type spansPage struct {
+	plugin.Page[row]
+	Truncated bool `json:"truncated"`
+	SpanLimit int  `json:"spanLimit"`
+}
+
 func listSpans(rc *plugin.RequestContext) (any, error) {
 	trace, err := readTrace(rc)
 	if err != nil {
 		return nil, err
 	}
-	rows := flattenSpans(trace.(row))
-	return broker.PageRows(rc, rows)
+	rows, truncated := flattenSpans(trace.(row), spanBudget)
+	page, err := broker.PageRows(rc, rows)
+	if err != nil {
+		return nil, err
+	}
+	if !truncated {
+		return page, nil
+	}
+	page.Total = nil
+	return spansPage{Page: page, Truncated: true, SpanLimit: spanBudget}, nil
 }
 
 func fetchServices(rc *plugin.RequestContext) ([]string, error) {
@@ -174,23 +197,31 @@ func traceRows(result row) []row {
 	return out
 }
 
-func flattenSpans(trace row) []row {
-	resourceSpans := asRows(trace["resourceSpans"])
+// flattenSpans renders a trace's spans as grid rows, stopping at budget. The
+// walk is inlined rather than going through spansForResource so a trace with
+// 200k spans is never materialized in full just to show 50 of them.
+func flattenSpans(trace row, budget int) ([]row, bool) {
 	out := []row{}
-	for _, resourceSpan := range resourceSpans {
+	for _, resourceSpan := range asRows(trace["resourceSpans"]) {
 		service := resourceServiceName(resourceSpan)
-		for _, span := range spansForResource(resourceSpan, service) {
-			out = append(out, row{
-				"spanID":        span["spanID"],
-				"operationName": span["operationName"],
-				"serviceName":   span["serviceName"],
-				"duration":      span["duration"],
-				"startTime":     span["startTime"],
-				"tags":          span["tags"],
-			})
+		for _, scopeSpan := range asRows(resourceSpan["scopeSpans"]) {
+			for _, raw := range asRows(scopeSpan["spans"]) {
+				if len(out) >= budget {
+					return out, true
+				}
+				span := normalizeSpan(raw, service)
+				out = append(out, row{
+					"spanID":        span["spanID"],
+					"operationName": span["operationName"],
+					"serviceName":   span["serviceName"],
+					"duration":      span["duration"],
+					"startTime":     span["startTime"],
+					"tags":          span["tags"],
+				})
+			}
 		}
 	}
-	return out
+	return out, false
 }
 
 func spansForResource(resourceSpan row, service string) []row {

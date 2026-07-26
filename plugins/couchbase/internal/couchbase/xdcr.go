@@ -209,8 +209,6 @@ func usersList(rc *plugin.RequestContext) (any, error) {
 	return broker.PageRows(rc, rows)
 }
 
-// --- embedded web console ---------------------------------------------------
-
 func consoleURL(rc *plugin.RequestContext) (any, error) {
 	return row{"url": rc.ProxyURL()}, nil
 }

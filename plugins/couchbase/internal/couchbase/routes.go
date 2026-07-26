@@ -8,7 +8,6 @@ import (
 
 func routes() []plugin.Route {
 	out := []plugin.Route{
-		// --- navigation ------------------------------------------------------
 		{ID: rid("tree.buckets"), Method: plugin.MethodGet, Path: "/tree/buckets",
 			Permission: "couchbase.buckets.read", Risk: plugin.RiskSafe, AuditEvent: rid("tree.buckets"), Handle: treeBuckets},
 		{ID: rid("tree.scopes"), Method: plugin.MethodGet, Path: "/tree/buckets/{bucket}/scopes",
@@ -16,7 +15,6 @@ func routes() []plugin.Route {
 		{ID: rid("tree.collections"), Method: plugin.MethodGet, Path: "/tree/buckets/{bucket}/scopes/{scope}/collections",
 			Permission: "couchbase.buckets.read", Risk: plugin.RiskSafe, AuditEvent: rid("tree.collections"), Handle: treeCollections},
 
-		// --- cluster ---------------------------------------------------------
 		{ID: rid("cluster.list"), Method: plugin.MethodGet, Path: "/cluster",
 			Permission: "couchbase.cluster.read", Risk: plugin.RiskSafe, AuditEvent: rid("cluster.list"), Handle: clusterList},
 		{ID: rid("cluster.overview"), Method: plugin.MethodGet, Path: "/cluster/overview",
@@ -36,7 +34,6 @@ func routes() []plugin.Route {
 		{ID: rid("users.list"), Method: plugin.MethodGet, Path: "/users",
 			Permission: "couchbase.security.read", Risk: plugin.RiskSafe, AuditEvent: rid("users.list"), Handle: usersList},
 
-		// --- buckets ---------------------------------------------------------
 		{ID: rid("buckets.list"), Method: plugin.MethodGet, Path: "/buckets",
 			Permission: "couchbase.buckets.read", Risk: plugin.RiskSafe, AuditEvent: rid("buckets.list"), Handle: bucketsList},
 		{ID: rid("bucket.read"), Method: plugin.MethodGet, Path: "/buckets/{bucket}",
@@ -58,7 +55,6 @@ func routes() []plugin.Route {
 		{ID: rid("bucket.delete"), Method: plugin.MethodDelete, Path: "/buckets/{bucket}",
 			Permission: "couchbase.buckets.delete", Risk: plugin.RiskDestructive, AuditEvent: rid("bucket.delete"), Handle: bucketDelete},
 
-		// --- scopes and collections ------------------------------------------
 		{ID: rid("scopes.list"), Method: plugin.MethodGet, Path: "/buckets/{bucket}/scopes",
 			Permission: "couchbase.buckets.read", Risk: plugin.RiskSafe, AuditEvent: rid("scopes.list"), Handle: scopesList},
 		{ID: rid("scope.read"), Method: plugin.MethodGet, Path: "/scopes/{keyspace}",
@@ -80,7 +76,6 @@ func routes() []plugin.Route {
 		{ID: rid("collection.delete"), Method: plugin.MethodDelete, Path: "/collections/{keyspace}",
 			Permission: "couchbase.buckets.delete", Risk: plugin.RiskDestructive, AuditEvent: rid("collection.delete"), Handle: collectionDelete},
 
-		// --- documents and KV -------------------------------------------------
 		{ID: rid("documents.list"), Method: plugin.MethodGet, Path: "/documents",
 			Permission: "couchbase.documents.read", Risk: plugin.RiskSafe, AuditEvent: rid("documents.list"), Handle: documentsList},
 		{ID: rid("documents.columns"), Method: plugin.MethodGet, Path: "/documents/columns",
@@ -99,7 +94,6 @@ func routes() []plugin.Route {
 		{ID: rid("document.remove"), Method: plugin.MethodDelete, Path: "/documents/{id}",
 			Permission: "couchbase.documents.delete", Risk: plugin.RiskDestructive, AuditEvent: rid("document.remove"), Handle: documentRemove},
 
-		// --- indexes ----------------------------------------------------------
 		{ID: rid("indexes.list"), Method: plugin.MethodGet, Path: "/indexes",
 			Permission: "couchbase.indexes.read", Risk: plugin.RiskSafe, AuditEvent: rid("indexes.list"), Handle: indexesList},
 		{ID: rid("index.read"), Method: plugin.MethodGet, Path: "/indexes/{id}",
@@ -112,7 +106,6 @@ func routes() []plugin.Route {
 		{ID: rid("index.drop"), Method: plugin.MethodDelete, Path: "/indexes/{id}",
 			Permission: "couchbase.indexes.delete", Risk: plugin.RiskDestructive, AuditEvent: rid("index.drop"), Handle: indexDrop},
 
-		// --- XDCR --------------------------------------------------------------
 		{ID: rid("replications.list"), Method: plugin.MethodGet, Path: "/xdcr/replications",
 			Permission: "couchbase.xdcr.read", Risk: plugin.RiskSafe, AuditEvent: rid("replications.list"), Handle: replicationsList},
 		{ID: rid("replication.read"), Method: plugin.MethodGet, Path: "/xdcr/replications/{id}",
@@ -120,7 +113,6 @@ func routes() []plugin.Route {
 		{ID: rid("remotes.list"), Method: plugin.MethodGet, Path: "/xdcr/remotes",
 			Permission: "couchbase.xdcr.read", Risk: plugin.RiskSafe, AuditEvent: rid("remotes.list"), Handle: remotesList},
 
-		// --- SQL++ -------------------------------------------------------------
 		{ID: rid("query"), Method: plugin.MethodWS, Path: "/query",
 			Permission: "couchbase.query.exec", Risk: plugin.RiskPrivileged, AuditEvent: rid("query"), Stream: queryStream},
 		{ID: rid("advisor"), Method: plugin.MethodWS, Path: "/advisor",
@@ -137,7 +129,6 @@ func routes() []plugin.Route {
 		{ID: rid("query.delete"), Method: plugin.MethodDelete, Path: "/saved-queries/{id}",
 			Permission: "couchbase.query.exec", Risk: plugin.RiskDestructive, AuditEvent: rid("query.delete"), Handle: savedQueryDelete},
 
-		// --- data map and console ---------------------------------------------
 		{ID: rid("datamap"), Method: plugin.MethodWS, Path: "/datamap",
 			Permission: "couchbase.buckets.read", Risk: plugin.RiskSafe, AuditEvent: rid("datamap"), Stream: dataMapStream},
 		{ID: rid("console.url"), Method: plugin.MethodGet, Path: "/console-url",
@@ -175,8 +166,6 @@ func readOnlyGuard(id string, next plugin.Handler) plugin.Handler {
 		return next(rc)
 	}
 }
-
-// --- input schemas ----------------------------------------------------------
 
 func createBucketSchema() *plugin.Schema {
 	return &plugin.Schema{Groups: []plugin.Group{{Name: "Bucket", Fields: []plugin.Field{

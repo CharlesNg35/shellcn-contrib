@@ -100,9 +100,25 @@ func viewScope(rc *plugin.RequestContext) (*Session, string, string, error) {
 	return s, database, name, nil
 }
 
-// pageRows applies the grid's search, sort and cursor to an in-memory slice.
+// scanCap bounds any listing paged in memory.
+const scanCap = plugin.MaxPageLimit * 10
+
+// pageRows applies the grid's search, sort and cursor to an in-memory slice. A
+// slice that reaches the scan cap is cut there and paged without a Total, so the
+// grid never renders a collection of unbounded size nor a count known to be short.
 func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
-	return broker.PageRows(rc, rows)
+	truncated := len(rows) >= scanCap
+	if truncated {
+		rows = rows[:scanCap]
+	}
+	page, err := broker.PageRows(rc, rows)
+	if err != nil {
+		return plugin.Page[row]{}, err
+	}
+	if truncated {
+		page.Total = nil
+	}
+	return page, nil
 }
 
 func replicationFactorText(factor driver.ReplicationFactor) string {

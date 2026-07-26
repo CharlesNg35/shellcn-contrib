@@ -97,7 +97,6 @@ func perm(suffix string) string { return protocolName + "." + suffix }
 
 func session(rc *plugin.RequestContext) (*Session, error) { return unwrap(rc.Session) }
 
-// clientOf resolves the session client for the scope-selected database.
 func clientOf(rc *plugin.RequestContext) (*Session, *milvusclient.Client, error) {
 	s, err := session(rc)
 	if err != nil {

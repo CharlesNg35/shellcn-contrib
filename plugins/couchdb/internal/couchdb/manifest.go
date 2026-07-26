@@ -81,8 +81,6 @@ func streams() []plugin.Stream {
 	}
 }
 
-// --- shared param maps -------------------------------------------------------
-
 func dbParams() map[string]string { return map[string]string{"db": "${resource.name}"} }
 
 func docParams() map[string]string {
@@ -100,8 +98,6 @@ func viewParams() map[string]string {
 func replicationParams() map[string]string { return map[string]string{"id": "${resource.name}"} }
 
 func nodeParams() map[string]string { return map[string]string{"node": "${resource.name}"} }
-
-// --- columns -----------------------------------------------------------------
 
 func databaseColumns() []plugin.Column {
 	return []plugin.Column{
@@ -267,8 +263,6 @@ func serverColumns() []plugin.Column {
 		{Key: "databases", Label: "Databases", Type: plugin.ColumnNumber},
 	}
 }
-
-// --- resources ---------------------------------------------------------------
 
 func resources() []plugin.ResourceType {
 	return []plugin.ResourceType{
@@ -823,8 +817,6 @@ func nodeResource() plugin.ResourceType {
 		},
 	}
 }
-
-// --- actions -----------------------------------------------------------------
 
 func actions() []plugin.Action {
 	return []plugin.Action{

@@ -1,6 +1,7 @@
 package nats
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"sort"
@@ -106,12 +107,40 @@ func overview(rc *plugin.RequestContext) (any, error) {
 	}, nil
 }
 
+// scanLimit caps how far a listing walks the JetStream API. Streams(),
+// StreamNames(), and Consumers() are paginated iterators; running them to
+// exhaustion turns one 50-row page into thousands of round trips against a large
+// account, and the unscoped consumer listing is an N*M walk on top of that.
+const scanLimit = 1000
+
+// scanPage embeds the unchanged paged wire contract and adds the walk cap
+// signal: truncated and scanLimit tell the browser the walk stopped at the cap.
+type scanPage struct {
+	plugin.Page[row]
+	Truncated bool `json:"truncated,omitempty"`
+	ScanLimit int  `json:"scanLimit,omitempty"`
+}
+
+// pageScan slices one page out of a bounded walk. A capped walk reports
+// truncated instead of a total, because the total it could offer would be the
+// cap rather than the account's real count.
+func pageScan(rc *plugin.RequestContext, rows []row, truncated bool) (scanPage, error) {
+	page, err := broker.PageRows(rc, rows)
+	if err != nil {
+		return scanPage{}, err
+	}
+	out := scanPage{Page: page}
+	if truncated {
+		out.Page.Total, out.Truncated, out.ScanLimit = nil, true, scanLimit
+	}
+	return out, nil
+}
+
 func treeStreams(rc *plugin.RequestContext) (any, error) {
-	res, err := listStreams(rc)
+	page, err := streamsPage(rc)
 	if err != nil {
 		return nil, err
 	}
-	page := res.(plugin.Page[row])
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
@@ -121,20 +150,33 @@ func treeStreams(rc *plugin.RequestContext) (any, error) {
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
 }
 
-func listStreams(rc *plugin.RequestContext) (any, error) {
+func streamsPage(rc *plugin.RequestContext) (scanPage, error) {
 	s, err := natsSession(rc)
 	if err != nil {
-		return nil, err
+		return scanPage{}, err
 	}
+	// Cancelling the context stops the iterator's producer goroutine, so breaking
+	// out at the cap does not leave it parked on an unread channel.
+	ctx, cancel := context.WithCancel(rc.Ctx)
+	defer cancel()
 	rows := []row{}
-	for info := range s.js.Streams() {
+	truncated := false
+	for info := range s.js.Streams(natsclient.Context(ctx)) {
 		if info == nil {
 			continue
+		}
+		if len(rows) >= scanLimit {
+			truncated = true
+			break
 		}
 		rows = append(rows, streamRow(info))
 	}
 	sort.Slice(rows, func(i, j int) bool { return fmt.Sprint(rows[i]["name"]) < fmt.Sprint(rows[j]["name"]) })
-	return broker.PageRows(rc, rows)
+	return pageScan(rc, rows, truncated)
+}
+
+func listStreams(rc *plugin.RequestContext) (any, error) {
+	return streamsPage(rc)
 }
 
 func streamOverview(rc *plugin.RequestContext) (any, error) {
@@ -289,11 +331,18 @@ func listConsumers(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithCancel(rc.Ctx)
+	defer cancel()
 	stream := streamParam(rc)
 	streams := []string{stream}
+	truncated := false
 	if stream == "" {
 		streams = nil
-		for name := range s.js.StreamNames() {
+		for name := range s.js.StreamNames(natsclient.Context(ctx)) {
+			if len(streams) >= scanLimit {
+				truncated = true
+				break
+			}
 			streams = append(streams, name)
 		}
 		sort.Strings(streams)
@@ -303,13 +352,21 @@ func listConsumers(rc *plugin.RequestContext) (any, error) {
 		if streamName == "" {
 			continue
 		}
-		for info := range s.js.Consumers(streamName) {
+		if len(rows) >= scanLimit {
+			truncated = true
+			break
+		}
+		for info := range s.js.Consumers(streamName, natsclient.Context(ctx)) {
 			if info != nil {
 				rows = append(rows, consumerRow(info))
 			}
+			if len(rows) >= scanLimit {
+				truncated = true
+				break
+			}
 		}
 	}
-	return broker.PageRows(rc, rows)
+	return pageScan(rc, rows, truncated)
 }
 
 func consumerOverview(rc *plugin.RequestContext) (any, error) {

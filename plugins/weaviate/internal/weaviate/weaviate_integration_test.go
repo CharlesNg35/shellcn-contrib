@@ -4,18 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	contribtest "github.com/charlesng35/shellcn-contrib/shared/plugintest"
 	"github.com/charlesng35/shellcn/sdk/plugin"
 	"github.com/charlesng35/shellcn/sdk/plugintest"
+	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 const weaviateImage = "cr.weaviate.io/semitechnologies/weaviate:1.38.6"
@@ -735,4 +740,267 @@ func decodeFrames(t *testing.T, raw []byte) []map[string]any {
 func rowCount(frame map[string]any) int {
 	count, _ := numberOf(frame["rowCount"])
 	return int(count)
+}
+
+// Bounded object listing: the collection is seeded with roughly ten pages worth
+// of objects so a handler that materialized the whole class, or counted it,
+// would be visible in the page contents and in the request tape.
+const (
+	pagingSeedCount  = 230
+	pagingPageLimit  = 25
+	pagingSessionCap = 40
+	pagingFullPages  = pagingSeedCount / pagingPageLimit
+	pagingTotalPages = pagingFullPages + 1
+)
+
+func TestWeaviateObjectPagingIntegration(t *testing.T) {
+	if os.Getenv("SHELLCN_WEAVIATE_INTEGRATION") != "1" {
+		t.Skip("set SHELLCN_WEAVIATE_INTEGRATION=1 to run against a real Weaviate")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	endpoint := weaviateEndpoint(ctx, t)
+	p := New()
+	sess, err := p.Connect(ctx, plugin.ConnectConfig{
+		Config: map[string]any{
+			"endpoint":          endpoint,
+			"auth":              "none",
+			"tls_mode":          "disable",
+			"read_only":         false,
+			"consistency_level": "ONE",
+			"page_limit":        pagingSessionCap,
+			"vector_sample":     50,
+			"timeout":           "60s",
+		},
+		Net: plugintest.DirectTransport(),
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = sess.Close() }()
+
+	h := contribtest.NewHarness(t, p.Routes())
+	class := "ShellcnPaging" + time.Now().UTC().Format("20060102150405")
+	t.Cleanup(func() {
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancelCleanup()
+		h.CallNoFail(cleanupCtx, rid("collection.delete"), sess, map[string]string{"collection": class})
+	})
+
+	h.Call(ctx, rid("collection.create"), sess, nil, nil, mustJSON(t, map[string]any{
+		"name": class, "vectorizer": "none", "vector_index_type": "hnsw", "distance": "cosine",
+	}))
+	h.Call(ctx, rid("property.create"), sess, map[string]string{"collection": class}, nil,
+		mustJSON(t, map[string]any{"name": "title", "data_type": "text"}))
+	h.Call(ctx, rid("property.create"), sess, map[string]string{"collection": class}, nil,
+		mustJSON(t, map[string]any{"name": "rank", "data_type": "int"}))
+
+	seedPagingObjects(ctx, t, sess, class, pagingSeedCount)
+	waitForPagedObjects(ctx, t, h, sess, class, pagingSeedCount)
+
+	tape := recordGraphQL(t, sess)
+
+	first := objectsPage(ctx, t, h, sess, class, pagingPageLimit, "")
+	if len(first.Items) != pagingPageLimit {
+		t.Fatalf("objects.list returned %d rows for a limit of %d: the listing is not bounded to one page (%d seeded)",
+			len(first.Items), pagingPageLimit, pagingSeedCount)
+	}
+	if first.NextCursor == "" {
+		t.Fatalf("a full page must hand back a cursor for the next one")
+	}
+	if first.Total != nil {
+		t.Fatalf("objects.list must not report an exact total, got %d: that costs a full-collection count", *first.Total)
+	}
+
+	tape.reset()
+	seen := map[string]int{}
+	ranks := make([]int, 0, pagingSeedCount)
+	cursor := ""
+	pages := 0
+	for {
+		page := objectsPage(ctx, t, h, sess, class, pagingPageLimit, cursor)
+		pages++
+		if pages > pagingTotalPages {
+			t.Fatalf("paging did not terminate after %d pages", pages)
+		}
+		if page.Total != nil {
+			t.Fatalf("page %d reported a total of %d", pages, *page.Total)
+		}
+		for _, item := range page.Items {
+			id := text(item["id"])
+			if previous, duplicate := seen[id]; duplicate {
+				t.Fatalf("object %s was returned on page %d and again on page %d", id, previous, pages)
+			}
+			seen[id] = pages
+			rank, ok := numberOf(item["rank"])
+			if !ok {
+				t.Fatalf("object %s has no rank: %#v", id, item)
+			}
+			ranks = append(ranks, int(rank))
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		if len(page.Items) != pagingPageLimit {
+			t.Fatalf("page %d returned %d rows but still advertised cursor %q", pages, len(page.Items), page.NextCursor)
+		}
+		cursor = page.NextCursor
+	}
+
+	if pages != pagingTotalPages {
+		t.Fatalf("walked %d pages of %d, want %d", pages, pagingPageLimit, pagingTotalPages)
+	}
+	if len(seen) != pagingSeedCount {
+		t.Fatalf("paging covered %d of %d objects", len(seen), pagingSeedCount)
+	}
+	for i, rank := range ranks {
+		if rank != i {
+			t.Fatalf("paging lost the seeded order at position %d: got rank %d", i, rank)
+		}
+	}
+	if tape.graphql != pages {
+		t.Fatalf("the page walk issued %d GraphQL requests for %d pages", tape.graphql, pages)
+	}
+	if tape.aggregate != 0 {
+		t.Fatalf("objects.list issued %d Aggregate queries: the hot path must not count the collection", tape.aggregate)
+	}
+
+	over := objectsPage(ctx, t, h, sess, class, plugin.MaxPageLimit, "")
+	if len(over.Items) != pagingSessionCap {
+		t.Fatalf("a request for %d rows returned %d: the session page limit of %d must clamp it",
+			plugin.MaxPageLimit, len(over.Items), pagingSessionCap)
+	}
+	if over.NextCursor == "" || over.Total != nil {
+		t.Fatalf("a clamped page must still cursor and still omit the total: %#v", over)
+	}
+}
+
+func objectsPage(ctx context.Context, t *testing.T, h *contribtest.Harness, sess plugin.Session, class string, limit int, cursor string) plugin.Page[row] {
+	t.Helper()
+	query := url.Values{"limit": []string{strconv.Itoa(limit)}, "sort": []string{"rank"}}
+	if cursor != "" {
+		query.Set("cursor", cursor)
+	}
+	out := h.Call(ctx, rid("objects.list"), sess, map[string]string{"collection": class}, query, nil)
+	page, ok := out.(plugin.Page[row])
+	if !ok {
+		t.Fatalf("objects.list returned %T, want a bounded page", out)
+	}
+	return page
+}
+
+func seedPagingObjects(ctx context.Context, t *testing.T, sess plugin.Session, class string, count int) {
+	t.Helper()
+	s, err := unwrap(sess)
+	if err != nil {
+		t.Fatalf("unwrap session: %v", err)
+	}
+	const chunk = 50
+	for start := 0; start < count; start += chunk {
+		end := min(start+chunk, count)
+		objects := make([]*models.Object, 0, end-start)
+		for i := start; i < end; i++ {
+			objects = append(objects, &models.Object{
+				Class:      class,
+				ID:         strfmt.UUID(fmt.Sprintf("cccccccc-0000-4000-8000-%012d", i)),
+				Properties: map[string]any{"title": fmt.Sprintf("doc-%04d", i), "rank": i},
+				Vector:     []float32{float32(i) / float32(count), 0.25, 0.5},
+			})
+		}
+		resp, err := s.client.batch.ObjectsBatcher().WithObjects(objects...).Do(ctx)
+		if err != nil {
+			t.Fatalf("seed objects %d-%d: %v", start, end, err)
+		}
+		for _, item := range resp {
+			if item.Result == nil || item.Result.Errors == nil || len(item.Result.Errors.Error) == 0 {
+				continue
+			}
+			t.Fatalf("seed objects %d-%d: %s", start, end, item.Result.Errors.Error[0].Message)
+		}
+	}
+}
+
+func waitForPagedObjects(ctx context.Context, t *testing.T, h *contribtest.Harness, sess plugin.Session, class string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		got := 0
+		cursor := ""
+		for page := 0; page <= pagingTotalPages; page++ {
+			listing := objectsPage(ctx, t, h, sess, class, pagingPageLimit, cursor)
+			got += len(listing.Items)
+			if listing.NextCursor == "" {
+				break
+			}
+			cursor = listing.NextCursor
+		}
+		if got >= want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("only %d/%d seeded objects became visible in %s", got, want, class)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+// graphqlTape counts the GraphQL requests the session issues so the test can
+// tell a one-query-per-page listing from one that also counts the collection.
+type graphqlTape struct {
+	base      http.RoundTripper
+	mu        sync.Mutex
+	graphql   int
+	aggregate int
+}
+
+func recordGraphQL(t *testing.T, sess plugin.Session) *graphqlTape {
+	t.Helper()
+	s, err := unwrap(sess)
+	if err != nil {
+		t.Fatalf("unwrap session: %v", err)
+	}
+	base := s.http.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	tape := &graphqlTape{base: base}
+	s.http.Transport = tape
+	t.Cleanup(func() { s.http.Transport = base })
+	return tape
+}
+
+func (g *graphqlTape) RoundTrip(req *http.Request) (*http.Response, error) {
+	if strings.HasSuffix(req.URL.Path, "/graphql") {
+		body := requestBody(req)
+		g.mu.Lock()
+		g.graphql++
+		if strings.Contains(body, "Aggregate") {
+			g.aggregate++
+		}
+		g.mu.Unlock()
+	}
+	return g.base.RoundTrip(req)
+}
+
+func (g *graphqlTape) reset() {
+	g.mu.Lock()
+	g.graphql, g.aggregate = 0, 0
+	g.mu.Unlock()
+}
+
+func requestBody(req *http.Request) string {
+	if req.GetBody == nil {
+		return ""
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = body.Close() }()
+	raw, err := io.ReadAll(body)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }

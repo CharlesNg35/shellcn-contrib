@@ -5,6 +5,7 @@
   var SQL = null, db = null, dbName = "", dirty = false;
   var pageSize = 50, mode = null, cursor = null, table = null, selection = {};
   var refs = {}, lastGrid = null, searchTimer = null;
+  var cursorPages = 4;
 
   function applyTheme(theme, colors) {
     document.body.dataset.theme = theme === "light" ? "light" : "dark";
@@ -228,18 +229,20 @@
   function loadTablePage(pageIndex) {
     mode = "table"; table.page = pageIndex; selection = {};
     var where = searchWhere(), params = searchParams();
-    var total = 0;
-    try { var c = db.exec("SELECT count(*) FROM " + ident(table.name) + where, params); total = c.length ? c[0].values[0][0] : 0; } catch (e) {}
     var offset = pageIndex * pageSize;
     var names = table.cols.map(function (c) { return c.name; });
     var rows = [];
     try {
       var idsel = table.hasRowid ? "rowid AS __rid, " : "";
-      var res = db.exec("SELECT " + idsel + table.cols.map(function (c) { return ident(c.name); }).join(", ") + " FROM " + ident(table.name) + where + " LIMIT " + pageSize + " OFFSET " + offset, params);
+      var res = db.exec("SELECT " + idsel + table.cols.map(function (c) { return ident(c.name); }).join(", ") + " FROM " + ident(table.name) + where + " LIMIT " + (pageSize + 1) + " OFFSET " + offset, params);
       if (res.length) rows = res[0].values;
     } catch (e) { if (table.hasRowid) { table.hasRowid = false; return loadTablePage(pageIndex); } renderError(msg(e)); return; }
-    grid(names, rows, { start: offset, total: total, hasPrev: pageIndex > 0, hasNext: offset + rows.length < total, onPrev: function () { loadTablePage(pageIndex - 1); }, onNext: function () { loadTablePage(pageIndex + 1); } }, table.hasRowid, function (row) { return row[0]; });
-    setStatus(table.name + " · " + total + " row(s)" + (table.search ? " matching “" + table.search + "”" : "") + (table.hasRowid ? " · editable" : ""), "ok");
+    // SQLite keeps no row count, so count(*) would full-scan on every page turn; the extra row answers hasNext instead.
+    var hasNext = rows.length > pageSize;
+    if (hasNext) rows = rows.slice(0, pageSize);
+    grid(names, rows, { start: offset, total: null, hasPrev: pageIndex > 0, hasNext: hasNext, onPrev: function () { loadTablePage(pageIndex - 1); }, onNext: function () { loadTablePage(pageIndex + 1); } }, table.hasRowid, function (row) { return row[0]; });
+    var range = rows.length ? offset + 1 : 0;
+    setStatus(table.name + " · rows " + range + "–" + (offset + rows.length) + (hasNext ? "+" : "") + (table.search ? " matching “" + table.search + "”" : "") + (table.hasRowid ? " · editable" : ""), "ok");
   }
 
   function runQuery() {
@@ -267,16 +270,32 @@
     } catch (e) { renderError(msg(e)); setStatus("Error", "error"); }
   }
 
+  function resetCursor() {
+    try { cursor.stmt.reset(); } catch (e) {}
+    cursor.cache = {}; cursor.order = []; cursor.read = 0; cursor.done = false; cursor.pending = null; cursor.pageSize = pageSize;
+  }
+
+  // Pages are stepped once and held in a small ring; a sqlite stmt can only walk forward, so re-reading a page means resetting and re-stepping from row 0.
+  function cursorPage(pageIndex) {
+    if (!cursor.cache || cursor.pageSize !== pageSize) resetCursor();
+    if (!cursor.cache[pageIndex] && pageIndex < cursor.read) resetCursor();
+    while (!cursor.cache[pageIndex] && !cursor.done) {
+      var rows = [];
+      if (cursor.pending) { rows.push(cursor.pending); cursor.pending = null; }
+      while (rows.length < pageSize && cursor.stmt.step()) rows.push(cursor.stmt.get());
+      if (cursor.stmt.step()) cursor.pending = cursor.stmt.get(); else cursor.done = true;
+      cursor.cache[cursor.read] = { rows: rows, hasNext: cursor.pending != null };
+      cursor.order.push(cursor.read);
+      cursor.read++;
+      while (cursor.order.length > cursorPages) delete cursor.cache[cursor.order.shift()];
+    }
+    return cursor.cache[pageIndex] || { rows: [], hasNext: false };
+  }
+
   function renderCursorPage(pageIndex) {
-    var stmt = cursor.stmt;
-    stmt.reset();
-    var skip = pageIndex * pageSize;
-    for (var i = 0; i < skip; i++) if (!stmt.step()) break;
-    var rows = [];
-    while (rows.length < pageSize && stmt.step()) rows.push(stmt.get());
-    var hasNext = stmt.step();
+    var page = cursorPage(pageIndex);
     cursor.page = pageIndex;
-    grid(cursor.columns, rows, { start: skip, total: null, hasPrev: pageIndex > 0, hasNext: hasNext, onPrev: function () { renderCursorPage(pageIndex - 1); }, onNext: function () { renderCursorPage(pageIndex + 1); } }, false, null);
+    grid(cursor.columns, page.rows, { start: pageIndex * pageSize, total: null, hasPrev: pageIndex > 0, hasNext: page.hasNext, onPrev: function () { renderCursorPage(pageIndex - 1); }, onNext: function () { renderCursorPage(pageIndex + 1); } }, false, null);
   }
 
   function isReadQuery(text) {

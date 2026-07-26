@@ -36,6 +36,9 @@ func (e confirmationError) Error() string { return e.message }
 // the editable data grid, reusing the driver-neutral SQL DML builder.
 var dialect = sqldb.Dialect{QuoteIdent: quoteIdent, Placeholder: sqldb.QuestionPlaceholder}
 
+// scanCap bounds every introspection read materialized in memory.
+const scanCap = plugin.MaxPageLimit * 10
+
 func routes() []plugin.Route {
 	return []plugin.Route{
 		{ID: "cassandra.keyspaces.tree", Method: plugin.MethodGet, Path: "/tree/keyspaces", Permission: "cassandra.keyspaces.read", Risk: plugin.RiskSafe, AuditEvent: "cassandra.keyspaces.tree", Handle: treeKeyspaces},
@@ -1223,7 +1226,7 @@ func queryRows(ctx context.Context, s *Session, cql string, args []any) ([]row, 
 	defer cancel()
 	q := s.db.Query(cql, args...).WithContext(ctx).Consistency(s.opts.Consistency).PageSize(s.opts.PageSize)
 	iter := q.Iter()
-	return iterRows(iter, plugin.MaxPageLimit*10, nil)
+	return iterRows(iter, scanCap, nil)
 }
 
 func execCQL(ctx context.Context, s *Session, cql string) error {
@@ -1284,9 +1287,11 @@ func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
 	if err != nil {
 		return plugin.Page[row]{}, err
 	}
+	// A listing that filled the scan cap was cut short, so it reports no Total
+	// rather than a count it already knows is short.
+	truncated := len(rows) >= scanCap
 	rows = filterRows(rows, req.Search())
 	sortRows(rows, req.Sort)
-	total := len(rows)
 	start, err := offsetCursor(req.Cursor)
 	if err != nil {
 		return plugin.Page[row]{}, err
@@ -1299,7 +1304,12 @@ func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
 	if end < len(rows) {
 		next = strconv.Itoa(end)
 	}
-	return plugin.Page[row]{Items: rows[start:end], NextCursor: next, Total: &total}, nil
+	page := plugin.Page[row]{Items: rows[start:end], NextCursor: next}
+	if !truncated {
+		total := len(rows)
+		page.Total = &total
+	}
+	return page, nil
 }
 
 func treeFromPage(rc *plugin.RequestContext, kind string, iconName string, labelKey string, load func(*plugin.RequestContext) (any, error)) (any, error) {

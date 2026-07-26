@@ -44,11 +44,9 @@ const (
 
 func routes() []plugin.Route {
 	return []plugin.Route{
-		// Navigation.
 		{ID: rid("tree.databases"), Method: plugin.MethodGet, Path: "/tree/databases", Permission: permDatabasesRead, Risk: plugin.RiskSafe, AuditEvent: rid("tree.databases"), Handle: treeDatabases},
 		{ID: rid("tree.database"), Method: plugin.MethodGet, Path: "/tree/databases/{database}", Permission: permDatabasesRead, Risk: plugin.RiskSafe, AuditEvent: rid("tree.database"), Handle: treeDatabase},
 
-		// Databases.
 		{ID: rid("databases.list"), Method: plugin.MethodGet, Path: "/databases", Permission: permDatabasesRead, Risk: plugin.RiskSafe, AuditEvent: rid("databases.list"), Handle: databasesList},
 		{ID: rid("database.read"), Method: plugin.MethodGet, Path: "/databases/{database}", Permission: permDatabasesRead, Risk: plugin.RiskSafe, AuditEvent: rid("database.read"), Handle: databaseRead},
 		{ID: rid("database.create"), Method: plugin.MethodPost, Path: "/databases", Permission: permDatabasesWrite, Risk: plugin.RiskWrite, AuditEvent: rid("database.create"), Input: databaseCreateSchema(), Handle: databaseCreate},
@@ -56,7 +54,6 @@ func routes() []plugin.Route {
 		{ID: rid("database.metrics"), Method: plugin.MethodWS, Path: "/databases/{database}/metrics", Permission: permDatabasesRead, Risk: plugin.RiskSafe, AuditEvent: rid("database.metrics"), Stream: databaseMetricsStream},
 		{ID: rid("database.schema"), Method: plugin.MethodGet, Path: "/databases/{database}/schema-graph", Permission: permCollectionsRead, Risk: plugin.RiskSafe, AuditEvent: rid("database.schema"), Handle: schemaGraph},
 
-		// Collections.
 		{ID: rid("collections.list"), Method: plugin.MethodGet, Path: "/databases/{database}/collections", Permission: permCollectionsRead, Risk: plugin.RiskSafe, AuditEvent: rid("collections.list"), Handle: collectionsList},
 		{ID: rid("collection.read"), Method: plugin.MethodGet, Path: "/databases/{database}/collections/{collection}", Permission: permCollectionsRead, Risk: plugin.RiskSafe, AuditEvent: rid("collection.read"), Handle: collectionRead},
 		{ID: rid("collection.create"), Method: plugin.MethodPost, Path: "/databases/{database}/collections", Permission: permCollectionsWrite, Risk: plugin.RiskWrite, AuditEvent: rid("collection.create"), Input: collectionCreateSchema(), Handle: collectionCreate},
@@ -67,7 +64,6 @@ func routes() []plugin.Route {
 		{ID: rid("collection.schema.update"), Method: plugin.MethodPut, Path: "/databases/{database}/collections/{collection}/schema", Permission: permCollectionsWrite, Risk: plugin.RiskWrite, AuditEvent: rid("collection.schema.update"), Handle: collectionSchemaUpdate},
 		{ID: rid("collection.metrics"), Method: plugin.MethodWS, Path: "/databases/{database}/collections/{collection}/metrics", Permission: permCollectionsRead, Risk: plugin.RiskSafe, AuditEvent: rid("collection.metrics"), Stream: collectionMetricsStream},
 
-		// Documents.
 		{ID: rid("documents.list"), Method: plugin.MethodGet, Path: "/databases/{database}/collections/{collection}/documents", Permission: permDocumentsRead, Risk: plugin.RiskSafe, AuditEvent: rid("documents.list"), Handle: documentsList},
 		{ID: rid("documents.columns"), Method: plugin.MethodGet, Path: "/databases/{database}/collections/{collection}/documents/columns", Permission: permDocumentsRead, Risk: plugin.RiskSafe, AuditEvent: rid("documents.columns"), Handle: documentColumns},
 		{ID: rid("document.insert"), Method: plugin.MethodPost, Path: "/databases/{database}/collections/{collection}/documents", Permission: permDocumentsWrite, Risk: plugin.RiskWrite, AuditEvent: rid("document.insert"), Handle: documentInsert},
@@ -76,12 +72,10 @@ func routes() []plugin.Route {
 		{ID: rid("document.read"), Method: plugin.MethodGet, Path: "/databases/{database}/collections/{collection}/documents/{key}", Permission: permDocumentsRead, Risk: plugin.RiskSafe, AuditEvent: rid("document.read"), Handle: documentRead},
 		{ID: rid("document.replace"), Method: plugin.MethodPut, Path: "/databases/{database}/collections/{collection}/documents/{key}", Permission: permDocumentsWrite, Risk: plugin.RiskWrite, AuditEvent: rid("document.replace"), Handle: documentReplace},
 
-		// Indexes.
 		{ID: rid("indexes.list"), Method: plugin.MethodGet, Path: "/databases/{database}/collections/{collection}/indexes", Permission: permCollectionsRead, Risk: plugin.RiskSafe, AuditEvent: rid("indexes.list"), Handle: indexesList},
 		{ID: rid("index.create"), Method: plugin.MethodPost, Path: "/databases/{database}/collections/{collection}/indexes", Permission: permCollectionsWrite, Risk: plugin.RiskWrite, AuditEvent: rid("index.create"), Input: indexCreateSchema(), Handle: indexCreate},
 		{ID: rid("index.delete"), Method: plugin.MethodDelete, Path: "/databases/{database}/collections/{collection}/indexes/{index}", Permission: permCollectionsDelete, Risk: plugin.RiskDestructive, AuditEvent: rid("index.delete"), Handle: indexDelete},
 
-		// Graphs.
 		{ID: rid("graphs.list"), Method: plugin.MethodGet, Path: "/databases/{database}/graphs", Permission: permGraphsRead, Risk: plugin.RiskSafe, AuditEvent: rid("graphs.list"), Handle: graphsList},
 		{ID: rid("graph.read"), Method: plugin.MethodGet, Path: "/databases/{database}/graphs/{graph}", Permission: permGraphsRead, Risk: plugin.RiskSafe, AuditEvent: rid("graph.read"), Handle: graphRead},
 		{ID: rid("graph.create"), Method: plugin.MethodPost, Path: "/databases/{database}/graphs", Permission: permGraphsWrite, Risk: plugin.RiskWrite, AuditEvent: rid("graph.create"), Input: graphCreateSchema(), Handle: graphCreate},
@@ -92,7 +86,6 @@ func routes() []plugin.Route {
 		{ID: rid("graph.expand"), Method: plugin.MethodGet, Path: "/databases/{database}/graphs/{graph}/expand", Permission: permGraphsRead, Risk: plugin.RiskSafe, AuditEvent: rid("graph.expand"), Handle: graphExpand},
 		{ID: rid("graph.topology"), Method: plugin.MethodWS, Path: "/databases/{database}/graphs/{graph}/topology", Permission: permGraphsRead, Risk: plugin.RiskSafe, AuditEvent: rid("graph.topology"), Stream: graphCanvasStream},
 
-		// ArangoSearch views.
 		{ID: rid("views.list"), Method: plugin.MethodGet, Path: "/databases/{database}/views", Permission: permViewsRead, Risk: plugin.RiskSafe, AuditEvent: rid("views.list"), Handle: viewsList},
 		{ID: rid("view.read"), Method: plugin.MethodGet, Path: "/databases/{database}/views/{view}", Permission: permViewsRead, Risk: plugin.RiskSafe, AuditEvent: rid("view.read"), Handle: viewRead},
 		{ID: rid("view.definition"), Method: plugin.MethodGet, Path: "/databases/{database}/views/{view}/definition", Permission: permViewsRead, Risk: plugin.RiskSafe, AuditEvent: rid("view.definition"), Handle: viewDefinition},
@@ -101,13 +94,11 @@ func routes() []plugin.Route {
 		{ID: rid("view.drop"), Method: plugin.MethodDelete, Path: "/databases/{database}/views/{view}", Permission: permViewsDelete, Risk: plugin.RiskDestructive, AuditEvent: rid("view.drop"), Handle: viewDrop},
 		{ID: rid("view.links"), Method: plugin.MethodGet, Path: "/databases/{database}/views/{view}/links", Permission: permViewsRead, Risk: plugin.RiskSafe, AuditEvent: rid("view.links"), Handle: viewLinks},
 
-		// Analyzers.
 		{ID: rid("analyzers.list"), Method: plugin.MethodGet, Path: "/databases/{database}/analyzers", Permission: permAnalyzersRead, Risk: plugin.RiskSafe, AuditEvent: rid("analyzers.list"), Handle: analyzersList},
 		{ID: rid("analyzer.read"), Method: plugin.MethodGet, Path: "/databases/{database}/analyzers/{analyzer}", Permission: permAnalyzersRead, Risk: plugin.RiskSafe, AuditEvent: rid("analyzer.read"), Handle: analyzerRead},
 		{ID: rid("analyzer.create"), Method: plugin.MethodPost, Path: "/databases/{database}/analyzers", Permission: permAnalyzersWrite, Risk: plugin.RiskWrite, AuditEvent: rid("analyzer.create"), Input: analyzerCreateSchema(), Handle: analyzerCreate},
 		{ID: rid("analyzer.delete"), Method: plugin.MethodDelete, Path: "/databases/{database}/analyzers/{analyzer}", Permission: permAnalyzersDelete, Risk: plugin.RiskDestructive, AuditEvent: rid("analyzer.delete"), Handle: analyzerDelete},
 
-		// Foxx services.
 		{ID: rid("foxx.list"), Method: plugin.MethodGet, Path: "/databases/{database}/foxx", Permission: permFoxxRead, Risk: plugin.RiskSafe, AuditEvent: rid("foxx.list"), Handle: foxxList},
 		{ID: rid("foxx.read"), Method: plugin.MethodGet, Path: "/foxx/{service}", Permission: permFoxxRead, Risk: plugin.RiskSafe, AuditEvent: rid("foxx.read"), Handle: foxxRead},
 		{ID: rid("foxx.routes"), Method: plugin.MethodGet, Path: "/foxx/{service}/routes", Permission: permFoxxRead, Risk: plugin.RiskSafe, AuditEvent: rid("foxx.routes"), Handle: foxxRoutes},
@@ -117,13 +108,11 @@ func routes() []plugin.Route {
 		{ID: rid("foxx.development"), Method: plugin.MethodPut, Path: "/foxx/{service}/development", Permission: permFoxxWrite, Risk: plugin.RiskWrite, AuditEvent: rid("foxx.development"), Input: foxxDevelopmentSchema(), Handle: foxxDevelopment},
 		{ID: rid("foxx.uninstall"), Method: plugin.MethodDelete, Path: "/foxx/{service}", Permission: permFoxxDelete, Risk: plugin.RiskDestructive, AuditEvent: rid("foxx.uninstall"), Handle: foxxUninstall},
 
-		// Cluster and server health.
 		{ID: rid("cluster.list"), Method: plugin.MethodGet, Path: "/cluster", Permission: permClusterRead, Risk: plugin.RiskSafe, AuditEvent: rid("cluster.list"), Handle: clusterList},
 		{ID: rid("cluster.read"), Method: plugin.MethodGet, Path: "/cluster/overview", Permission: permClusterRead, Risk: plugin.RiskSafe, AuditEvent: rid("cluster.read"), Handle: clusterRead},
 		{ID: rid("cluster.servers"), Method: plugin.MethodGet, Path: "/cluster/servers", Permission: permClusterRead, Risk: plugin.RiskSafe, AuditEvent: rid("cluster.servers"), Handle: clusterServers},
 		{ID: rid("cluster.metrics"), Method: plugin.MethodWS, Path: "/cluster/metrics", Permission: permClusterRead, Risk: plugin.RiskSafe, AuditEvent: rid("cluster.metrics"), Stream: clusterMetricsStream},
 
-		// AQL console and activity.
 		{ID: rid("query"), Method: plugin.MethodWS, Path: "/query", Permission: permAQLExecute, Risk: plugin.RiskPrivileged, AuditEvent: rid("query"), Stream: queryStream},
 		{ID: rid("query.cancel"), Method: plugin.MethodPost, Path: "/query/cancel", Permission: permAQLExecute, Risk: plugin.RiskWrite, AuditEvent: rid("query.cancel"), Handle: queryCancel},
 		{ID: rid("query.complete"), Method: plugin.MethodGet, Path: "/query/completion", Permission: permAQLRead, Risk: plugin.RiskSafe, AuditEvent: rid("query.complete"), Handle: queryCompletion},

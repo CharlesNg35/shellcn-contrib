@@ -321,8 +321,6 @@ func TestStorageKeyIsStableAndSafe(t *testing.T) {
 	}
 }
 
-// --- handler tests against a fake Couchbase --------------------------------
-
 type fakeCouchbase struct {
 	t             *testing.T
 	server        *httptest.Server
@@ -965,8 +963,6 @@ func TestReadOnlyModeBlocksMutations(t *testing.T) {
 	}
 }
 
-// --- stream tests -----------------------------------------------------------
-
 type memoryStream struct {
 	ctx    context.Context
 	reader *bytes.Reader
@@ -1152,8 +1148,6 @@ func TestClusterWatchPushesSnapshots(t *testing.T) {
 		t.Fatalf("unexpected watch event: %#v", event)
 	}
 }
-
-// --- storage ----------------------------------------------------------------
 
 type fakeStorage struct{ items map[string]plugin.StorageItem }
 

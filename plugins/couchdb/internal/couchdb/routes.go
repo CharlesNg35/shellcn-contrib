@@ -8,7 +8,6 @@ import (
 
 func routes() []plugin.Route {
 	out := []plugin.Route{
-		// --- server -----------------------------------------------------------
 		{ID: rid("server.list"), Method: plugin.MethodGet, Path: "/server", Permission: "couchdb.server.read", Risk: plugin.RiskSafe, AuditEvent: rid("server.list"), Handle: listServer},
 		{ID: rid("server.overview"), Method: plugin.MethodGet, Path: "/server/overview", Permission: "couchdb.server.read", Risk: plugin.RiskSafe, AuditEvent: rid("server.overview"), Handle: serverOverview},
 		{ID: rid("server.config"), Method: plugin.MethodGet, Path: "/server/config", Permission: "couchdb.server.read", Risk: plugin.RiskSafe, AuditEvent: rid("server.config"), Handle: serverConfig},
@@ -21,7 +20,6 @@ func routes() []plugin.Route {
 		{ID: rid("node.read"), Method: plugin.MethodGet, Path: "/nodes/{node}", Permission: "couchdb.nodes.read", Risk: plugin.RiskSafe, AuditEvent: rid("node.read"), Handle: readNode},
 		{ID: rid("node.stats"), Method: plugin.MethodGet, Path: "/nodes/{node}/stats", Permission: "couchdb.nodes.read", Risk: plugin.RiskSafe, AuditEvent: rid("node.stats"), Handle: nodeStats},
 
-		// --- databases --------------------------------------------------------
 		{ID: rid("databases.tree"), Method: plugin.MethodGet, Path: "/tree/databases", Permission: "couchdb.databases.read", Risk: plugin.RiskSafe, AuditEvent: rid("databases.tree"), Handle: treeDatabases},
 		{ID: rid("databases.list"), Method: plugin.MethodGet, Path: "/databases", Permission: "couchdb.databases.read", Risk: plugin.RiskSafe, AuditEvent: rid("databases.list"), Handle: listDatabases},
 		{ID: rid("databases.watch"), Method: plugin.MethodWS, Path: "/databases/watch", Permission: "couchdb.databases.read", Risk: plugin.RiskSafe, AuditEvent: rid("databases.watch"), Stream: watchDatabases},
@@ -34,7 +32,6 @@ func routes() []plugin.Route {
 		{ID: rid("database.security.read"), Method: plugin.MethodGet, Path: "/databases/{db}/security", Permission: "couchdb.security.read", Risk: plugin.RiskSafe, AuditEvent: rid("database.security.read"), Handle: readSecurity},
 		{ID: rid("database.security.update"), Method: plugin.MethodPut, Path: "/databases/{db}/security", Permission: "couchdb.security.write", Risk: plugin.RiskPrivileged, AuditEvent: rid("database.security.update"), Input: contentSchema("Security document"), Handle: updateSecurity},
 
-		// --- documents --------------------------------------------------------
 		{ID: rid("documents.list"), Method: plugin.MethodGet, Path: "/databases/{db}/documents", Permission: "couchdb.documents.read", Risk: plugin.RiskSafe, AuditEvent: rid("documents.list"), Handle: listDocuments},
 		{ID: rid("documents.columns"), Method: plugin.MethodGet, Path: "/databases/{db}/documents/columns", Permission: "couchdb.documents.read", Risk: plugin.RiskSafe, AuditEvent: rid("documents.columns"), Handle: documentColumns},
 		{ID: rid("documents.watch"), Method: plugin.MethodWS, Path: "/databases/{db}/documents/watch", Permission: "couchdb.documents.read", Risk: plugin.RiskSafe, AuditEvent: rid("documents.watch"), Stream: watchDocuments},
@@ -55,7 +52,6 @@ func routes() []plugin.Route {
 		{ID: rid("attachments.list"), Method: plugin.MethodGet, Path: "/databases/{db}/documents/{docid}/attachments", Permission: "couchdb.documents.read", Risk: plugin.RiskSafe, AuditEvent: rid("attachments.list"), Handle: listAttachments},
 		{ID: rid("attachment.delete"), Method: plugin.MethodDelete, Path: "/databases/{db}/documents/{docid}/attachments/{name}", Permission: "couchdb.documents.delete", Risk: plugin.RiskDestructive, AuditEvent: rid("attachment.delete"), Handle: deleteAttachment},
 
-		// --- mango ------------------------------------------------------------
 		{ID: rid("mango.query"), Method: plugin.MethodWS, Path: "/databases/{db}/find", Permission: "couchdb.query.execute", Risk: plugin.RiskSafe, AuditEvent: rid("mango.query"), Stream: mangoStream},
 		{ID: rid("mango.explain"), Method: plugin.MethodPost, Path: "/databases/{db}/explain", Permission: "couchdb.query.execute", Risk: plugin.RiskSafe, AuditEvent: rid("mango.explain"), Input: contentSchema("Mango query"), Handle: explainMango},
 		{ID: rid("mango.complete"), Method: plugin.MethodGet, Path: "/databases/{db}/complete", Permission: "couchdb.query.execute", Risk: plugin.RiskSafe, AuditEvent: rid("mango.complete"), Handle: completeMango},
@@ -63,7 +59,6 @@ func routes() []plugin.Route {
 		{ID: rid("index.create"), Method: plugin.MethodPost, Path: "/databases/{db}/indexes", Permission: "couchdb.indexes.write", Risk: plugin.RiskWrite, AuditEvent: rid("index.create"), Input: createIndexSchema(), Handle: createIndex},
 		{ID: rid("index.delete"), Method: plugin.MethodDelete, Path: "/databases/{db}/indexes/{ddoc}/{name}", Permission: "couchdb.indexes.delete", Risk: plugin.RiskDestructive, AuditEvent: rid("index.delete"), Handle: deleteIndex},
 
-		// --- design documents & views -----------------------------------------
 		{ID: rid("designdocs.list"), Method: plugin.MethodGet, Path: "/databases/{db}/design-docs", Permission: "couchdb.designdocs.read", Risk: plugin.RiskSafe, AuditEvent: rid("designdocs.list"), Handle: listDesignDocs},
 		{ID: rid("designdoc.read"), Method: plugin.MethodGet, Path: "/databases/{db}/design-docs/{ddoc}", Permission: "couchdb.designdocs.read", Risk: plugin.RiskSafe, AuditEvent: rid("designdoc.read"), Handle: readDesignDoc},
 		{ID: rid("designdoc.create"), Method: plugin.MethodPost, Path: "/databases/{db}/design-docs", Permission: "couchdb.designdocs.write", Risk: plugin.RiskWrite, AuditEvent: rid("designdoc.create"), Input: contentSchema("Design document"), Handle: createDesignDoc},
@@ -74,7 +69,6 @@ func routes() []plugin.Route {
 		{ID: rid("view.reduce"), Method: plugin.MethodGet, Path: "/databases/{db}/design-docs/{ddoc}/views/{view}/reduce", Permission: "couchdb.views.read", Risk: plugin.RiskSafe, AuditEvent: rid("view.reduce"), Handle: viewReduce},
 		{ID: rid("view.definition"), Method: plugin.MethodGet, Path: "/databases/{db}/design-docs/{ddoc}/views/{view}", Permission: "couchdb.views.read", Risk: plugin.RiskSafe, AuditEvent: rid("view.definition"), Handle: viewDefinition},
 
-		// --- replication ------------------------------------------------------
 		{ID: rid("replications.tree"), Method: plugin.MethodGet, Path: "/tree/replications", Permission: "couchdb.replications.read", Risk: plugin.RiskSafe, AuditEvent: rid("replications.tree"), Handle: treeReplications},
 		{ID: rid("replications.list"), Method: plugin.MethodGet, Path: "/replications", Permission: "couchdb.replications.read", Risk: plugin.RiskSafe, AuditEvent: rid("replications.list"), Handle: listReplications},
 		{ID: rid("replications.watch"), Method: plugin.MethodWS, Path: "/replications/watch", Permission: "couchdb.replications.read", Risk: plugin.RiskSafe, AuditEvent: rid("replications.watch"), Stream: watchReplications},
@@ -85,11 +79,9 @@ func routes() []plugin.Route {
 		{ID: rid("replication.create"), Method: plugin.MethodPost, Path: "/replications", Permission: "couchdb.replications.write", Risk: plugin.RiskWrite, AuditEvent: rid("replication.create"), Input: createReplicationSchema(), Handle: createReplication},
 		{ID: rid("replication.delete"), Method: plugin.MethodDelete, Path: "/replications/{id}", Permission: "couchdb.replications.delete", Risk: plugin.RiskDestructive, AuditEvent: rid("replication.delete"), Handle: deleteReplication},
 
-		// --- changes feed -----------------------------------------------------
 		{ID: rid("changes.stream"), Method: plugin.MethodWS, Path: "/databases/{db}/changes", Permission: "couchdb.changes.read", Risk: plugin.RiskSafe, AuditEvent: rid("changes.stream"), Stream: changesStream},
 		{ID: rid("changes.origins"), Method: plugin.MethodGet, Path: "/databases/{db}/changes/origins", Permission: "couchdb.changes.read", Risk: plugin.RiskSafe, AuditEvent: rid("changes.origins"), Handle: changeOrigins},
 
-		// --- saved Mango queries (plugin storage) -----------------------------
 		{ID: rid("queries.list"), Method: plugin.MethodGet, Path: "/queries", Permission: "couchdb.query.read", Risk: plugin.RiskSafe, AuditEvent: rid("queries.list"), Handle: listSavedQueries},
 		{ID: rid("query.save"), Method: plugin.MethodPost, Path: "/queries", Permission: "couchdb.query.write", Risk: plugin.RiskWrite, AuditEvent: rid("query.save"), Input: saveQuerySchema(), Handle: saveQuery},
 		{ID: rid("query.delete"), Method: plugin.MethodDelete, Path: "/queries", Permission: "couchdb.query.delete", Risk: plugin.RiskDestructive, AuditEvent: rid("query.delete"), Handle: deleteSavedQuery},
@@ -126,8 +118,6 @@ func readOnlyGuard(next plugin.Handler) plugin.Handler {
 		return next(rc)
 	}
 }
-
-// --- input schemas -----------------------------------------------------------
 
 // contentSchema is the JSON-body contract shared by every code-editor save and
 // raw-JSON action: the editor posts {"content": "<text>"}.

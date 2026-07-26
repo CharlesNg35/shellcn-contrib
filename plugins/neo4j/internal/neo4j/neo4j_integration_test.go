@@ -316,3 +316,195 @@ func mustAtoi(raw string) int {
 	n, _ := strconv.Atoi(strings.TrimSpace(raw))
 	return n
 }
+
+func TestNeo4jListBoundedPagingIntegration(t *testing.T) {
+	if os.Getenv("SHELLCN_NEO4J_INTEGRATION") != "1" {
+		t.Skip("set SHELLCN_NEO4J_INTEGRATION=1 to run against Neo4j")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+
+	cfg := neo4jIntegrationConfig(ctx, t)
+	p := New()
+	sess, err := p.Connect(ctx, plugin.ConnectConfig{Config: cfg, Net: plugintest.DirectTransport()})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = sess.Close() }()
+	s := sess.(*Session)
+	routes := plugintest.RouteMap(p.Routes())
+	db := fmt.Sprint(cfg["database"])
+
+	const (
+		nodeCount = 310
+		relCount  = 130
+		limit     = 25
+	)
+
+	purge := func(ctx context.Context) {
+		_, _ = executeCypher(ctx, s, db, sqldb.QueryRequest{Query: "MATCH (n:ShellCNPagingIT) DETACH DELETE n", Confirm: true})
+	}
+	purge(ctx)
+	defer purge(context.Background())
+
+	seedCypher(ctx, t, s, db, fmt.Sprintf(
+		"UNWIND range(1, %d) AS i CREATE (:ShellCNPagingIT:ShellCNPagingNode {seq: i})", nodeCount))
+	seedCypher(ctx, t, s, db, fmt.Sprintf(
+		"UNWIND range(1, %d) AS i CREATE (:ShellCNPagingIT:ShellCNPagingEnd {seq: i})-[:SHELLCN_PAGING_REL {seq: i}]->(:ShellCNPagingIT:ShellCNPagingEnd {seq: i})", relCount))
+
+	assertBoundedPaging(ctx, t, routes[rid("nodes.list")], sess,
+		url.Values{"p.database": []string{db}, "p.label": []string{"ShellCNPagingNode"}}, limit, nodeCount)
+	assertBoundedPaging(ctx, t, routes[rid("relationships.list")], sess,
+		url.Values{"p.database": []string{db}, "p.type": []string{"SHELLCN_PAGING_REL"}}, limit, relCount)
+}
+
+// assertBoundedPaging drives a list route across its cursor pages and asserts the
+// handler returns one bounded page per call instead of the whole collection: the
+// first page is exactly limit long, every page carries no exact Total, cursors walk
+// disjoint pages, and the walk terminates having covered every seeded seq once.
+func assertBoundedPaging(ctx context.Context, t *testing.T, route plugin.Route, sess plugin.Session, base url.Values, limit, seeded int) {
+	t.Helper()
+	if seeded <= limit {
+		t.Fatalf("%s: seeded %d items must exceed the page limit %d", route.ID, seeded, limit)
+	}
+
+	query := func(cursor string, limit int) url.Values {
+		q := url.Values{}
+		for key, values := range base {
+			q[key] = values
+		}
+		if limit > 0 {
+			q.Set("limit", strconv.Itoa(limit))
+		}
+		if cursor != "" {
+			q.Set("cursor", cursor)
+		}
+		return q
+	}
+
+	first, firstNext, firstRaw := decodePage(call(ctx, t, route, sess, nil, query("", limit), nil))
+	if len(first) != limit {
+		t.Fatalf("%s: first page returned %d items, want exactly the %d-item page (seeded %d)", route.ID, len(first), limit, seeded)
+	}
+	if _, ok := firstRaw["total"]; ok {
+		t.Fatalf("%s: page must omit an exact total, got total=%v", route.ID, firstRaw["total"])
+	}
+	if firstNext == "" {
+		t.Fatalf("%s: expected a non-empty nextCursor with %d items seeded", route.ID, seeded)
+	}
+
+	second, secondNext, _ := decodePage(call(ctx, t, route, sess, nil, query(firstNext, limit), nil))
+	if len(second) != limit {
+		t.Fatalf("%s: second page returned %d items, want %d", route.ID, len(second), limit)
+	}
+	if secondNext == "" || secondNext == firstNext {
+		t.Fatalf("%s: cursor did not advance: first=%q second=%q", route.ID, firstNext, secondNext)
+	}
+	for _, id := range pageElementIDs(t, route.ID, first) {
+		for _, other := range pageElementIDs(t, route.ID, second) {
+			if id == other {
+				t.Fatalf("%s: page 2 overlaps page 1 on element %q", route.ID, id)
+			}
+		}
+	}
+
+	seen := map[string]int{}
+	seqs := map[int]int{}
+	cursor := ""
+	pages := 0
+	for {
+		items, next, raw := decodePage(call(ctx, t, route, sess, nil, query(cursor, limit), nil))
+		pages++
+		if len(items) > limit {
+			t.Fatalf("%s: page %d returned %d items, above the requested limit %d", route.ID, pages, len(items), limit)
+		}
+		if _, ok := raw["total"]; ok {
+			t.Fatalf("%s: page %d must omit an exact total, got total=%v", route.ID, pages, raw["total"])
+		}
+		for _, id := range pageElementIDs(t, route.ID, items) {
+			seen[id]++
+			if seen[id] > 1 {
+				t.Fatalf("%s: element %q returned on more than one page", route.ID, id)
+			}
+		}
+		for _, seq := range pageSeqs(t, route.ID, items) {
+			seqs[seq]++
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+		if pages > seeded/limit+4 {
+			t.Fatalf("%s: paging did not terminate after %d pages", route.ID, pages)
+		}
+	}
+
+	wantPages := seeded / limit
+	if seeded%limit != 0 {
+		wantPages++
+	}
+	if pages != wantPages {
+		t.Fatalf("%s: walked %d pages for %d items at limit %d, want %d", route.ID, pages, seeded, limit, wantPages)
+	}
+	if len(seen) != seeded {
+		t.Fatalf("%s: paging covered %d distinct elements, want %d", route.ID, len(seen), seeded)
+	}
+	for i := 1; i <= seeded; i++ {
+		if seqs[i] != 1 {
+			t.Fatalf("%s: seq %d appeared %d times across pages, want exactly once", route.ID, i, seqs[i])
+		}
+	}
+	if len(seqs) != seeded {
+		t.Fatalf("%s: paging returned %d distinct seq values, want %d", route.ID, len(seqs), seeded)
+	}
+
+	unbounded, _, _ := decodePage(call(ctx, t, route, sess, nil, query("", 0), nil))
+	if len(unbounded) != plugin.DefaultPageLimit {
+		t.Fatalf("%s: request without a limit returned %d items, want the default page of %d (seeded %d)", route.ID, len(unbounded), plugin.DefaultPageLimit, seeded)
+	}
+}
+
+func seedCypher(ctx context.Context, t *testing.T, s *Session, db, query string) {
+	t.Helper()
+	if _, err := executeCypher(ctx, s, db, sqldb.QueryRequest{Query: query, Confirm: true}); err != nil {
+		t.Fatalf("seed %q: %v", query, err)
+	}
+}
+
+func decodePage(page any) ([]map[string]any, string, map[string]any) {
+	data, _ := json.Marshal(page)
+	var decoded struct {
+		Items      []map[string]any `json:"items"`
+		NextCursor string           `json:"nextCursor"`
+	}
+	_ = json.Unmarshal(data, &decoded)
+	raw := map[string]any{}
+	_ = json.Unmarshal(data, &raw)
+	return decoded.Items, decoded.NextCursor, raw
+}
+
+func pageElementIDs(t *testing.T, routeID string, items []map[string]any) []string {
+	t.Helper()
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		id, _ := item["element_id"].(string)
+		if id == "" {
+			t.Fatalf("%s: item without element_id: %#v", routeID, item)
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+func pageSeqs(t *testing.T, routeID string, items []map[string]any) []int {
+	t.Helper()
+	out := make([]int, 0, len(items))
+	for _, item := range items {
+		value, ok := asMap(item["properties"])["seq"].(float64)
+		if !ok {
+			t.Fatalf("%s: item without numeric seq property: %#v", routeID, item)
+		}
+		out = append(out, int(value))
+	}
+	return out
+}

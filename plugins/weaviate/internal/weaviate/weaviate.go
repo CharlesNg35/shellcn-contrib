@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charlesng35/shellcn-contrib/shared/broker"
@@ -76,6 +77,66 @@ type Session struct {
 	client *client
 	http   *http.Client
 	opts   Options
+
+	schemaMu   sync.Mutex
+	schemaDump *schema.Dump
+	schemaAt   time.Time
+
+	clusterMu   sync.Mutex
+	clusterSnap *clusterSnapshot
+	clusterAt   time.Time
+
+	tenantMu   sync.Mutex
+	tenantSnap *tenantSnapshot
+}
+
+// Cached fetches every list, tree and overview route would otherwise repeat per
+// page and per refresh tick. The schema dump carries every class with all its
+// properties and module config; the verbose node status carries one entry per
+// shard, and a multi-tenant collection has one shard per tenant.
+const (
+	schemaCacheTTL  = 10 * time.Second
+	clusterCacheTTL = 10 * time.Second
+)
+
+// schema returns the decoded schema dump, reusing a recent fetch. The lock is
+// held across the call so concurrent panels share one request instead of
+// stampeding the server.
+func (s *Session) schema(ctx context.Context) (*schema.Dump, error) {
+	s.schemaMu.Lock()
+	defer s.schemaMu.Unlock()
+	if s.schemaDump != nil && time.Since(s.schemaAt) < schemaCacheTTL {
+		return s.schemaDump, nil
+	}
+	dump, err := s.client.schema.Getter().Do(ctx)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	s.schemaDump, s.schemaAt = dump, time.Now()
+	return dump, nil
+}
+
+// forgetSchema drops the cached dump so the next read sees a schema change.
+func (s *Session) forgetSchema() {
+	s.schemaMu.Lock()
+	s.schemaDump, s.schemaAt = nil, time.Time{}
+	s.schemaMu.Unlock()
+}
+
+// cluster returns the aggregated verbose node status, reusing a recent fetch.
+func (s *Session) cluster(ctx context.Context) (*clusterSnapshot, error) {
+	s.clusterMu.Lock()
+	defer s.clusterMu.Unlock()
+	if s.clusterSnap != nil && time.Since(s.clusterAt) < clusterCacheTTL {
+		return s.clusterSnap, nil
+	}
+	resp, err := s.client.cluster.NodesStatusGetter().WithOutput("verbose").Do(ctx)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	snap := snapshotOf(resp)
+	s.clusterSnap, s.clusterAt = snap, time.Now()
+	return snap, nil
 }
 
 type row = plugin.TableRow

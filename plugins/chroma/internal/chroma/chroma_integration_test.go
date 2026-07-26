@@ -44,7 +44,6 @@ func TestChromaPluginIntegration(t *testing.T) {
 	h := contribtest.NewHarness(t, p.Routes())
 	storage := newFakeStorage()
 
-	// Server-level reads.
 	overviewOut := asMap(t, h.Call(ctx, rid("overview"), sess, nil, nil, nil))
 	if overviewOut["version"] == nil || overviewOut["status"] != "ready" {
 		t.Fatalf("unexpected overview: %#v", overviewOut)
@@ -59,7 +58,6 @@ func TestChromaPluginIntegration(t *testing.T) {
 		t.Fatalf("created tenant not readable: %#v", created)
 	}
 
-	// Databases.
 	h.Call(ctx, rid("database.create"), sess, nil, nil, mustJSON(t, map[string]any{"name": database}))
 	defer h.CallNoFail(context.Background(), rid("database.delete"), sess, map[string]string{"database": database})
 	databases := pageItems(t, h.Call(ctx, rid("databases.list"), sess, nil, nil, nil))
@@ -71,7 +69,6 @@ func TestChromaPluginIntegration(t *testing.T) {
 		t.Fatalf("created database missing from the tree: %#v", dbNodes)
 	}
 
-	// Collections.
 	created := asMap(t, h.Call(ctx, rid("collection.create"), sess, nil, nil, mustJSON(t, map[string]any{
 		"name": collectionName, "space": spaceCosine, "database": database,
 		"metadata": map[string]any{"owner": "shellcn"}, "ef_construction": 128, "max_neighbors": 24,
@@ -92,7 +89,6 @@ func TestChromaPluginIntegration(t *testing.T) {
 		t.Fatalf("unexpected collection detail: %#v", detail)
 	}
 
-	// Records.
 	h.Call(ctx, rid("records.add"), sess, scoped, nil, mustJSON(t, map[string]any{"records": map[string]any{
 		"ids":        []string{"alpha", "beta", "gamma", "delta"},
 		"embeddings": [][]float64{{1, 0, 0}, {0.92, 0.2, 0}, {0, 1, 0}, {0, 0.1, 1}},
@@ -127,7 +123,6 @@ func TestChromaPluginIntegration(t *testing.T) {
 		t.Fatalf("record update did not round-trip: %#v", updated)
 	}
 
-	// Schema and completions.
 	schemaRows := pageItems(t, h.Call(ctx, rid("collection.schema"), sess, scoped, nil, nil))
 	if len(schemaRows) == 0 {
 		t.Fatalf("expected schema rows")
@@ -137,7 +132,6 @@ func TestChromaPluginIntegration(t *testing.T) {
 		t.Fatalf("completions should surface the sampled metadata key: %#v", completions)
 	}
 
-	// Query editor stream.
 	frames := streamFrames(t, h.Stream(ctx, rid("query"), sess, scoped, nil, mustLines(
 		`{"query":"{\"query_embeddings\":[[1,0,0]],\"n_results\":3}"}`,
 		`{"query":"{\"query_id\":\"alpha\",\"n_results\":2}"}`,

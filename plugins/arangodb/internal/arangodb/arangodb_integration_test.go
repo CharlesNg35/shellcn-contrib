@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +52,7 @@ func TestArangoDBPluginIntegration(t *testing.T) {
 	h := contribtest.NewHarness(t, p.Routes())
 	store := &fakeStorage{}
 
-	// --- databases -------------------------------------------------------
+	// Databases.
 	h.Call(ctx, rid("database.create"), sess, nil, nil, mustJSON(t, map[string]any{
 		"name": database, "replication_factor": 1,
 	}))
@@ -73,7 +75,7 @@ func TestArangoDBPluginIntegration(t *testing.T) {
 
 	dbParams := map[string]string{"database": database}
 
-	// --- collections and documents ---------------------------------------
+	// Collections and documents.
 	h.Call(ctx, rid("collection.create"), sess, dbParams, nil, mustJSON(t, map[string]any{
 		"name": "people", "type": "document", "number_of_shards": 1, "replication_factor": 1,
 	}))
@@ -155,9 +157,10 @@ func TestArangoDBPluginIntegration(t *testing.T) {
 	if len(searchPage.Items) != 1 || searchPage.Items[0]["_key"] != "bob" {
 		t.Fatalf("free-text search did not narrow the page: %#v", searchPage.Items)
 	}
-	// The total describes the filtered set, not the whole collection.
-	if searchPage.Total == nil || *searchPage.Total != 1 {
-		t.Fatalf("search total must count only matching documents: %#v", searchPage.Total)
+	// A filtered set has no stored count, and scanning the collection to invent
+	// one is exactly what the bounded reader refuses to do: the total is omitted.
+	if searchPage.Total != nil {
+		t.Fatalf("search page must not carry a full-scan total: %d", *searchPage.Total)
 	}
 	sorted := rowsOf(t, h.Call(ctx, rid("documents.list"), sess, peopleParams, queryValues("sort", "-name"), nil))
 	if len(sorted) != 2 || sorted[0]["name"] != "Bob" {
@@ -199,7 +202,7 @@ func TestArangoDBPluginIntegration(t *testing.T) {
 	h.Call(ctx, rid("collection.read"), sess, peopleParams, nil, nil)
 	h.Call(ctx, rid("collection.shards"), sess, peopleParams, nil, nil)
 
-	// --- schema validation editor ----------------------------------------
+	// Schema validation editor.
 	h.Call(ctx, rid("collection.schema.read"), sess, peopleParams, nil, nil)
 	schema := docContent(t, h.Call(ctx, rid("collection.schema.update"), sess, peopleParams, nil, mustJSON(t, map[string]any{
 		"schema": map[string]any{
@@ -212,7 +215,7 @@ func TestArangoDBPluginIntegration(t *testing.T) {
 		t.Fatalf("schema level not applied: %#v", schema)
 	}
 
-	// --- indexes ----------------------------------------------------------
+	// Indexes.
 	h.Call(ctx, rid("index.create"), sess, peopleParams, nil, mustJSON(t, map[string]any{
 		"name": "idx_city", "type": "persistent", "fields": "city", "unique": false, "sparse": false,
 	}))
@@ -226,7 +229,7 @@ func TestArangoDBPluginIntegration(t *testing.T) {
 		t.Fatalf("index still present after delete: %#v", indexes)
 	}
 
-	// --- graphs -----------------------------------------------------------
+	// Graphs.
 	h.Call(ctx, rid("graph.create"), sess, dbParams, nil, mustJSON(t, map[string]any{
 		"name": "employment", "edge_collection": "works_at", "from": "people", "to": "companies",
 	}))
@@ -264,7 +267,7 @@ func TestArangoDBPluginIntegration(t *testing.T) {
 		t.Fatalf("topology canvas frame missing content: %s", topology)
 	}
 
-	// --- ArangoSearch -----------------------------------------------------
+	// ArangoSearch.
 	h.Call(ctx, rid("analyzer.create"), sess, dbParams, nil, mustJSON(t, map[string]any{
 		"name": "it_text", "type": "text", "locale": "en", "features": []string{"frequency", "norm", "position"},
 	}))
@@ -295,7 +298,7 @@ func TestArangoDBPluginIntegration(t *testing.T) {
 		t.Fatalf("view property update not applied: %#v", definition)
 	}
 
-	// --- AQL console, activity and saved queries --------------------------
+	// AQL console, activity and saved queries.
 	frames := decodeFrames(t, runStreamRaw(t, h, ctx, rid("query"), sess, dbParams,
 		`{"query":"FOR doc IN people SORT doc._key RETURN doc"}`+"\n"+
 			`{"query":"EXPLAIN FOR doc IN people RETURN doc"}`+"\n"+
@@ -339,7 +342,7 @@ func TestArangoDBPluginIntegration(t *testing.T) {
 	callWithStorage(t, h, ctx, rid("saved.read"), sess, store, map[string]string{"id": saved.ID}, nil)
 	callWithStorage(t, h, ctx, rid("saved.delete"), sess, store, map[string]string{"id": saved.ID}, nil)
 
-	// --- metrics streams --------------------------------------------------
+	// Metrics streams.
 	dbFrame := firstFrame(t, runStreamRaw(t, h, ctx, rid("database.metrics"), sess, dbParams, "", 3*time.Second))
 	if fmt.Sprint(dbFrame["collections"]) != "4" {
 		t.Fatalf("database metrics should count user collections: %#v", dbFrame)
@@ -353,7 +356,7 @@ func TestArangoDBPluginIntegration(t *testing.T) {
 		t.Fatalf("cluster metrics should report at least one server: %#v", clusterFrame)
 	}
 
-	// --- cluster / server -------------------------------------------------
+	// Cluster / server.
 	clusterRows := rowsOf(t, h.Call(ctx, rid("cluster.list"), sess, nil, nil, nil))
 	if len(clusterRows) != 1 {
 		t.Fatalf("cluster overview should be a single row: %#v", clusterRows)
@@ -367,7 +370,7 @@ func TestArangoDBPluginIntegration(t *testing.T) {
 		t.Fatalf("expected at least one server row")
 	}
 
-	// --- Foxx -------------------------------------------------------------
+	// Foxx.
 	installFoxxService(ctx, t, sess.(*Session), database)
 	services := rowsOf(t, h.Call(ctx, rid("foxx.list"), sess, dbParams, nil, nil))
 	if !hasField(services, "mount", foxxMount) {
@@ -400,7 +403,7 @@ func TestArangoDBPluginIntegration(t *testing.T) {
 		t.Fatalf("Foxx service still mounted after uninstall: %#v", services)
 	}
 
-	// --- destructive collection lifecycle ---------------------------------
+	// Destructive collection lifecycle.
 	scratchParams := map[string]string{"database": database, "collection": "scratch"}
 	h.Call(ctx, rid("collection.truncate"), sess, scratchParams, nil, nil)
 	remaining := rowsOf(t, h.Call(ctx, rid("documents.list"), sess, scratchParams, nil, nil))
@@ -579,6 +582,178 @@ func TestArangoDBPanelDefaultsIntegration(t *testing.T) {
 		if fmt.Sprint(frames[0]["rowCount"]) == "0" {
 			t.Fatalf("%s default returned no rows:\n%s", panel.kind, query)
 		}
+	}
+}
+
+// TestArangoDBBoundedPagingIntegration seeds ten pages of documents and more
+// collections than fit on one page, then walks both lists with a small limit:
+// every call answers with exactly one bounded page, the cursor advances to the
+// next distinct page without overlaps or gaps, and the walk ends on its own.
+func TestArangoDBBoundedPagingIntegration(t *testing.T) {
+	if os.Getenv("SHELLCN_ARANGODB_INTEGRATION") != "1" {
+		t.Skip("set SHELLCN_ARANGODB_INTEGRATION=1 to run against ArangoDB")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	const (
+		seededDocs        = 250
+		docLimit          = 25
+		seededCollections = 12
+		collectionLimit   = 5
+	)
+
+	endpoint, password := arangoEndpoint(ctx, t)
+	database := "shellcn_paging_" + time.Now().UTC().Format("20060102150405")
+
+	p := New()
+	sess, err := p.Connect(ctx, plugin.ConnectConfig{
+		Config: connectionConfig(endpoint, password, defaultDatabase), Net: plugintest.DirectTransport(),
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = sess.Close() }()
+
+	h := contribtest.NewHarness(t, p.Routes())
+	dbParams := map[string]string{"database": database}
+	h.Call(ctx, rid("database.create"), sess, nil, nil, mustJSON(t, map[string]any{"name": database, "replication_factor": 1}))
+	t.Cleanup(func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		h.CallNoFail(cleanup, rid("database.drop"), sess, dbParams)
+	})
+
+	names := make([]string, 0, seededCollections)
+	for i := range seededCollections - 1 {
+		names = append(names, fmt.Sprintf("bulk_%02d", i))
+	}
+	names = append(names, "events")
+	for _, name := range names {
+		h.Call(ctx, rid("collection.create"), sess, dbParams, nil, mustJSON(t, map[string]any{
+			"name": name, "type": "document", "number_of_shards": 1, "replication_factor": 1,
+		}))
+	}
+	slices.Sort(names)
+
+	keys := make([]string, 0, seededDocs)
+	for i := range seededDocs {
+		keys = append(keys, fmt.Sprintf("doc%04d", i))
+	}
+	seedDocuments(ctx, t, sess.(*Session), database, "events", keys)
+
+	docParams := map[string]string{"database": database, "collection": "events"}
+	first := pageOf(t, h.Call(ctx, rid("documents.list"), sess, docParams, queryValues("limit", strconv.Itoa(docLimit)), nil))
+	if len(first.Items) != docLimit {
+		t.Fatalf("documents.list must answer with one page of %d, got %d of %d seeded", docLimit, len(first.Items), seededDocs)
+	}
+	if first.NextCursor == "" {
+		t.Fatal("a full page must carry a cursor to the next one")
+	}
+	if first.Total == nil || *first.Total != seededDocs {
+		t.Fatalf("total must be the collection's stored count: %#v", first.Total)
+	}
+
+	seen := make([]string, 0, seededDocs)
+	pages, cursor := 0, ""
+	for {
+		query := queryValues("limit", strconv.Itoa(docLimit))
+		if cursor != "" {
+			query["cursor"] = []string{cursor}
+		}
+		page := pageOf(t, h.Call(ctx, rid("documents.list"), sess, docParams, query, nil))
+		pages++
+		if len(page.Items) > docLimit {
+			t.Fatalf("page %d returned %d documents for a limit of %d", pages, len(page.Items), docLimit)
+		}
+		for _, item := range page.Items {
+			seen = append(seen, fmt.Sprint(item["_key"]))
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		if len(page.Items) != docLimit {
+			t.Fatalf("page %d is short but still advertises a next page", pages)
+		}
+		if pages > seededDocs {
+			t.Fatal("document paging never terminated")
+		}
+		cursor = page.NextCursor
+	}
+	if want := seededDocs / docLimit; pages != want {
+		t.Fatalf("walked %d pages, want %d: a trailing empty page means the cursor is guessed instead of probed", pages, want)
+	}
+	if len(seen) != seededDocs {
+		t.Fatalf("paging covered %d of %d documents", len(seen), seededDocs)
+	}
+	for i, key := range seen {
+		if key != keys[i] {
+			t.Fatalf("the walk overlaps or skips at position %d: got %q, want %q", i, key, keys[i])
+		}
+	}
+
+	filtered := pageOf(t, h.Call(ctx, rid("documents.list"), sess, docParams,
+		queryValues("limit", strconv.Itoa(docLimit), "filter", "doc01"), nil))
+	if len(filtered.Items) != docLimit || filtered.NextCursor == "" {
+		t.Fatalf("a filtered list must page like any other: %d items, cursor %q", len(filtered.Items), filtered.NextCursor)
+	}
+	if filtered.Total != nil {
+		t.Fatalf("a filtered page must not carry a full-scan total, got %d", *filtered.Total)
+	}
+
+	rows := make([]map[string]any, 0, seededCollections)
+	pages, cursor = 0, ""
+	for {
+		query := queryValues("limit", strconv.Itoa(collectionLimit))
+		if cursor != "" {
+			query["cursor"] = []string{cursor}
+		}
+		page := pageOf(t, h.Call(ctx, rid("collections.list"), sess, dbParams, query, nil))
+		pages++
+		if len(page.Items) > collectionLimit {
+			t.Fatalf("collections page %d returned %d rows for a limit of %d", pages, len(page.Items), collectionLimit)
+		}
+		if page.Total == nil || *page.Total != seededCollections {
+			t.Fatalf("collections total must be the catalogue size: %#v", page.Total)
+		}
+		for _, item := range page.Items {
+			if _, ok := item["documents"]; !ok {
+				t.Fatalf("collection row without a document count: %#v", item)
+			}
+			rows = append(rows, item)
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		if len(page.Items) != collectionLimit {
+			t.Fatalf("collections page %d is short but still advertises a next page", pages)
+		}
+		if pages > seededCollections {
+			t.Fatal("collection paging never terminated")
+		}
+		cursor = page.NextCursor
+	}
+	if want := (seededCollections + collectionLimit - 1) / collectionLimit; pages != want {
+		t.Fatalf("walked %d collection pages, want %d", pages, want)
+	}
+	walked := make([]string, 0, len(rows))
+	for _, item := range rows {
+		walked = append(walked, fmt.Sprint(item["name"]))
+	}
+	if !slices.Equal(walked, names) {
+		t.Fatalf("collection walk is not gap-free: %v", walked)
+	}
+	if count := fmt.Sprint(indexRows(rows, "name")["events"]["documents"]); count != strconv.Itoa(seededDocs) {
+		t.Fatalf("paged collection rows must still carry their counts: got %q", count)
+	}
+}
+
+func seedDocuments(ctx context.Context, t *testing.T, s *Session, database, collection string, keys []string) {
+	t.Helper()
+	if _, err := s.queryRows(ctx, database,
+		`FOR k IN @keys INSERT {_key: k, label: CONCAT("row-", k)} INTO @@col`,
+		map[string]any{"@col": collection, "keys": keys}, 1); err != nil {
+		t.Fatalf("seed %s: %v", collection, err)
 	}
 }
 

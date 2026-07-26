@@ -134,29 +134,89 @@ func listLabels(rc *plugin.RequestContext) (any, error) {
 	return broker.PageRows(rc, rows)
 }
 
+// boundedPage embeds the unchanged paged wire contract and adds the metadata cap
+// signal: truncated and limit tell the browser the listing is partial.
+type boundedPage struct {
+	plugin.Page[row]
+	Truncated bool `json:"truncated,omitempty"`
+	Limit     int  `json:"limit,omitempty"`
+}
+
+// boundedRows pages a metadata listing the server answers in full. Loki's
+// /series and label-value endpoints take no limit, so a high-cardinality label
+// or a million-stream tenant is capped before rows are built rather than after,
+// and the page reports truncated instead of a false exact total.
+func boundedRows[T any](rc *plugin.RequestContext, values []T, render func(T) row) (boundedPage, error) {
+	req, err := rc.Page()
+	if err != nil {
+		return boundedPage{}, err
+	}
+	offset := 0
+	if req.Cursor != "" {
+		parsed, convErr := strconv.Atoi(req.Cursor)
+		if convErr != nil || parsed < 0 {
+			return boundedPage{}, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+		}
+		offset = parsed
+	}
+	truncated := false
+	if len(values) > plugin.MaxPageLimit {
+		values, truncated = values[:plugin.MaxPageLimit], true
+	}
+	if offset > len(values) {
+		offset = len(values)
+	}
+	end := min(offset+req.Limit, len(values))
+	rows := make([]row, 0, end-offset)
+	for _, value := range values[offset:end] {
+		rows = append(rows, render(value))
+	}
+	next := ""
+	if end < len(values) {
+		next = strconv.Itoa(end)
+	}
+	out := boundedPage{Page: plugin.Page[row]{Items: plugin.SortRows(rows, req.Sort), NextCursor: next}}
+	if truncated {
+		out.Truncated, out.Limit = true, plugin.MaxPageLimit
+	}
+	return out, nil
+}
+
+// metaQuery builds the parameters the metadata endpoints actually read.
+// rangeQuery's limit and direction belong to query_range and are ignored by
+// /series and /label/<name>/values, which is what left those calls unbounded.
+func metaQuery(rc *plugin.RequestContext, query string) url.Values {
+	q := url.Values{"since": []string{defaultSince}}
+	for _, key := range []string{"since", "start", "end"} {
+		if v := strings.TrimSpace(rc.Query().Get(key)); v != "" {
+			q.Set(key, v)
+		}
+	}
+	if search := strings.TrimSpace(rc.Query().Get("query")); search != "" {
+		q.Set("query", search)
+	} else if query != "" {
+		q.Set("query", query)
+	}
+	return q
+}
+
 func labelValues(rc *plugin.RequestContext) (any, error) {
 	var values []string
-	if err := lokiAPI(rc, http.MethodGet, "/loki/api/v1/label/"+url.PathEscape(labelParam(rc))+"/values", rangeQuery(rc, ""), &values); err != nil {
+	if err := lokiAPI(rc, http.MethodGet, "/loki/api/v1/label/"+url.PathEscape(labelParam(rc))+"/values", metaQuery(rc, ""), &values); err != nil {
 		return nil, err
 	}
-	rows := make([]row, 0, len(values))
-	for _, value := range values {
-		rows = append(rows, row{"value": value})
-	}
-	return broker.PageRows(rc, rows)
+	return boundedRows(rc, values, func(value string) row { return row{"value": value} })
 }
 
 func listStreams(rc *plugin.RequestContext) (any, error) {
 	var streams []map[string]string
-	if err := lokiAPI(rc, http.MethodGet, "/loki/api/v1/series", rangeQuery(rc, `{job=~".+"}`), &streams); err != nil {
+	if err := lokiAPI(rc, http.MethodGet, "/loki/api/v1/series", metaQuery(rc, defaultStreamSelector), &streams); err != nil {
 		return nil, err
 	}
-	rows := make([]row, 0, len(streams))
-	for _, labels := range streams {
+	return boundedRows(rc, streams, func(labels map[string]string) row {
 		name := labelsToSelector(labels)
-		rows = append(rows, row{"name": name, "labels": labels, "ref": plugin.ResourceIdentity{Kind: "stream", Name: name, UID: name}})
-	}
-	return broker.PageRows(rc, rows)
+		return row{"name": name, "labels": labels, "ref": plugin.ResourceIdentity{Kind: "stream", Name: name, UID: name}}
+	})
 }
 
 func streamLogs(rc *plugin.RequestContext) (any, error) {
@@ -384,15 +444,23 @@ func rangeQuery(rc *plugin.RequestContext, query string) url.Values {
 	return q
 }
 
+const (
+	defaultSince = "1h"
+
+	// defaultStreamSelector is the catch-all the stream browser falls back to when
+	// the panel supplies no LogQL selector.
+	defaultStreamSelector = `{job=~".+"}`
+)
+
 func defaultRange() url.Values {
-	return url.Values{"since": []string{"1h"}, "limit": []string{strconv.Itoa(defaultPageLimit)}, "direction": []string{"backward"}}
+	return url.Values{"since": []string{defaultSince}, "limit": []string{strconv.Itoa(defaultPageLimit)}, "direction": []string{"backward"}}
 }
 
 func selectorQuery(rc *plugin.RequestContext) string {
 	if query := strings.TrimSpace(rc.Query().Get("query")); query != "" {
 		return query
 	}
-	return `{job=~".+"}`
+	return defaultStreamSelector
 }
 
 func rangeBounds(rc *plugin.RequestContext) url.Values {

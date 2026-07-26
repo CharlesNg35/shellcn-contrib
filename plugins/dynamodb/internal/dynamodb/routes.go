@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -122,11 +123,10 @@ func billingOptions() []plugin.Option {
 }
 
 func tablesTree(rc *plugin.RequestContext) (any, error) {
-	res, err := tablesList(rc)
+	page, err := tablesPage(rc)
 	if err != nil {
 		return nil, err
 	}
-	page := res.(plugin.Page[row])
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
@@ -136,33 +136,111 @@ func tablesTree(rc *plugin.RequestContext) (any, error) {
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
 }
 
-func tablesList(rc *plugin.RequestContext) (any, error) {
+const (
+	// listTablesLimit is the API ceiling for one ListTables call.
+	listTablesLimit = 100
+
+	// listTablesCalls bounds how many ListTables round trips one page may take
+	// while a prefix or search term filters names out, so a region with thousands
+	// of tables can never be drained into a single response.
+	listTablesCalls = 10
+
+	// describeConcurrency bounds the DescribeTable fan-out for one page.
+	describeConcurrency = 8
+)
+
+// tableNamesInput seeds the exclusive start key for a table scan. ListTables
+// returns names in ascending order, so a prefixed catalogue can start just
+// before the prefix instead of at the top of the region.
+func tableNamesInput(cursor, prefix string, limit int) *awsdynamodb.ListTablesInput {
+	in := &awsdynamodb.ListTablesInput{Limit: aws.Int32(int32(min(limit+1, listTablesLimit)))}
+	start := cursor
+	if start == "" && len(prefix) > 3 {
+		start = prefix[:len(prefix)-1]
+	}
+	if start != "" {
+		in.ExclusiveStartTableName = aws.String(start)
+	}
+	return in
+}
+
+// tableNames walks the table catalogue for exactly one page and returns the
+// cursor the next page resumes from.
+func tableNames(ctx context.Context, s *Session, cursor, term string, limit int) ([]string, string, error) {
+	prefix := s.opts.TablePrefix
+	lowered := strings.ToLower(term)
+	names := make([]string, 0, limit)
+	start := cursor
+	for calls := 0; calls < listTablesCalls; calls++ {
+		out, err := s.client.ListTables(ctx, tableNamesInput(start, prefix, limit))
+		if err != nil {
+			return nil, "", ddbErr(err)
+		}
+		for _, name := range out.TableNames {
+			if prefix != "" && !strings.HasPrefix(name, prefix) {
+				if name > prefix {
+					return names, "", nil
+				}
+				continue
+			}
+			if lowered != "" && !strings.Contains(strings.ToLower(name), lowered) {
+				continue
+			}
+			if len(names) == limit {
+				return names, names[limit-1], nil
+			}
+			names = append(names, name)
+		}
+		if out.LastEvaluatedTableName == nil {
+			return names, "", nil
+		}
+		start = *out.LastEvaluatedTableName
+	}
+	if len(names) == 0 {
+		return names, "", nil
+	}
+	return names, names[len(names)-1], nil
+}
+
+// tablesPage lists one page of tables. DescribeTable is an API call per table,
+// so it runs only for the names on the page, and concurrently.
+func tablesPage(rc *plugin.RequestContext) (plugin.Page[row], error) {
 	s, err := ddbSession(rc)
 	if err != nil {
-		return nil, err
+		return plugin.Page[row]{}, err
+	}
+	req, err := rc.Page()
+	if err != nil {
+		return plugin.Page[row]{}, err
 	}
 	ctx, cancel := requestContext(rc.Ctx, s)
 	defer cancel()
-	pager := awsdynamodb.NewListTablesPaginator(s.client, &awsdynamodb.ListTablesInput{})
-	rows := []row{}
-	for pager.HasMorePages() {
-		out, err := pager.NextPage(ctx)
-		if err != nil {
-			return nil, ddbErr(err)
-		}
-		for _, name := range out.TableNames {
-			if s.opts.TablePrefix != "" && !strings.HasPrefix(name, s.opts.TablePrefix) {
-				continue
-			}
-			item := row{"name": name, "ref": plugin.ResourceIdentity{Kind: "table", Name: name, UID: name}}
-			if desc, err := describeTable(ctx, s, name); err == nil {
-				mergeRows(item, tableSummary(desc))
-			}
-			rows = append(rows, item)
-		}
+	names, next, err := tableNames(ctx, s, req.Cursor, req.Search(), req.Limit)
+	if err != nil {
+		return plugin.Page[row]{}, err
 	}
-	sortRows(rows, "name")
-	return broker.PageRows(rc, rows)
+	rows := make([]row, len(names))
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, describeConcurrency)
+	for i, name := range names {
+		rows[i] = row{"name": name, "ref": plugin.ResourceIdentity{Kind: "table", Name: name, UID: name}}
+		wg.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer func() { <-slots; wg.Done() }()
+			if desc, err := describeTable(ctx, s, name); err == nil {
+				mergeRows(rows[i], tableSummary(desc))
+			}
+		}()
+	}
+	wg.Wait()
+	// No Total: DynamoDB exposes no cheap table count, and scanning the catalogue
+	// to produce one is the cost this page exists to avoid.
+	return plugin.Page[row]{Items: plugin.SortRows(rows, req.Sort), NextCursor: next}, nil
+}
+
+func tablesList(rc *plugin.RequestContext) (any, error) {
+	return tablesPage(rc)
 }
 
 func tableRead(rc *plugin.RequestContext) (any, error) {

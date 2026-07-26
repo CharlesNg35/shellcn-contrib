@@ -539,8 +539,6 @@ func documentRemove(rc *plugin.RequestContext) (any, error) {
 	return actionResult{OK: true, Message: "document " + k.Document + " deleted"}, nil
 }
 
-// --- inferred schema --------------------------------------------------------
-
 // collectionSchema runs INFER, Couchbase's own schema inference over a document
 // sample, and flattens the flavours into one row per observed field.
 func collectionSchema(rc *plugin.RequestContext) (any, error) {

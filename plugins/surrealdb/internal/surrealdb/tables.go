@@ -3,6 +3,7 @@ package surrealdb
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
@@ -61,8 +62,26 @@ func listTables(rc *plugin.RequestContext) (any, error) {
 	}
 	sort.Strings(names)
 
-	rows := make([]tableRow, 0, len(names))
-	for _, name := range names {
+	total := len(names)
+	start := 0
+	if page.Cursor != "" {
+		parsed, err := strconv.Atoi(page.Cursor)
+		if err != nil || parsed < 0 {
+			return nil, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+		}
+		start = parsed
+	}
+	if start > total {
+		start = total
+	}
+	end := min(start+page.Limit, total)
+	next := ""
+	if end < total {
+		next = strconv.Itoa(end)
+	}
+
+	rows := make([]tableRow, 0, end-start)
+	for _, name := range names[start:end] {
 		mode := "schemaless"
 		if def, _ := defs[name].(string); strings.Contains(strings.ToUpper(def), "SCHEMAFULL") {
 			mode = "schemafull"
@@ -72,7 +91,7 @@ func listTables(rc *plugin.RequestContext) (any, error) {
 			Ref: plugin.ResourceIdentity{Kind: "table", Name: name, UID: name},
 		})
 	}
-	return plugin.Page[tableRow]{Items: rows}, nil
+	return plugin.Page[tableRow]{Items: rows, NextCursor: next, Total: &total}, nil
 }
 
 // treeTables returns the Tables sidebar nodes; clicking one opens the table's

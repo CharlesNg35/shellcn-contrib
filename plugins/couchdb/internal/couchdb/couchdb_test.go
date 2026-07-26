@@ -309,8 +309,6 @@ func TestGridFieldsDropsManagedKeys(t *testing.T) {
 	}
 }
 
-// --- handler tests against a fake CouchDB ---------------------------------------
-
 func TestHandlersAgainstFakeServer(t *testing.T) {
 	fake := newFakeCouch()
 	srv := httptest.NewServer(fake)
@@ -855,8 +853,6 @@ func TestSessionAuthenticatesWithCookieSession(t *testing.T) {
 	}
 }
 
-// --- helpers -------------------------------------------------------------------
-
 func connectFake(t *testing.T, p plugin.Plugin, endpoint string, net plugin.NetTransport) plugin.Session {
 	t.Helper()
 	host, port := splitHostPort(t, endpoint)
@@ -987,8 +983,6 @@ func (s *fakeStorage) List(_ context.Context, scope plugin.StorageScope, filter 
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out, nil
 }
-
-// --- fake CouchDB ----------------------------------------------------------------
 
 // fakeCouch implements just enough of the CouchDB HTTP API to exercise the
 // handlers deterministically, including revisions and conflicts.

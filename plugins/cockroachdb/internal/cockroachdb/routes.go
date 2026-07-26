@@ -34,6 +34,14 @@ func (e confirmationError) Error() string { return e.message }
 
 var dialect = sqldb.Dialect{QuoteIdent: sqldb.QuoteIdent, Placeholder: sqldb.DollarPlaceholder}
 
+// Scan ceilings. scanCap bounds any catalog listing materialized in memory; the
+// graph caps bound the ERD payload shipped to the browser.
+const (
+	scanCap        = plugin.MaxPageLimit * 10
+	graphColumnCap = plugin.MaxPageLimit * 20
+	graphEdgeCap   = plugin.MaxPageLimit * 10
+)
+
 func routes() []plugin.Route {
 	return []plugin.Route{
 		{ID: "cockroachdb.databases.tree", Method: plugin.MethodGet, Path: "/tree/databases", Permission: "cockroachdb.databases.read", Risk: plugin.RiskSafe, AuditEvent: "cockroachdb.databases.tree", Handle: treeDatabases},
@@ -355,20 +363,89 @@ func listRanges(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var database string
-	if err := s.pool.QueryRow(rc.Ctx, "SELECT current_database()").Scan(&database); err != nil {
-		return nil, cockroachErr(err)
-	}
-	rows, err := queryRows(rc.Ctx, s, "SHOW RANGES FROM DATABASE "+sqldb.QuoteIdent(database), nil)
+	req, err := rc.Page()
 	if err != nil {
 		return nil, err
 	}
+	source, err := rangeSource(rc.Ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	// A cluster holds one range per ~512MB of data, so the listing is only ever
+	// read one page at a time; a search term falls back to a capped scan.
+	if req.Search() != "" {
+		rows, truncated, err := queryRowsCapped(rc.Ctx, s, "SELECT * FROM "+source, nil, scanCap)
+		if err != nil {
+			return nil, err
+		}
+		addRefs(rows, "range", "range_id", "range_id")
+		return pageScannedRows(rc, rows, truncated)
+	}
+	orderBy := " ORDER BY range_id"
+	if len(req.Sort) > 0 {
+		col, err := sqldb.SafeIdentifier(req.Sort[0].Field)
+		if err != nil {
+			return nil, err
+		}
+		dir := "ASC"
+		if req.Sort[0].Desc {
+			dir = "DESC"
+		}
+		orderBy = " ORDER BY " + sqldb.QuoteIdent(col) + " " + dir
+	}
+	offset, err := cursorOffset(req.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queryRows(rc.Ctx, s, "SELECT * FROM "+source+orderBy+" LIMIT $1 OFFSET $2", []any{req.Limit + 1, offset})
+	if err != nil {
+		return nil, err
+	}
+	next := ""
+	if len(rows) > req.Limit {
+		rows = rows[:req.Limit]
+		next = strconv.Itoa(offset + req.Limit)
+	}
 	addRefs(rows, "range", "range_id", "range_id")
-	return pageRows(rc, rows)
+	return plugin.Page[row]{Items: rows, NextCursor: next}, nil
+}
+
+// rangeSource is the SHOW RANGES statement wrapped as a table expression so
+// paging, ordering, and lookups happen in SQL instead of over the whole list.
+func rangeSource(ctx context.Context, s *Session) (string, error) {
+	var database string
+	if err := s.pool.QueryRow(ctx, "SELECT current_database()").Scan(&database); err != nil {
+		return "", cockroachErr(err)
+	}
+	return "[SHOW RANGES FROM DATABASE " + sqldb.QuoteIdent(database) + "]", nil
 }
 
 func rangeOverview(rc *plugin.RequestContext) (any, error) {
-	return overviewFromRows(rc, "range", "range_id", listRanges)
+	want := strings.TrimSpace(rc.Param("range"))
+	if want == "" {
+		return nil, fmt.Errorf("%w: range is required", plugin.ErrInvalidInput)
+	}
+	id, err := strconv.ParseInt(want, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("%w: range must be an id", plugin.ErrInvalidInput)
+	}
+	s, err := cockroachSession(rc)
+	if err != nil {
+		return nil, err
+	}
+	source, err := rangeSource(rc.Ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queryRows(rc.Ctx, s, "SELECT * FROM "+source+" WHERE range_id = $1 LIMIT 1", []any{id})
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, plugin.ErrNotFound
+	}
+	addRefs(rows, "range", "range_id", "range_id")
+	return rows[0], nil
 }
 
 func listJobs(rc *plugin.RequestContext) (any, error) {
@@ -522,14 +599,23 @@ JOIN information_schema.key_column_usage uk
  AND uk.ordinal_position = kcu.position_in_unique_constraint
 WHERE kcu.table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_extension', 'crdb_internal')
   AND ($1::STRING = '' OR kcu.table_schema = $1)
-ORDER BY rc.constraint_name, kcu.ordinal_position`
+ORDER BY rc.constraint_name, kcu.ordinal_position
+LIMIT $2`
 
 const relationColumnsSQL = `
 SELECT table_schema, table_name, column_name, data_type
 FROM information_schema.columns
 WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_extension', 'crdb_internal')
   AND ($1::STRING = '' OR table_schema = $1)
-ORDER BY table_schema, table_name, ordinal_position`
+ORDER BY table_schema, table_name, ordinal_position
+LIMIT $2`
+
+// graphPayload is the ERD plus a truncated flag telling the panel the diagram
+// stopped at the cap; the embedded payload keeps the (nodes, edges) wire contract.
+type graphPayload struct {
+	sqldb.GraphPayload
+	Truncated bool `json:"truncated,omitempty"`
+}
 
 func relationGraph(rc *plugin.RequestContext) (any, error) {
 	s, err := cockroachSession(rc)
@@ -540,11 +626,11 @@ func relationGraph(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	colRows, err := queryRows(rc.Ctx, s, relationColumnsSQL, []any{schema})
+	colRows, colCapped, err := queryRowsCapped(rc.Ctx, s, relationColumnsSQL, []any{schema, graphColumnCap}, graphColumnCap)
 	if err != nil {
 		return nil, err
 	}
-	fkRows, err := queryRows(rc.Ctx, s, relationGraphSQL, []any{schema})
+	fkRows, fkCapped, err := queryRowsCapped(rc.Ctx, s, relationGraphSQL, []any{schema, graphEdgeCap}, graphEdgeCap)
 	if err != nil {
 		return nil, err
 	}
@@ -556,7 +642,8 @@ func relationGraph(rc *plugin.RequestContext) (any, error) {
 	for _, r := range fkRows {
 		fks = append(fks, sqldb.ForeignKeyFromRow(r))
 	}
-	return sqldb.RelationGraph(columns, fks), nil
+	truncated := colCapped || fkCapped || len(colRows) >= graphColumnCap || len(fkRows) >= graphEdgeCap
+	return graphPayload{GraphPayload: sqldb.RelationGraph(columns, fks), Truncated: truncated}, nil
 }
 
 func listViews(rc *plugin.RequestContext) (any, error) {
@@ -664,16 +751,6 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 	}
 	qualified := sqldb.Qualified(schema, table)
 	filter := req.Search()
-	countSQL := "SELECT COUNT(*) FROM " + qualified + " AS t"
-	countArgs := []any{}
-	if filter != "" {
-		countSQL += " WHERE t::string ILIKE $1"
-		countArgs = append(countArgs, "%"+filter+"%")
-	}
-	var total int
-	if err := s.pool.QueryRow(rc.Ctx, countSQL, countArgs...).Scan(&total); err != nil {
-		return nil, cockroachErr(err)
-	}
 	orderBy := ""
 	if len(req.Sort) > 0 {
 		col, err := sqldb.SafeIdentifier(req.Sort[0].Field)
@@ -686,7 +763,9 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 		}
 		orderBy = " ORDER BY " + sqldb.QuoteIdent(col) + " " + dir
 	}
-	dataArgs := []any{limit, offset}
+	// One row past the page tells us whether a next page exists, so the grid
+	// never pays for a distributed COUNT(*) over the whole table.
+	dataArgs := []any{limit + 1, offset}
 	where := ""
 	if filter != "" {
 		where = " WHERE t::string ILIKE $3"
@@ -696,6 +775,11 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 	rows, err := queryRows(rc.Ctx, s, sqlText, dataArgs)
 	if err != nil {
 		return nil, err
+	}
+	next := ""
+	if len(rows) > limit {
+		rows = rows[:limit]
+		next = strconv.Itoa(offset + limit)
 	}
 	pk, err := primaryKeyColumns(rc.Ctx, s, schema, table)
 	if err != nil {
@@ -708,11 +792,7 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 	}
 	attachForeignKeys(rows, fks)
 	redactRows(rows, s.opts.RedactPatterns)
-	next := ""
-	if offset+len(rows) < total {
-		next = strconv.Itoa(offset + len(rows))
-	}
-	return plugin.Page[row]{Items: rows, NextCursor: next, Total: &total}, nil
+	return plugin.Page[row]{Items: rows, NextCursor: next}, nil
 }
 
 // foreignKeys maps each FK column to the referenced table's ref, attached under
@@ -1732,20 +1812,32 @@ func executeStatement(ctx context.Context, s *Session, statement string) (sqldb.
 }
 
 func queryRows(ctx context.Context, s *Session, sqlText string, args []any) ([]row, error) {
+	rows, _, err := queryRowsCapped(ctx, s, sqlText, args, scanCap)
+	return rows, err
+}
+
+// queryRowsCapped stops materializing at max and reports whether the result set
+// still had rows.
+func queryRowsCapped(ctx context.Context, s *Session, sqlText string, args []any, max int) ([]row, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.opts.QueryTimeout)
 	defer cancel()
 	rows, err := s.pool.Query(ctx, sqlText, args...)
 	if err != nil {
-		return nil, cockroachErr(err)
+		return nil, false, cockroachErr(err)
 	}
 	defer rows.Close()
 	fields := rows.FieldDescriptions()
 	names := fieldNames(fields)
 	out := []row{}
+	truncated := false
 	for rows.Next() {
+		if len(out) >= max {
+			truncated = true
+			break
+		}
 		values, err := rows.Values()
 		if err != nil {
-			return nil, cockroachErr(err)
+			return nil, false, cockroachErr(err)
 		}
 		r := row{}
 		for i, name := range names {
@@ -1755,10 +1847,12 @@ func queryRows(ctx context.Context, s *Session, sqlText string, args []any) ([]r
 		}
 		out = append(out, r)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, cockroachErr(err)
+	if !truncated {
+		if err := rows.Err(); err != nil {
+			return nil, false, cockroachErr(err)
+		}
 	}
-	return out, nil
+	return out, truncated, nil
 }
 
 func redactRows(rows []row, patterns []string) {
@@ -1783,13 +1877,18 @@ func fieldNames(fields []pgconn.FieldDescription) []string {
 }
 
 func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
+	return pageScannedRows(rc, rows, false)
+}
+
+// pageScannedRows slices an in-memory listing. A truncated scan omits Total so
+// the grid never shows a count it knows is short.
+func pageScannedRows(rc *plugin.RequestContext, rows []row, truncated bool) (plugin.Page[row], error) {
 	req, err := rc.Page()
 	if err != nil {
 		return plugin.Page[row]{}, err
 	}
 	rows = filterRows(rows, req.Search())
 	sortRows(rows, req.Sort)
-	total := len(rows)
 	start, err := cursorOffset(req.Cursor)
 	if err != nil {
 		return plugin.Page[row]{}, err
@@ -1802,7 +1901,12 @@ func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
 	if end < len(rows) {
 		next = strconv.Itoa(end)
 	}
-	return plugin.Page[row]{Items: rows[start:end], NextCursor: next, Total: &total}, nil
+	page := plugin.Page[row]{Items: rows[start:end], NextCursor: next}
+	if !truncated {
+		total := len(rows)
+		page.Total = &total
+	}
+	return page, nil
 }
 
 func treeFromPage(rc *plugin.RequestContext, kind string, iconName string, labelKey string, load func(*plugin.RequestContext) (any, error)) (any, error) {

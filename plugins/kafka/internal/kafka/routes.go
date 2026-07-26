@@ -2,7 +2,9 @@ package kafka
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -89,17 +91,42 @@ func overview(rc *plugin.RequestContext) (any, error) {
 	if controller, err := s.client.Controller(); err == nil && controller != nil {
 		controllerID = controller.ID()
 	}
-	topics, _ := s.admin.ListTopics()
-	groups, _ := s.admin.ListConsumerGroups()
-	return row{"brokers": len(brokers), "controller_id": controllerID, "topics": len(topics), "consumer_groups": len(groups), "readOnly": s.opts.ReadOnly}, nil
+	topics, _ := s.client.Topics()
+	groupCount := 0
+	if snap, err := s.groups(); err == nil {
+		groupCount = snap.total
+	}
+	return row{"brokers": len(brokers), "controller_id": controllerID, "topics": len(topics), "consumer_groups": groupCount, "readOnly": s.opts.ReadOnly}, nil
+}
+
+// listPage embeds the unchanged paged wire contract and adds the sweep cap
+// signal: truncated and scanLimit tell the browser the sweep stopped at the cap.
+type listPage struct {
+	plugin.Page[row]
+	Truncated bool `json:"truncated,omitempty"`
+	ScanLimit int  `json:"scanLimit,omitempty"`
+}
+
+// pageSnapshot slices one page out of a cached sweep. A capped sweep reports
+// truncated instead of a total, because the total it could offer would be the
+// cap rather than the cluster's real count.
+func pageSnapshot(rc *plugin.RequestContext, snap *listSnapshot) (listPage, error) {
+	page, err := broker.PageRows(rc, snap.page())
+	if err != nil {
+		return listPage{}, err
+	}
+	out := listPage{Page: page}
+	if snap.truncated {
+		out.Page.Total, out.Truncated, out.ScanLimit = nil, true, listScanLimit
+	}
+	return out, nil
 }
 
 func treeTopics(rc *plugin.RequestContext) (any, error) {
-	res, err := listTopics(rc)
+	page, err := topicsPage(rc)
 	if err != nil {
 		return nil, err
 	}
-	page := res.(plugin.Page[row])
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
@@ -110,11 +137,10 @@ func treeTopics(rc *plugin.RequestContext) (any, error) {
 }
 
 func treeGroups(rc *plugin.RequestContext) (any, error) {
-	res, err := listGroups(rc)
+	page, err := groupsPage(rc)
 	if err != nil {
 		return nil, err
 	}
-	page := res.(plugin.Page[row])
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
@@ -124,32 +150,20 @@ func treeGroups(rc *plugin.RequestContext) (any, error) {
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
 }
 
-func listTopics(rc *plugin.RequestContext) (any, error) {
+func topicsPage(rc *plugin.RequestContext) (listPage, error) {
 	s, err := kafkaSession(rc)
 	if err != nil {
-		return nil, err
+		return listPage{}, err
 	}
-	topics, err := s.admin.ListTopics()
+	snap, err := s.topics()
 	if err != nil {
-		return nil, kafkaErr(err)
+		return listPage{}, err
 	}
-	names := make([]string, 0, len(topics))
-	for name := range topics {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	rows := make([]row, 0, len(names))
-	for _, name := range names {
-		d := topics[name]
-		rows = append(rows, row{
-			"name":               name,
-			"partitions":         d.NumPartitions,
-			"replication_factor": d.ReplicationFactor,
-			"internal":           strings.HasPrefix(name, "__"),
-			"ref":                plugin.ResourceIdentity{Kind: "topic", Name: name, UID: name},
-		})
-	}
-	return broker.PageRows(rc, rows)
+	return pageSnapshot(rc, snap)
+}
+
+func listTopics(rc *plugin.RequestContext) (any, error) {
+	return topicsPage(rc)
 }
 
 func topicOverview(rc *plugin.RequestContext) (any, error) {
@@ -250,6 +264,7 @@ func createTopic(rc *plugin.RequestContext) (any, error) {
 		entries[k] = &value
 	}
 	err = s.admin.CreateTopic(req.Name, &sarama.TopicDetail{NumPartitions: req.Partitions, ReplicationFactor: req.ReplicationFactor, ConfigEntries: entries}, false)
+	s.dropSnapshots()
 	return actionResult{OK: err == nil}, kafkaErr(err)
 }
 
@@ -322,6 +337,7 @@ func addPartitions(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	err = s.admin.CreatePartitions(topic, req.Count, nil, false)
+	s.dropSnapshots()
 	return actionResult{OK: err == nil}, kafkaErr(err)
 }
 
@@ -334,6 +350,7 @@ func deleteTopic(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	err = s.admin.DeleteTopic(topicParam(rc))
+	s.dropSnapshots()
 	return actionResult{OK: err == nil}, kafkaErr(err)
 }
 
@@ -385,37 +402,49 @@ func produceMessage(rc *plugin.RequestContext) (any, error) {
 	return row{"ok": true, "partition": partition, "offset": offset}, nil
 }
 
-func listGroups(rc *plugin.RequestContext) (any, error) {
+// groupsPage lists consumer groups. DescribeConsumerGroups carries every member
+// and its assignment, so it runs only for the names on the returned page.
+func groupsPage(rc *plugin.RequestContext) (listPage, error) {
 	s, err := kafkaSession(rc)
 	if err != nil {
-		return nil, err
+		return listPage{}, err
 	}
-	groups, err := s.admin.ListConsumerGroups()
+	snap, err := s.groups()
 	if err != nil {
-		return nil, kafkaErr(err)
+		return listPage{}, err
 	}
-	names := make([]string, 0, len(groups))
-	for name := range groups {
-		names = append(names, name)
+	page, err := pageSnapshot(rc, snap)
+	if err != nil {
+		return listPage{}, err
 	}
-	sort.Strings(names)
-	descs, _ := s.admin.DescribeConsumerGroups(names)
+	names := make([]string, 0, len(page.Items))
+	for _, item := range page.Items {
+		names = append(names, fmt.Sprint(item["name"]))
+	}
 	byName := map[string]*sarama.GroupDescription{}
-	for _, d := range descs {
-		if d != nil {
-			byName[d.GroupId] = d
+	if len(names) > 0 {
+		descs, _ := s.admin.DescribeConsumerGroups(names)
+		for _, d := range descs {
+			if d != nil {
+				byName[d.GroupId] = d
+			}
 		}
 	}
-	rows := make([]row, 0, len(names))
-	for _, name := range names {
-		r := row{"name": name, "protocol_type": groups[name], "ref": plugin.ResourceIdentity{Kind: "consumer_group", Name: name, UID: name}}
-		if d := byName[name]; d != nil {
+	items := make([]row, 0, len(page.Items))
+	for _, item := range page.Items {
+		r := maps.Clone(item)
+		if d := byName[fmt.Sprint(r["name"])]; d != nil {
 			r["state"] = d.State
 			r["members"] = len(d.Members)
 		}
-		rows = append(rows, r)
+		items = append(items, r)
 	}
-	return broker.PageRows(rc, rows)
+	page.Items = items
+	return page, nil
+}
+
+func listGroups(rc *plugin.RequestContext) (any, error) {
+	return groupsPage(rc)
 }
 
 func groupOverview(rc *plugin.RequestContext) (any, error) {
@@ -446,12 +475,7 @@ func groupOffsets(rc *plugin.RequestContext) (any, error) {
 	rows := []row{}
 	for topic, parts := range resp.Blocks {
 		for partition, block := range parts {
-			newest, _ := s.client.GetOffset(topic, partition, sarama.OffsetNewest)
-			lag := int64(0)
-			if block.Offset >= 0 && newest >= block.Offset {
-				lag = newest - block.Offset
-			}
-			rows = append(rows, row{"topic": topic, "partition": partition, "committed_offset": block.Offset, "newest_offset": newest, "lag": lag, "metadata": block.Metadata})
+			rows = append(rows, row{"topic": topic, "partition": partition, "committed_offset": block.Offset, "metadata": block.Metadata})
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool {
@@ -460,7 +484,72 @@ func groupOffsets(rc *plugin.RequestContext) (any, error) {
 		}
 		return fmt.Sprint(rows[i]["topic"]) < fmt.Sprint(rows[j]["topic"])
 	})
-	return broker.PageRows(rc, rows)
+	page, err := broker.PageRows(rc, rows)
+	if err != nil {
+		return nil, err
+	}
+	newest := newestOffsets(s, page.Items)
+	items := make([]row, 0, len(page.Items))
+	for _, item := range page.Items {
+		r := maps.Clone(item)
+		key := partitionKey{topic: fmt.Sprint(r["topic"]), partition: r["partition"].(int32)}
+		high, ok := newest[key]
+		if !ok {
+			high = -1
+		}
+		committed, _ := r["committed_offset"].(int64)
+		lag := int64(0)
+		if committed >= 0 && high >= committed {
+			lag = high - committed
+		}
+		r["newest_offset"], r["lag"] = high, lag
+		items = append(items, r)
+	}
+	page.Items = items
+	return page, nil
+}
+
+type partitionKey struct {
+	topic     string
+	partition int32
+}
+
+// newestOffsets resolves the log-end offset for the partitions on one page.
+// The lookups are grouped by partition leader into a single OffsetRequest per
+// broker, so lag costs one round trip per broker instead of one per partition.
+func newestOffsets(s *Session, rows []row) map[partitionKey]int64 {
+	byLeader := map[*sarama.Broker][]partitionKey{}
+	for _, r := range rows {
+		partition, ok := r["partition"].(int32)
+		if !ok {
+			continue
+		}
+		key := partitionKey{topic: fmt.Sprint(r["topic"]), partition: partition}
+		leader, err := s.client.Leader(key.topic, key.partition)
+		if err != nil || leader == nil {
+			continue
+		}
+		byLeader[leader] = append(byLeader[leader], key)
+	}
+	out := make(map[partitionKey]int64, len(rows))
+	for leader, keys := range byLeader {
+		req := sarama.NewOffsetRequest(s.client.Config().Version)
+		for _, key := range keys {
+			req.AddBlock(key.topic, key.partition, sarama.OffsetNewest, 1)
+		}
+		resp, err := leader.GetAvailableOffsets(req)
+		if err != nil {
+			continue
+		}
+		for _, key := range keys {
+			block := resp.GetBlock(key.topic, key.partition)
+			if block == nil || !errors.Is(block.Err, sarama.ErrNoError) || len(block.Offsets) != 1 {
+				continue
+			}
+			out[key] = block.Offsets[0]
+		}
+	}
+	return out
 }
 
 func deleteGroup(rc *plugin.RequestContext) (any, error) {
@@ -472,6 +561,7 @@ func deleteGroup(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	err = s.admin.DeleteConsumerGroup(groupParam(rc))
+	s.dropSnapshots()
 	return actionResult{OK: err == nil}, kafkaErr(err)
 }
 

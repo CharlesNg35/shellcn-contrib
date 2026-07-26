@@ -1,6 +1,7 @@
 package escompat
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -107,19 +108,51 @@ func overview(rc *plugin.RequestContext) (any, error) {
 	return root, nil
 }
 
+const (
+	// indexListColumns/indexTreeColumns restrict _cat/indices to the columns each
+	// caller renders, so a cluster-wide listing does not ship unused ones.
+	indexListColumns = "index,health,status,uuid,pri,rep,docs.count,docs.deleted,store.size,pri.store.size"
+	indexTreeColumns = "index"
+	// maxIndexScan caps how deep the offset cursor may walk a cluster whose index
+	// count is unbounded; _cat has no cursor of its own.
+	maxIndexScan = 5 * plugin.MaxPageLimit
+)
+
+// indexSortColumns maps the table's row keys onto _cat column names so ordering
+// happens on the server instead of over a fully materialized list.
+var indexSortColumns = map[string]string{
+	"index":          "index",
+	"health":         "health",
+	"status":         "status",
+	"uuid":           "uuid",
+	"pri":            "pri",
+	"rep":            "rep",
+	"docs_count":     "docs.count",
+	"docs_deleted":   "docs.deleted",
+	"store_size":     "store.size",
+	"pri_store_size": "pri.store.size",
+}
+
 func treeIndexes(rc *plugin.RequestContext) (any, error) {
-	res, err := listIndexes(rc)
+	s, err := searchSession(rc)
 	if err != nil {
 		return nil, err
 	}
-	page := res.(plugin.Page[row])
-	nodes := make([]plugin.TreeNode, 0, len(page.Items))
-	for _, item := range page.Items {
+	page, err := scanIndexes(rc, s, indexTreeColumns)
+	if err != nil {
+		return nil, err
+	}
+	nodes := make([]plugin.TreeNode, 0, len(page.rows))
+	for _, item := range page.rows {
 		name := fmt.Sprint(item["index"])
 		ref := plugin.ResourceIdentity{Kind: "index", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "index:" + name, Label: name, Icon: icon("database"), Ref: &ref, Leaf: true})
 	}
-	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
+	out := treePage{Page: plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.next}, Truncated: page.truncated}
+	if page.truncated {
+		out.ScanLimit = maxIndexScan
+	}
+	return out, nil
 }
 
 func listIndexes(rc *plugin.RequestContext) (any, error) {
@@ -127,13 +160,12 @@ func listIndexes(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	q := url.Values{"format": []string{"json"}, "bytes": []string{"b"}, "expand_wildcards": []string{"all"}}
-	var raw []row
-	if err := s.client.Do(rc.Ctx, http.MethodGet, "/_cat/indices", q, nil, &raw); err != nil {
+	page, err := scanIndexes(rc, s, indexListColumns)
+	if err != nil {
 		return nil, err
 	}
-	rows := make([]row, 0, len(raw))
-	for _, r := range raw {
+	rows := make([]row, 0, len(page.rows))
+	for _, r := range page.rows {
 		name := fmt.Sprint(r["index"])
 		r["docs_count"] = numericString(r["docs.count"])
 		r["docs_deleted"] = numericString(r["docs.deleted"])
@@ -142,8 +174,167 @@ func listIndexes(rc *plugin.RequestContext) (any, error) {
 		r["ref"] = plugin.ResourceIdentity{Kind: "index", Name: name, UID: name}
 		rows = append(rows, r)
 	}
-	sort.Slice(rows, func(i, j int) bool { return fmt.Sprint(rows[i]["index"]) < fmt.Sprint(rows[j]["index"]) })
-	return broker.PageRows(rc, rows)
+	out := indexesPage{Page: plugin.Page[row]{Items: rows, NextCursor: page.next}, Truncated: page.truncated}
+	if page.truncated {
+		out.ScanLimit = maxIndexScan
+	}
+	return out, nil
+}
+
+// indexesPage and treePage add the crawl-cap signal to the paged wire contract.
+// No total is reported: counting a cluster's indexes means reading every _cat row.
+type indexesPage struct {
+	plugin.Page[row]
+	Truncated bool `json:"truncated,omitempty"`
+	ScanLimit int  `json:"scanLimit,omitempty"`
+}
+
+type treePage struct {
+	plugin.Page[plugin.TreeNode]
+	Truncated bool `json:"truncated,omitempty"`
+	ScanLimit int  `json:"scanLimit,omitempty"`
+}
+
+type catPage struct {
+	rows      []row
+	next      string
+	truncated bool
+}
+
+// scanIndexes fetches one page of _cat/indices: the filter box narrows the index
+// pattern server-side, sorting is delegated to _cat, and only the requested
+// window of rows is ever decoded.
+func scanIndexes(rc *plugin.RequestContext, s *Session, columns string) (catPage, error) {
+	req, err := rc.Page()
+	if err != nil {
+		return catPage{}, err
+	}
+	from := 0
+	if req.Cursor != "" {
+		from, err = strconv.Atoi(req.Cursor)
+		if err != nil || from < 0 {
+			return catPage{}, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+		}
+	}
+	limit := req.Limit
+	if limit > s.opts.PageLimit {
+		limit = s.opts.PageLimit
+	}
+	if from >= maxIndexScan {
+		return catPage{rows: []row{}, truncated: true}, nil
+	}
+	if from+limit > maxIndexScan {
+		limit = maxIndexScan - from
+	}
+	q := url.Values{
+		"format":           []string{"json"},
+		"bytes":            []string{"b"},
+		"expand_wildcards": []string{"all"},
+		"h":                []string{columns},
+		"s":                []string{indexSortParam(req.Sort)},
+	}
+	window := &catWindow{skip: from, limit: limit}
+	if err := s.client.Do(rc.Ctx, http.MethodGet, catIndexPath(req.Search()), q, nil, window); err != nil {
+		if isMissing(err) {
+			return catPage{rows: []row{}}, nil
+		}
+		return catPage{}, err
+	}
+	page := catPage{rows: window.rows}
+	if window.more {
+		if from+limit >= maxIndexScan {
+			page.truncated = true
+		} else {
+			page.next = strconv.Itoa(from + limit)
+		}
+	}
+	return page, nil
+}
+
+// catWindow decodes a _cat array response element by element and retains only
+// the rows inside the requested window, so a cluster with tens of thousands of
+// indexes never becomes tens of thousands of maps in the plugin heap.
+type catWindow struct {
+	skip  int
+	limit int
+	rows  []row
+	more  bool
+}
+
+func (w *catWindow) UnmarshalJSON(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '[' {
+		return fmt.Errorf("%w: unexpected _cat response", plugin.ErrUnavailable)
+	}
+	seen := 0
+	for dec.More() {
+		if len(w.rows) >= w.limit {
+			w.more = true
+			return nil
+		}
+		var r row
+		if err := dec.Decode(&r); err != nil {
+			return err
+		}
+		seen++
+		if seen <= w.skip {
+			continue
+		}
+		w.rows = append(w.rows, r)
+	}
+	return nil
+}
+
+// catIndexPath narrows the listing to the filter term as an index pattern. The
+// term matches index names only; other columns are no longer filterable because
+// the whole cluster is never read back.
+func catIndexPath(term string) string {
+	pattern := indexPattern(term)
+	if pattern == "" {
+		return "/_cat/indices"
+	}
+	return "/_cat/indices/" + pattern
+}
+
+func indexPattern(term string) string {
+	var b strings.Builder
+	for _, r := range term {
+		switch r {
+		case ',', '/', '\\', '"', '<', '>', '|', '?', '#', ' ', '\t':
+			continue
+		case '*':
+			b.WriteRune(r)
+		default:
+			b.WriteString(url.PathEscape(string(r)))
+		}
+	}
+	escaped := b.String()
+	if escaped == "" || escaped == "*" {
+		return ""
+	}
+	return "*" + strings.Trim(escaped, "*") + "*"
+}
+
+func indexSortParam(keys []plugin.SortKey) string {
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		column, ok := indexSortColumns[key.Field]
+		if !ok {
+			continue
+		}
+		if key.Desc {
+			column += ":desc"
+		}
+		parts = append(parts, column)
+	}
+	if len(parts) == 0 {
+		return "index"
+	}
+	return strings.Join(parts, ",")
 }
 
 func indexOverview(rc *plugin.RequestContext) (any, error) {

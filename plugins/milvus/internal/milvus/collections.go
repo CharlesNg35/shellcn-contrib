@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
 	"github.com/milvus-io/milvus/client/v2/entity"
@@ -160,22 +161,65 @@ func listCollections(rc *plugin.RequestContext) (any, error) {
 	}
 	ctx, cancel := withTimeout(rc, s)
 	defer cancel()
-	// Sorting and searching span every page, so the describe calls have to run
-	// before paging whenever they feed the comparison.
-	if req.Search() != "" || sortsOnCollectionDetail(req.Sort) {
-		for _, item := range rows {
-			describeCollectionInto(ctx, c, fmt.Sprint(item["name"]), item)
+	// A detail-column sort spans every page, so the describe calls have to run
+	// before paging. Milvus allows tens of thousands of collections, so the
+	// comparison covers a bounded prefix of the name list and says so.
+	if sortsOnCollectionDetail(req.Sort) {
+		scan := plugin.FilterRows(rows, req.Search())
+		truncated := false
+		if len(scan) > detailSortScan {
+			scan = scan[:detailSortScan]
+			truncated = true
 		}
-		return broker.PageRows(rc, rows)
+		describeCollections(ctx, c, scan)
+		page, err := broker.PageRows(rc, scan)
+		if err != nil {
+			return nil, err
+		}
+		out := collectionsPage{Page: page, Truncated: truncated}
+		if truncated {
+			out.ScanLimit = detailSortScan
+		}
+		return out, nil
 	}
 	page, err := broker.PageRows(rc, rows)
 	if err != nil {
 		return nil, err
 	}
-	for _, item := range page.Items {
-		describeCollectionInto(ctx, c, fmt.Sprint(item["name"]), item)
+	describeCollections(ctx, c, page.Items)
+	return collectionsPage{Page: page}, nil
+}
+
+// detailSortScan caps how many collections a detail-column sort describes.
+const detailSortScan = plugin.MaxPageLimit
+
+// describeConcurrency bounds the in-flight DescribeCollection fan-out.
+const describeConcurrency = 8
+
+// collectionsPage is the paged listing plus the describe cap signal. The
+// embedded page keeps the wire contract (items, nextCursor, total) unchanged;
+// truncated and scanLimit tell the browser the ordering stopped at the cap.
+type collectionsPage struct {
+	plugin.Page[row]
+	Truncated bool `json:"truncated,omitempty"`
+	ScanLimit int  `json:"scanLimit,omitempty"`
+}
+
+// describeCollections enriches rows in parallel; each goroutine owns one row,
+// so the maps are never shared.
+func describeCollections(ctx context.Context, c *milvusclient.Client, rows []row) {
+	sem := make(chan struct{}, describeConcurrency)
+	var wg sync.WaitGroup
+	for _, item := range rows {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(item row) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			describeCollectionInto(ctx, c, fmt.Sprint(item["name"]), item)
+		}(item)
 	}
-	return page, nil
+	wg.Wait()
 }
 
 func sortsOnCollectionDetail(keys []plugin.SortKey) bool {

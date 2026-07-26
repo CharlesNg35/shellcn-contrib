@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/charlesng35/shellcn-contrib/shared/broker"
 	"github.com/charlesng35/shellcn/sdk/plugin"
@@ -344,33 +345,127 @@ func databaseDelete(rc *plugin.RequestContext) (any, error) {
 	return row{"ok": true, "name": sc.Database, "tenant": sc.Tenant}, nil
 }
 
+// collectionScanLimit caps the collections pulled in when a search or sort has
+// to span every page.
+const collectionScanLimit = plugin.MaxPageLimit
+
+// countConcurrency bounds the in-flight per-collection record counts.
+const countConcurrency = 8
+
+// collectionsPage is the paged listing plus the scan cap signal. The embedded
+// page keeps the wire contract (items, nextCursor, total) unchanged; truncated
+// and scanLimit tell the browser the listing stopped at the cap.
+type collectionsPage struct {
+	plugin.Page[row]
+	Truncated bool `json:"truncated,omitempty"`
+	ScanLimit int  `json:"scanLimit,omitempty"`
+}
+
 func collectionsList(rc *plugin.RequestContext) (any, error) {
 	s, sc, err := sessionScope(rc)
 	if err != nil {
 		return nil, err
 	}
-	// A database holds a bounded number of collections, so the whole list is
-	// fetched once and paged in memory; that keeps search and sort correct across
-	// pages instead of only within one.
-	var out []collection
-	if err := s.do(rc.Ctx, http.MethodGet, sc.collectionsPath(), url.Values{"limit": []string{"1000"}}, nil, &out); err != nil {
+	req, err := rc.Page()
+	if err != nil {
 		return nil, err
 	}
-	rows := make([]row, 0, len(out))
-	for _, col := range out {
+	// Search and sort span every page, so those fetch a bounded scan and page it
+	// in memory; a plain listing is paged by the server instead.
+	if req.Search() != "" || len(req.Sort) > 0 {
+		out, err := s.collections(rc.Ctx, sc, collectionScanLimit+1, 0)
+		if err != nil {
+			return nil, err
+		}
+		truncated := len(out) > collectionScanLimit
+		if truncated {
+			out = out[:collectionScanLimit]
+		}
+		page, err := broker.PageRows(rc, collectionRows(sc, out))
+		if err != nil {
+			return nil, err
+		}
+		s.countInto(rc.Ctx, sc, page.Items)
+		result := collectionsPage{Page: page, Truncated: truncated}
+		if truncated {
+			result.ScanLimit = collectionScanLimit
+		}
+		return result, nil
+	}
+
+	offset := 0
+	if req.Cursor != "" {
+		parsed, err := strconv.Atoi(req.Cursor)
+		if err != nil || parsed < 0 {
+			return nil, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+		}
+		offset = parsed
+	}
+	out, err := s.collections(rc.Ctx, sc, req.Limit+1, offset)
+	if err != nil {
+		return nil, err
+	}
+	next := ""
+	if len(out) > req.Limit {
+		out = out[:req.Limit]
+		next = strconv.Itoa(offset + req.Limit)
+	}
+	rows := collectionRows(sc, out)
+	s.countInto(rc.Ctx, sc, rows)
+	page := plugin.Page[row]{Items: rows, NextCursor: next}
+	if total, err := s.collectionCount(rc.Ctx, sc); err == nil {
+		page.Total = &total
+	}
+	return collectionsPage{Page: page}, nil
+}
+
+func (s *Session) collections(ctx context.Context, sc scope, limit, offset int) ([]collection, error) {
+	query := url.Values{"limit": []string{strconv.Itoa(limit)}}
+	if offset > 0 {
+		query.Set("offset", strconv.Itoa(offset))
+	}
+	var out []collection
+	if err := s.do(ctx, http.MethodGet, sc.collectionsPath(), query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func collectionRows(sc scope, cols []collection) []row {
+	rows := make([]row, 0, len(cols))
+	for _, col := range cols {
 		if col.Tenant == "" {
 			col.Tenant = sc.Tenant
 		}
 		if col.Database == "" {
 			col.Database = sc.Database
 		}
-		item := col.row()
-		if total, err := s.count(rc.Ctx, sc, col.ID); err == nil {
-			item["records"] = total
-		}
-		rows = append(rows, item)
+		rows = append(rows, col.row())
 	}
-	return broker.PageRows(rc, rows)
+	return rows
+}
+
+// countInto fills the record count for one page of rows; each goroutine owns
+// one row, so the maps are never shared.
+func (s *Session) countInto(ctx context.Context, sc scope, rows []row) {
+	sem := make(chan struct{}, countConcurrency)
+	var wg sync.WaitGroup
+	for _, item := range rows {
+		id, _ := item["id"].(string)
+		if id == "" {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(item row, id string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if total, err := s.count(ctx, sc, id); err == nil {
+				item["records"] = total
+			}
+		}(item, id)
+	}
+	wg.Wait()
 }
 
 func collectionRead(rc *plugin.RequestContext) (any, error) {

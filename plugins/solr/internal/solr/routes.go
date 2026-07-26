@@ -8,14 +8,19 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charlesng35/shellcn-contrib/shared/broker"
 	"github.com/charlesng35/shellcn-contrib/shared/sqldb"
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
+
+// statusConcurrency bounds the in-flight per-core status calls.
+const statusConcurrency = 8
 
 func Routes() []plugin.Route {
 	return []plugin.Route{
@@ -103,36 +108,74 @@ func overview(rc *plugin.RequestContext) (any, error) {
 }
 
 func treeCores(rc *plugin.RequestContext) (any, error) {
-	res, err := listCores(rc)
+	page, err := corePage(rc)
 	if err != nil {
 		return nil, err
 	}
-	page := res.(plugin.Page[row])
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
 		ref := plugin.ResourceIdentity{Kind: "core", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "core:" + name, Label: name, Icon: icon("database"), Ref: &ref, Leaf: true})
 	}
-	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
+	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
 }
 
 func listCores(rc *plugin.RequestContext) (any, error) {
+	page, err := corePage(rc)
+	if err != nil {
+		return nil, err
+	}
 	s, err := session(rc)
 	if err != nil {
 		return nil, err
 	}
-	status, err := adminStatus(rc.Ctx, s)
+	statusInto(rc.Ctx, s, page.Items)
+	return page, nil
+}
+
+// corePage pages the bare core/collection name list. The cluster-wide status
+// call carries every shard and replica, so it is only issued for the names this
+// page returns.
+func corePage(rc *plugin.RequestContext) (plugin.Page[row], error) {
+	s, err := session(rc)
 	if err != nil {
-		return nil, err
+		return plugin.Page[row]{}, err
 	}
-	rows := make([]row, 0, len(status))
-	for name, item := range status {
-		r := coreRow(name, item)
-		r["ref"] = plugin.ResourceIdentity{Kind: "core", Name: name, UID: name}
-		rows = append(rows, r)
+	names, err := coreNames(rc.Ctx, s)
+	if err != nil {
+		return plugin.Page[row]{}, err
+	}
+	sort.Strings(names)
+	rows := make([]row, 0, len(names))
+	for _, name := range names {
+		rows = append(rows, row{"name": name, "ref": plugin.ResourceIdentity{Kind: "core", Name: name, UID: name}})
 	}
 	return broker.PageRows(rc, rows)
+}
+
+// statusInto fills index and health facts for one page of rows; each goroutine
+// owns one row, so the maps are never shared.
+func statusInto(ctx context.Context, s *Session, rows []row) {
+	sem := make(chan struct{}, statusConcurrency)
+	var wg sync.WaitGroup
+	for _, item := range rows {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(item row) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			name := fmt.Sprint(item["name"])
+			status, err := coreDetail(ctx, s, name)
+			if err != nil {
+				return
+			}
+			for key, value := range coreRow(name, status) {
+				item[key] = value
+			}
+		}(item)
+	}
+	wg.Wait()
 }
 
 func coreOverview(rc *plugin.RequestContext) (any, error) {
@@ -140,15 +183,15 @@ func coreOverview(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	status, err := adminStatus(rc.Ctx, s)
+	core := coreParam(rc)
+	item, err := coreDetail(rc.Ctx, s, core)
 	if err != nil {
 		return nil, err
 	}
-	core := coreParam(rc)
-	if item, ok := status[core]; ok {
-		return item, nil
+	if item == nil {
+		return nil, fmt.Errorf("%w: core %q", plugin.ErrNotFound, core)
 	}
-	return nil, fmt.Errorf("%w: core %q", plugin.ErrNotFound, core)
+	return item, nil
 }
 
 func createCore(rc *plugin.RequestContext) (any, error) {
@@ -652,28 +695,77 @@ func completionRoute(*plugin.RequestContext) (any, error) {
 
 func adminStatus(ctx context.Context, s *Session) (map[string]map[string]any, error) {
 	if s.isSolrCloud() {
-		return collectionStatus(ctx, s)
+		return collectionStatus(ctx, s, "")
 	}
-	return coreStatus(ctx, s)
+	return coreStatus(ctx, s, "")
 }
 
-func coreStatus(ctx context.Context, s *Session) (map[string]map[string]any, error) {
+// coreNames lists core or collection names without the per-core index details
+// or the cluster-wide shard and replica table.
+func coreNames(ctx context.Context, s *Session) ([]string, error) {
+	if s.isSolrCloud() {
+		var out struct {
+			Collections []string `json:"collections"`
+		}
+		if err := s.client.Do(ctx, http.MethodGet, "/admin/collections", url.Values{"action": []string{"LIST"}, "wt": []string{"json"}}, nil, &out); err != nil {
+			return nil, err
+		}
+		return out.Collections, nil
+	}
 	var out struct {
 		Status map[string]map[string]any `json:"status"`
 	}
-	if err := s.client.Do(ctx, http.MethodGet, "/admin/cores", url.Values{"action": []string{"STATUS"}, "wt": []string{"json"}}, nil, &out); err != nil {
+	q := url.Values{"action": []string{"STATUS"}, "indexInfo": []string{"false"}, "wt": []string{"json"}}
+	if err := s.client.Do(ctx, http.MethodGet, "/admin/cores", q, nil, &out); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(out.Status))
+	for name := range out.Status {
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+func coreDetail(ctx context.Context, s *Session, name string) (map[string]any, error) {
+	if s.isSolrCloud() {
+		status, err := collectionStatus(ctx, s, name)
+		if err != nil {
+			return nil, err
+		}
+		return status[name], nil
+	}
+	status, err := coreStatus(ctx, s, name)
+	if err != nil {
+		return nil, err
+	}
+	return status[name], nil
+}
+
+func coreStatus(ctx context.Context, s *Session, core string) (map[string]map[string]any, error) {
+	var out struct {
+		Status map[string]map[string]any `json:"status"`
+	}
+	q := url.Values{"action": []string{"STATUS"}, "wt": []string{"json"}}
+	if core != "" {
+		q.Set("core", core)
+	}
+	if err := s.client.Do(ctx, http.MethodGet, "/admin/cores", q, nil, &out); err != nil {
 		return nil, err
 	}
 	return out.Status, nil
 }
 
-func collectionStatus(ctx context.Context, s *Session) (map[string]map[string]any, error) {
+func collectionStatus(ctx context.Context, s *Session, collection string) (map[string]map[string]any, error) {
 	var out struct {
 		Cluster struct {
 			Collections map[string]map[string]any `json:"collections"`
 		} `json:"cluster"`
 	}
-	if err := s.client.Do(ctx, http.MethodGet, "/admin/collections", url.Values{"action": []string{"CLUSTERSTATUS"}, "wt": []string{"json"}}, nil, &out); err != nil {
+	q := url.Values{"action": []string{"CLUSTERSTATUS"}, "wt": []string{"json"}}
+	if collection != "" {
+		q.Set("collection", collection)
+	}
+	if err := s.client.Do(ctx, http.MethodGet, "/admin/collections", q, nil, &out); err != nil {
 		return nil, err
 	}
 	return out.Cluster.Collections, nil

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,6 +66,34 @@ func (s *Session) databaseNames(rc *plugin.RequestContext) []string {
 	return names
 }
 
+// databaseNamePage reads one bounded page of database names. CouchDB pages
+// /_all_dbs by key, so the cursor is the name to resume from; one extra name is
+// requested to derive the next cursor without counting the whole server.
+func (s *Session) databaseNamePage(rc *plugin.RequestContext, cursor string, limit int) ([]string, string) {
+	if limit <= 0 {
+		limit = plugin.DefaultPageLimit
+	}
+	if limit > plugin.MaxPageLimit {
+		limit = plugin.MaxPageLimit
+	}
+	query := url.Values{"limit": []string{strconv.Itoa(limit + 1)}}
+	if cursor != "" {
+		key, err := json.Marshal(cursor)
+		if err != nil {
+			return nil, ""
+		}
+		query.Set("startkey", string(key))
+	}
+	var names []string
+	if err := s.client.do(rc.Ctx, http.MethodGet, "/_all_dbs", query, nil, &names); err != nil {
+		return nil, ""
+	}
+	if len(names) > limit {
+		return names[:limit], names[limit]
+	}
+	return names, ""
+}
+
 // serverOverview aggregates the welcome document, cluster membership, the local
 // node's system counters and the size of every database into one property sheet.
 func serverOverview(rc *plugin.RequestContext) (any, error) {
@@ -101,19 +130,9 @@ func serverOverview(rc *plugin.RequestContext) (any, error) {
 		out["uptime"] = numberOf(system["uptime"])
 	}
 
-	infos, err := s.databaseInfos(rc)
-	if err == nil {
-		documents, deleted, disk := 0.0, 0.0, 0.0
-		for _, info := range infos {
-			documents += numberOf(info["doc_count"])
-			deleted += numberOf(info["doc_del_count"])
-			disk += numberOf(info["disk_size"])
-		}
-		out["databases"] = len(infos)
-		out["documents"] = documents
-		out["deleted_documents"] = deleted
-		out["disk_size"] = disk
-	}
+	// Document and disk totals are deliberately absent: they would cost an info
+	// read per database, which is unbounded on a per-user-database deployment.
+	out["databases"] = len(s.databaseNames(rc))
 
 	var tasks []row
 	if err := s.client.do(rc.Ctx, http.MethodGet, "/_active_tasks", nil, nil, &tasks); err == nil {
@@ -182,8 +201,6 @@ func redactConfig(config row) row {
 func fauxtonURL(rc *plugin.RequestContext) (any, error) {
 	return row{"url": rc.ProxyURL("_utils")}, nil
 }
-
-// --- active tasks -------------------------------------------------------------
 
 func taskRows(tasks []row) []row {
 	out := make([]row, 0, len(tasks))
@@ -286,8 +303,6 @@ func watchTasks(rc *plugin.RequestContext, client plugin.ClientStream) error {
 	})
 }
 
-// --- metrics ------------------------------------------------------------------
-
 // metricsStream turns CouchDB's cumulative counters into a live frame: absolute
 // totals plus a request rate derived from the delta between ticks.
 func metricsStream(rc *plugin.RequestContext, client plugin.ClientStream) error {
@@ -363,8 +378,6 @@ func (s *Session) metricsFrame(rc *plugin.RequestContext) (row, float64) {
 }
 
 func round1(v float64) float64 { return float64(int64(v*10+0.5)) / 10 }
-
-// --- cluster nodes -------------------------------------------------------------
 
 func (s *Session) nodeRows(rc *plugin.RequestContext) ([]row, error) {
 	var membership struct {

@@ -56,8 +56,6 @@ func scopeOf(rc *plugin.RequestContext, s *Session) (scope, error) {
 
 func session(rc *plugin.RequestContext) (*Session, error) { return unwrap(rc.Session) }
 
-// sessionScope resolves the session and the addressed tenant/database together,
-// which every collection and record route needs.
 func sessionScope(rc *plugin.RequestContext) (*Session, scope, error) {
 	s, err := session(rc)
 	if err != nil {

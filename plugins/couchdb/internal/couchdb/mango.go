@@ -283,8 +283,6 @@ func completeMango(rc *plugin.RequestContext) (any, error) {
 	return plugin.Page[row]{Items: items}, nil
 }
 
-// --- Mango indexes ------------------------------------------------------------
-
 func (s *Session) indexRows(rc *plugin.RequestContext, db string) ([]row, error) {
 	var out struct {
 		Indexes []struct {

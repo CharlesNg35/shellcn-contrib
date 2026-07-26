@@ -27,6 +27,9 @@ type row = plugin.TableRow
 // straight to the partition locator.
 const tokenColumn = "_token"
 
+// scanCap bounds every introspection read materialized in memory.
+const scanCap = plugin.MaxPageLimit * 20
+
 type actionResult struct {
 	OK bool `json:"ok"`
 }
@@ -1536,7 +1539,7 @@ func queryRowsOn(ctx context.Context, s *Session, hostID, cql string, args []any
 	if hostID != "" {
 		query = query.SetHostID(hostID)
 	}
-	return iterRows(query.Iter(), plugin.MaxPageLimit*20, nil)
+	return iterRows(query.Iter(), scanCap, nil)
 }
 
 func execCQL(ctx context.Context, s *Session, cql string) error {
@@ -1602,9 +1605,11 @@ func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
 	if err != nil {
 		return plugin.Page[row]{}, err
 	}
+	// A listing that filled the scan cap was cut short, so it carries no Total:
+	// the grid must not show a count it already knows is short.
+	truncated := len(rows) >= scanCap
 	rows = plugin.FilterRows(rows, req.Search())
 	sortRows(rows, req.Sort)
-	total := len(rows)
 	start, err := offsetCursor(req.Cursor)
 	if err != nil {
 		return plugin.Page[row]{}, err
@@ -1615,7 +1620,12 @@ func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
 	if end < len(rows) {
 		next = strconv.Itoa(end)
 	}
-	return plugin.Page[row]{Items: rows[start:end], NextCursor: next, Total: &total}, nil
+	page := plugin.Page[row]{Items: rows[start:end], NextCursor: next}
+	if !truncated {
+		total := len(rows)
+		page.Total = &total
+	}
+	return page, nil
 }
 
 func treeFromPage(rc *plugin.RequestContext, kind, iconName, labelKey string, load func(*plugin.RequestContext) (any, error)) (any, error) {

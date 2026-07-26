@@ -49,6 +49,15 @@ type RangeOpener interface {
 	OpenRange(ctx context.Context, p string, offset, length int64) (io.ReadCloser, error)
 }
 
+// PagedReader is an optional Client capability for backends whose listings are
+// unbounded (object stores). It returns one bounded page plus the cursor for the
+// next one and whether the backend had more, so the browser never reads a whole
+// directory to display fifty rows. Backends with naturally bounded directories
+// keep using ReadDir.
+type PagedReader interface {
+	ReadDirPage(ctx context.Context, p, cursor string, limit int) ([]os.FileInfo, string, bool, error)
+}
+
 type Session interface {
 	Filesystem() (Client, error)
 }
@@ -77,6 +86,9 @@ type FilePage struct {
 	NextCursor string      `json:"nextCursor"`
 	Total      *int        `json:"total,omitempty"`
 	Path       string      `json:"path"`
+	// Truncated reports that the backend has more entries than this page and no
+	// total is known, so the browser can say it is showing the first N.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 func Routes(prefix, protocol string) []plugin.Route {
@@ -182,6 +194,13 @@ func list(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	req, err := rc.Page()
+	if err != nil {
+		return nil, err
+	}
+	if paged, ok := fs.(PagedReader); ok {
+		return listPaged(rc, fs, paged, p, req)
+	}
 	infos, err := fs.ReadDir(rc.Ctx, p)
 	if err != nil {
 		return nil, mapClientError(fs, err)
@@ -190,17 +209,40 @@ func list(rc *plugin.RequestContext) (any, error) {
 	for _, info := range infos {
 		entries = append(entries, fileEntry(joinRemote(p, info.Name()), info))
 	}
+	sortEntries(entries)
+	return pageEntries(p, entries, req), nil
+}
+
+// listPaged asks a cursor-native backend for exactly one page. Entries are
+// ordered dirs-first within the page; across pages the backend's own key order
+// decides, so a listing that spans pages is not globally dirs-first.
+func listPaged(rc *plugin.RequestContext, fs Client, paged PagedReader, p string, req plugin.PageRequest) (any, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = plugin.DefaultPageLimit
+	}
+	if limit > plugin.MaxPageLimit {
+		limit = plugin.MaxPageLimit
+	}
+	infos, next, truncated, err := paged.ReadDirPage(rc.Ctx, p, req.Cursor, limit)
+	if err != nil {
+		return nil, mapClientError(fs, err)
+	}
+	entries := make([]FileEntry, 0, len(infos))
+	for _, info := range infos {
+		entries = append(entries, fileEntry(joinRemote(p, info.Name()), info))
+	}
+	sortEntries(entries)
+	return FilePage{Items: entries, NextCursor: next, Truncated: truncated, Path: p}, nil
+}
+
+func sortEntries(entries []FileEntry) {
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].IsDir != entries[j].IsDir {
 			return entries[i].IsDir
 		}
 		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
 	})
-	req, err := rc.Page()
-	if err != nil {
-		return nil, err
-	}
-	return pageEntries(p, entries, req), nil
 }
 
 func stat(rc *plugin.RequestContext) (any, error) {

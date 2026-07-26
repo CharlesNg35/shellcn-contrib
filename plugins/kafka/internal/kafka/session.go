@@ -3,10 +3,25 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/IBM/sarama"
 
 	"github.com/charlesng35/shellcn/sdk/plugin"
+)
+
+const (
+	// listSnapshotTTL is how long one cluster-wide name sweep backs the topic and
+	// consumer-group listings before the next page takes a fresh one.
+	listSnapshotTTL = 10 * time.Second
+
+	// listScanLimit caps how many names one sweep materializes, so a cluster with
+	// tens of thousands of topics or groups cannot be paged into the plugin heap.
+	listScanLimit = 2000
 )
 
 type Session struct {
@@ -14,6 +29,101 @@ type Session struct {
 	admin  sarama.ClusterAdmin
 	opts   options
 	net    plugin.NetTransport
+
+	listMu    sync.Mutex
+	topicSnap *listSnapshot
+	groupSnap *listSnapshot
+}
+
+// listSnapshot is one cluster sweep rendered as rows. total is the name count
+// before the cap, so an overview can report it without holding every row.
+type listSnapshot struct {
+	rows      []row
+	total     int
+	truncated bool
+	takenAt   time.Time
+}
+
+func (snap *listSnapshot) fresh(now time.Time) bool {
+	return snap != nil && now.Sub(snap.takenAt) < listSnapshotTTL
+}
+
+// page returns a copy of the sweep for one request: the caller filters and sorts
+// it in place, and the cached rows must outlive that.
+func (snap *listSnapshot) page() []row {
+	return slices.Clone(snap.rows)
+}
+
+func snapshotOf(names []string, render func(string) row) *listSnapshot {
+	sort.Strings(names)
+	snap := &listSnapshot{total: len(names), takenAt: time.Now()}
+	if len(names) > listScanLimit {
+		names, snap.truncated = names[:listScanLimit], true
+	}
+	snap.rows = make([]row, 0, len(names))
+	for _, name := range names {
+		snap.rows = append(snap.rows, render(name))
+	}
+	return snap
+}
+
+// topics sweeps the topic catalogue at most once per TTL. ListTopics is a full
+// cluster metadata request, so paging, re-sorting, and the tree all share it.
+func (s *Session) topics() (*listSnapshot, error) {
+	s.listMu.Lock()
+	defer s.listMu.Unlock()
+	if s.topicSnap.fresh(time.Now()) {
+		return s.topicSnap, nil
+	}
+	topics, err := s.admin.ListTopics()
+	if err != nil {
+		return nil, kafkaErr(err)
+	}
+	names := make([]string, 0, len(topics))
+	for name := range topics {
+		names = append(names, name)
+	}
+	s.topicSnap = snapshotOf(names, func(name string) row {
+		d := topics[name]
+		return row{
+			"name":               name,
+			"partitions":         d.NumPartitions,
+			"replication_factor": d.ReplicationFactor,
+			"internal":           strings.HasPrefix(name, "__"),
+			"ref":                plugin.ResourceIdentity{Kind: "topic", Name: name, UID: name},
+		}
+	})
+	return s.topicSnap, nil
+}
+
+// groups sweeps the consumer-group names at most once per TTL. Only names and
+// protocol types are cached; member state is described for the returned page.
+func (s *Session) groups() (*listSnapshot, error) {
+	s.listMu.Lock()
+	defer s.listMu.Unlock()
+	if s.groupSnap.fresh(time.Now()) {
+		return s.groupSnap, nil
+	}
+	groups, err := s.admin.ListConsumerGroups()
+	if err != nil {
+		return nil, kafkaErr(err)
+	}
+	names := make([]string, 0, len(groups))
+	for name := range groups {
+		names = append(names, name)
+	}
+	s.groupSnap = snapshotOf(names, func(name string) row {
+		return row{"name": name, "protocol_type": groups[name], "ref": plugin.ResourceIdentity{Kind: "consumer_group", Name: name, UID: name}}
+	})
+	return s.groupSnap, nil
+}
+
+// dropSnapshots forces the next listing to take a fresh sweep, so a created or
+// deleted topic or group never lingers in the browser.
+func (s *Session) dropSnapshots() {
+	s.listMu.Lock()
+	defer s.listMu.Unlock()
+	s.topicSnap, s.groupSnap = nil, nil
 }
 
 func connect(ctx context.Context, cfg plugin.ConnectConfig) (plugin.Session, error) {

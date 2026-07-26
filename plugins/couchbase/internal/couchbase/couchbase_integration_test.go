@@ -58,7 +58,6 @@ func TestCouchbasePluginIntegration(t *testing.T) {
 	bucket := "shellcn_it_" + time.Now().UTC().Format("20060102150405")
 	storage := &fakeStorage{}
 
-	// --- bucket, scope, collection lifecycle --------------------------------
 	h.Call(ctx, rid("bucket.create"), sess, nil, nil, mustMarshal(t, map[string]any{
 		"name": bucket, "bucket_type": "couchbase", "ram_quota_mb": 128,
 		"replica_number": 0, "flush_enabled": true,
@@ -75,7 +74,6 @@ func TestCouchbasePluginIntegration(t *testing.T) {
 	collectionParams := map[string]string{"keyspace": collectionKey.uid()}
 	waitForCollection(ctx, t, sess.(*Session), collectionKey)
 
-	// --- navigation ---------------------------------------------------------
 	if !hasField(pageOf(t, h.Call(ctx, rid("tree.buckets"), sess, nil, nil, nil)), "label", bucket) {
 		t.Fatal("the new bucket is missing from the sidebar tree")
 	}
@@ -86,7 +84,6 @@ func TestCouchbasePluginIntegration(t *testing.T) {
 		t.Fatal("the new collection is missing from the tree")
 	}
 
-	// --- cluster ------------------------------------------------------------
 	overview := objectOf(t, h.Call(ctx, rid("cluster.overview"), sess, nil, nil, nil))
 	if overview["edition"] == "" || overview["version"] == "" {
 		t.Fatalf("cluster overview is incomplete: %#v", overview)
@@ -103,7 +100,6 @@ func TestCouchbasePluginIntegration(t *testing.T) {
 	h.Call(ctx, rid("events.list"), sess, map[string]string{"filter": "replication"}, nil, nil)
 	h.Call(ctx, rid("users.list"), sess, nil, nil, nil)
 
-	// --- buckets ------------------------------------------------------------
 	if !hasField(pageOf(t, h.Call(ctx, rid("buckets.list"), sess, nil, nil, nil)), "name", bucket) {
 		t.Fatal("the new bucket is missing from the bucket list")
 	}
@@ -142,7 +138,6 @@ func TestCouchbasePluginIntegration(t *testing.T) {
 		t.Fatalf("unexpected collection detail: %#v", collectionDetail)
 	}
 
-	// --- indexes ------------------------------------------------------------
 	h.Call(ctx, rid("index.create"), sess, collectionParams, nil, mustMarshal(t, map[string]any{
 		"name": "it_primary", "primary": true,
 	}))
@@ -174,7 +169,6 @@ func TestCouchbasePluginIntegration(t *testing.T) {
 		t.Fatalf("the catalog entry for a default-collection index was not merged: %#v", defaultDetail)
 	}
 
-	// --- documents ----------------------------------------------------------
 	h.Call(ctx, rid("document.insert"), sess, collectionParams, nil, mustMarshal(t, map[string]any{
 		"key": "order::1", "value": map[string]any{"customer": "ada", "total": 42, "status": "paid"},
 	}))
@@ -216,7 +210,6 @@ func TestCouchbasePluginIntegration(t *testing.T) {
 		t.Fatalf("INFER did not report the document fields: %#v", schema)
 	}
 
-	// --- SQL++ --------------------------------------------------------------
 	queryFrame := streamFrames(ctx, t, h, sess, rid("query"), collectionParams,
 		`{"query":"SELECT META(d).id AS id, d.customer FROM `+collectionKey.path()+` d ORDER BY META(d).id"}`)
 	if !strings.Contains(queryFrame, "order::1") || !strings.Contains(queryFrame, "\"columns\"") {
@@ -246,7 +239,6 @@ func TestCouchbasePluginIntegration(t *testing.T) {
 		t.Fatalf("unexpected cancel result: %#v", cancelled)
 	}
 
-	// --- saved queries (plugin storage) -------------------------------------
 	storageRC := func(params map[string]string, body []byte) *plugin.RequestContext {
 		return plugin.NewRequestContext(ctx, plugin.User{}, sess, params, url.Values{}, body).WithStorage(storage)
 	}
@@ -267,7 +259,6 @@ func TestCouchbasePluginIntegration(t *testing.T) {
 		t.Fatalf("query.delete: %v", err)
 	}
 
-	// --- live surfaces ------------------------------------------------------
 	clusterFrame := streamFrames(ctx, t, h, sess, rid("cluster.metrics"), nil, "")
 	if !strings.Contains(clusterFrame, "\"quotaPct\"") {
 		t.Fatalf("unexpected cluster metrics frame: %s", clusterFrame)
@@ -287,7 +278,6 @@ func TestCouchbasePluginIntegration(t *testing.T) {
 		t.Fatalf("the data map is missing the collection region: %s", mapFrame)
 	}
 
-	// --- XDCR and console ---------------------------------------------------
 	if len(pageOf(t, h.Call(ctx, rid("replications.list"), sess, nil, nil, nil))) != 0 {
 		t.Fatal("a fresh cluster should have no XDCR replications")
 	}
@@ -303,7 +293,6 @@ func TestCouchbasePluginIntegration(t *testing.T) {
 		t.Fatalf("unexpected console URL: %#v", consoleOut)
 	}
 
-	// --- teardown -----------------------------------------------------------
 	h.Call(ctx, rid("document.remove"), sess, documentParams, nil, nil)
 	h.Call(ctx, rid("bucket.compact"), sess, bucketParams, nil, nil)
 	h.Call(ctx, rid("bucket.flush"), sess, bucketParams, nil, nil)
@@ -314,8 +303,6 @@ func TestCouchbasePluginIntegration(t *testing.T) {
 
 	h.AssertAllCovered()
 }
-
-// --- helpers ----------------------------------------------------------------
 
 func mustMarshal(t *testing.T, value any) []byte {
 	t.Helper()

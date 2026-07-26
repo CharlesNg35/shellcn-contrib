@@ -34,6 +34,9 @@ func (e confirmationError) Error() string { return e.message }
 
 var dialect = sqldb.Dialect{QuoteIdent: quoteIdent, Placeholder: sqldb.QuestionPlaceholder}
 
+// scanCap bounds any system-table listing materialized in memory.
+const scanCap = plugin.MaxPageLimit * 10
+
 func routes() []plugin.Route {
 	return []plugin.Route{
 		{ID: "clickhouse.databases.tree", Method: plugin.MethodGet, Path: "/tree/databases", Permission: "clickhouse.databases.read", Risk: plugin.RiskSafe, AuditEvent: "clickhouse.databases.tree", Handle: treeDatabases},
@@ -323,7 +326,7 @@ func relationList(rc *plugin.RequestContext, views bool, refKind string) (any, e
 	if views {
 		op = "IN"
 	}
-	rows, err := queryRows(rc.Ctx, s, `
+	rows, truncated, err := queryRowsCapped(rc.Ctx, s, `
 SELECT name, database, engine, ifNull(total_rows, 0) AS rows, ifNull(total_bytes, 0) AS size,
        metadata_modification_time AS modified, comment
 FROM system.tables
@@ -331,7 +334,8 @@ WHERE database NOT IN ('INFORMATION_SCHEMA', 'information_schema', 'system')
   AND engine `+op+` ('View', 'MaterializedView', 'LiveView', 'WindowView')
   AND (? = '' OR database = ?)
   AND (? = '' OR name = ?)
-ORDER BY database, name`, []any{database, database, table, table})
+ORDER BY database, name
+LIMIT ?`, []any{database, database, table, table, scanCap}, scanCap)
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +343,7 @@ ORDER BY database, name`, []any{database, database, table, table})
 		name, db := fmt.Sprint(r["name"]), fmt.Sprint(r["database"])
 		r["ref"] = plugin.ResourceIdentity{Kind: refKind, Namespace: db, Name: name, UID: db + "." + name}
 	}
-	return pageRows(rc, rows)
+	return pageScannedRows(rc, rows, truncated || len(rows) >= scanCap)
 }
 
 func listDictionaries(rc *plugin.RequestContext) (any, error) {
@@ -539,9 +543,17 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 	if searchClause != "" {
 		where = " WHERE " + searchClause
 	}
-	var total uint64
-	if err := s.db.QueryRowContext(rc.Ctx, "SELECT count() FROM "+qualified(database, table)+where, searchArgs...).Scan(&total); err != nil {
-		return nil, clickhouseErr(err)
+	// An unfiltered count() is answered from MergeTree part metadata, so it stays.
+	// A filtered one would cast and scan every row, so that path pages on the
+	// sentinel row instead and leaves Total unset.
+	var total *int
+	if searchClause == "" {
+		var count uint64
+		if err := s.db.QueryRowContext(rc.Ctx, "SELECT count() FROM "+qualified(database, table)).Scan(&count); err != nil {
+			return nil, clickhouseErr(err)
+		}
+		n := int(count)
+		total = &n
 	}
 	orderBy := ""
 	if len(req.Sort) > 0 {
@@ -555,10 +567,15 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 		}
 		orderBy = " ORDER BY " + quoteIdent(col) + " " + dir
 	}
-	dataArgs := append(append([]any{}, searchArgs...), limit, offset)
+	dataArgs := append(append([]any{}, searchArgs...), limit+1, offset)
 	rows, err := queryRows(rc.Ctx, s, fmt.Sprintf("SELECT * FROM %s%s%s LIMIT ? OFFSET ?", qualified(database, table), where, orderBy), dataArgs)
 	if err != nil {
 		return nil, err
+	}
+	next := ""
+	if len(rows) > limit {
+		rows = rows[:limit]
+		next = strconv.Itoa(offset + limit)
 	}
 	key, err := sortingKeyColumns(rc.Ctx, s, database, table)
 	if err != nil {
@@ -566,12 +583,7 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 	}
 	attachRowKeys(rows, key, s.opts.RedactPatterns)
 	redactRows(rows, s.opts.RedactPatterns)
-	next := ""
-	if uint64(offset+len(rows)) < total {
-		next = strconv.Itoa(offset + len(rows))
-	}
-	totalInt := int(total)
-	return plugin.Page[row]{Items: rows, NextCursor: next, Total: &totalInt}, nil
+	return plugin.Page[row]{Items: rows, NextCursor: next, Total: total}, nil
 }
 
 func tableColumnsRoute(rc *plugin.RequestContext) (any, error) {
@@ -1651,22 +1663,34 @@ func isDestructiveStatement(statement string) bool {
 }
 
 func queryRows(ctx context.Context, s *Session, sqlText string, args []any) ([]row, error) {
+	rows, _, err := queryRowsCapped(ctx, s, sqlText, args, scanCap)
+	return rows, err
+}
+
+// queryRowsCapped stops materializing at max and reports whether the result set
+// still had rows.
+func queryRowsCapped(ctx context.Context, s *Session, sqlText string, args []any, max int) ([]row, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.opts.QueryTimeout)
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
-		return nil, clickhouseErr(err)
+		return nil, false, clickhouseErr(err)
 	}
 	defer func() { _ = rows.Close() }()
 	columns, err := rows.Columns()
 	if err != nil {
-		return nil, clickhouseErr(err)
+		return nil, false, clickhouseErr(err)
 	}
 	out := []row{}
+	truncated := false
 	for rows.Next() {
+		if len(out) >= max {
+			truncated = true
+			break
+		}
 		values, err := scanValues(rows, columns)
 		if err != nil {
-			return nil, clickhouseErr(err)
+			return nil, false, clickhouseErr(err)
 		}
 		r := row{}
 		for i, name := range columns {
@@ -1676,10 +1700,12 @@ func queryRows(ctx context.Context, s *Session, sqlText string, args []any) ([]r
 		}
 		out = append(out, r)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, clickhouseErr(err)
+	if !truncated {
+		if err := rows.Err(); err != nil {
+			return nil, false, clickhouseErr(err)
+		}
 	}
-	return out, nil
+	return out, truncated, nil
 }
 
 func scanValues(rows *sql.Rows, columns []string) ([]any, error) {
@@ -1706,13 +1732,18 @@ func redactRows(rows []row, patterns []string) {
 }
 
 func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
+	return pageScannedRows(rc, rows, false)
+}
+
+// pageScannedRows slices an in-memory listing. A truncated scan omits Total so
+// the grid never shows a count it knows is short.
+func pageScannedRows(rc *plugin.RequestContext, rows []row, truncated bool) (plugin.Page[row], error) {
 	req, err := rc.Page()
 	if err != nil {
 		return plugin.Page[row]{}, err
 	}
 	rows = filterRows(rows, req.Search())
 	sortRows(rows, req.Sort)
-	total := len(rows)
 	start, err := cursorOffset(req.Cursor)
 	if err != nil {
 		return plugin.Page[row]{}, err
@@ -1725,7 +1756,12 @@ func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
 	if end < len(rows) {
 		next = strconv.Itoa(end)
 	}
-	return plugin.Page[row]{Items: rows[start:end], NextCursor: next, Total: &total}, nil
+	page := plugin.Page[row]{Items: rows[start:end], NextCursor: next}
+	if !truncated {
+		total := len(rows)
+		page.Total = &total
+	}
+	return page, nil
 }
 
 func treeFromPage(rc *plugin.RequestContext, kind string, iconName string, labelKey string, load func(*plugin.RequestContext) (any, error)) (any, error) {

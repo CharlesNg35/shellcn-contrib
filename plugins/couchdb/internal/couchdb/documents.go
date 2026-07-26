@@ -199,8 +199,6 @@ func columnEditor(kind string) string {
 	}
 }
 
-// --- single document reads -----------------------------------------------------
-
 func (s *Session) fetchDocument(rc *plugin.RequestContext, db, id string, query url.Values) (row, error) {
 	var doc row
 	if err := s.client.do(rc.Ctx, http.MethodGet, docPath(db, id), query, nil, &doc); err != nil {
@@ -238,8 +236,6 @@ func watchDocument(rc *plugin.RequestContext, client plugin.ClientStream) error 
 		return doc, stringOf(doc["_rev"]), nil
 	})
 }
-
-// --- document writes ------------------------------------------------------------
 
 // putDocument writes a document and turns CouchDB's bare 409 into an actionable
 // message that names the revision the caller must rebase on.
@@ -433,8 +429,6 @@ func bulkDocuments(rc *plugin.RequestContext) (any, error) {
 	return row{"ok": len(failed) == 0, "written": ok, "failed": failed, "submitted": len(docs)}, nil
 }
 
-// --- editable grid mutations -----------------------------------------------------
-
 func bindGridRow(rc *plugin.RequestContext) (row, error) {
 	var raw map[string]any
 	if err := json.Unmarshal(rc.Body(), &raw); err != nil {
@@ -552,8 +546,6 @@ func deleteDocumentRow(rc *plugin.RequestContext) (any, error) {
 	}
 	return row{"ok": true, "id": id, "rev": stringOf(out["rev"])}, nil
 }
-
-// --- revisions and conflicts -------------------------------------------------------
 
 // timestampFields are the conventional document fields a revision can be dated
 // by. CouchDB itself stores no per-revision timestamp.
@@ -796,8 +788,6 @@ func chooseRevision(strategy, explicit, winner string, revs []string) (string, e
 		return "", fmt.Errorf("%w: unknown conflict resolution strategy %q", plugin.ErrInvalidInput, strategy)
 	}
 }
-
-// --- live document changes ----------------------------------------------------------
 
 // watchDocuments patches the documents grid from CouchDB's real continuous
 // _changes feed rather than polling.

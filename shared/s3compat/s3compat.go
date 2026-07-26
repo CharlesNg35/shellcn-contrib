@@ -27,6 +27,11 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
+// deleteBatchSize is the DeleteObjects API maximum per request.
+const deleteBatchSize = 1000
+
+var _ filesystem.PagedReader = (*Client)(nil)
+
 type Options struct {
 	Endpoint      string
 	Region        string
@@ -196,39 +201,77 @@ func (c *Client) ReadDir(ctx context.Context, p string) ([]os.FileInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, common := range out.CommonPrefixes {
-			key := aws.ToString(common.Prefix)
-			name := path.Base(strings.TrimSuffix(key, "/"))
-			if name == "" || seen[name] {
-				continue
-			}
-			seen[name] = true
-			infos = append(infos, objectInfo{name: name, dir: true, modTime: time.Now()})
-		}
-		for _, obj := range out.Contents {
-			key := aws.ToString(obj.Key)
-			if key == prefix {
-				continue
-			}
-			name := strings.TrimPrefix(key, prefix)
-			if strings.Contains(name, "/") || name == "" || seen[name] {
-				continue
-			}
-			seen[name] = true
-			modTime := time.Time{}
-			if obj.LastModified != nil {
-				modTime = *obj.LastModified
-			}
-			infos = append(infos, objectInfo{name: name, size: aws.ToInt64(obj.Size), modTime: modTime})
-		}
+		infos = appendListing(infos, prefix, out, seen)
 	}
+	sortInfos(infos)
+	return infos, nil
+}
+
+// ReadDirPage implements filesystem.PagedReader: one bounded ListObjectsV2 call
+// per page, so browsing a prefix holding millions of objects never materializes
+// more than the requested page. The cursor is S3's own continuation token.
+func (c *Client) ReadDirPage(ctx context.Context, p, cursor string, limit int) ([]os.FileInfo, string, bool, error) {
+	prefix := c.dirPrefix(p)
+	if limit <= 0 {
+		limit = plugin.DefaultPageLimit
+	}
+	if limit > plugin.MaxPageLimit {
+		limit = plugin.MaxPageLimit
+	}
+	in := &awss3.ListObjectsV2Input{
+		Bucket:    aws.String(c.bucket),
+		Prefix:    aws.String(prefix),
+		Delimiter: aws.String("/"),
+		MaxKeys:   aws.Int32(int32(limit)),
+	}
+	if cursor != "" {
+		in.ContinuationToken = aws.String(cursor)
+	}
+	out, err := c.s3.ListObjectsV2(ctx, in)
+	if err != nil {
+		return nil, "", false, err
+	}
+	infos := appendListing(nil, prefix, out, map[string]bool{})
+	sortInfos(infos)
+	return infos, aws.ToString(out.NextContinuationToken), aws.ToBool(out.IsTruncated), nil
+}
+
+func appendListing(infos []os.FileInfo, prefix string, out *awss3.ListObjectsV2Output, seen map[string]bool) []os.FileInfo {
+	for _, common := range out.CommonPrefixes {
+		key := aws.ToString(common.Prefix)
+		name := path.Base(strings.TrimSuffix(key, "/"))
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		infos = append(infos, objectInfo{name: name, dir: true, modTime: time.Now()})
+	}
+	for _, obj := range out.Contents {
+		key := aws.ToString(obj.Key)
+		if key == prefix {
+			continue
+		}
+		name := strings.TrimPrefix(key, prefix)
+		if strings.Contains(name, "/") || name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		modTime := time.Time{}
+		if obj.LastModified != nil {
+			modTime = *obj.LastModified
+		}
+		infos = append(infos, objectInfo{name: name, size: aws.ToInt64(obj.Size), modTime: modTime})
+	}
+	return infos
+}
+
+func sortInfos(infos []os.FileInfo) {
 	sort.Slice(infos, func(i, j int) bool {
 		if infos[i].IsDir() != infos[j].IsDir() {
 			return infos[i].IsDir()
 		}
 		return strings.ToLower(infos[i].Name()) < strings.ToLower(infos[j].Name())
 	})
-	return infos, nil
 }
 
 func (c *Client) Stat(ctx context.Context, p string) (os.FileInfo, error) {
@@ -362,12 +405,31 @@ func (c *Client) renamePrefix(ctx context.Context, fromPrefix, toPrefix string) 
 	return c.deleteKeys(ctx, keys)
 }
 
+// deletePrefix streams the listing straight into delete batches so peak memory
+// stays at one batch of keys regardless of how many objects the prefix holds.
 func (c *Client) deletePrefix(ctx context.Context, prefix string) error {
-	keys, err := c.listKeys(ctx, prefix)
-	if err != nil {
-		return err
+	pager := awss3.NewListObjectsV2Paginator(c.s3, &awss3.ListObjectsV2Input{Bucket: aws.String(c.bucket), Prefix: aws.String(prefix)})
+	batch := make([]types.ObjectIdentifier, 0, deleteBatchSize)
+	for pager.HasMorePages() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		for _, obj := range page.Contents {
+			batch = append(batch, types.ObjectIdentifier{Key: obj.Key})
+			if len(batch) < deleteBatchSize {
+				continue
+			}
+			if err := c.deleteBatch(ctx, batch); err != nil {
+				return err
+			}
+			batch = batch[:0]
+		}
 	}
-	return c.deleteKeys(ctx, keys)
+	return c.deleteBatch(ctx, batch)
 }
 
 func (c *Client) listKeys(ctx context.Context, prefix string) ([]string, error) {
@@ -386,29 +448,29 @@ func (c *Client) listKeys(ctx context.Context, prefix string) ([]string, error) 
 }
 
 func (c *Client) deleteKeys(ctx context.Context, keys []string) error {
-	for len(keys) > 0 {
-		n := len(keys)
-		if n > 1000 {
-			n = 1000
-		}
-		batch := keys[:n]
-		keys = keys[n:]
-		objects := make([]types.ObjectIdentifier, 0, len(batch))
-		for _, key := range batch {
-			objects = append(objects, types.ObjectIdentifier{Key: aws.String(key)})
-		}
-		if len(objects) == 0 {
+	batch := make([]types.ObjectIdentifier, 0, deleteBatchSize)
+	for _, key := range keys {
+		batch = append(batch, types.ObjectIdentifier{Key: aws.String(key)})
+		if len(batch) < deleteBatchSize {
 			continue
 		}
-		_, err := c.s3.DeleteObjects(ctx, &awss3.DeleteObjectsInput{
-			Bucket: aws.String(c.bucket),
-			Delete: &types.Delete{Objects: objects, Quiet: aws.Bool(true)},
-		})
-		if err != nil {
+		if err := c.deleteBatch(ctx, batch); err != nil {
 			return err
 		}
+		batch = batch[:0]
 	}
-	return nil
+	return c.deleteBatch(ctx, batch)
+}
+
+func (c *Client) deleteBatch(ctx context.Context, objects []types.ObjectIdentifier) error {
+	if len(objects) == 0 {
+		return nil
+	}
+	_, err := c.s3.DeleteObjects(ctx, &awss3.DeleteObjectsInput{
+		Bucket: aws.String(c.bucket),
+		Delete: &types.Delete{Objects: objects, Quiet: aws.Bool(true)},
+	})
+	return err
 }
 
 func (c *Client) key(p string) string {

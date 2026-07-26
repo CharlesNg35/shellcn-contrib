@@ -523,8 +523,6 @@ func integrationSavedQueries(ctx context.Context, t *testing.T, h *contribtest.H
 	}
 }
 
-// --- helpers ----------------------------------------------------------------------
-
 // streamFrames runs a server-push stream for a bounded window and decodes the
 // newline-delimited frames it wrote.
 func streamFrames(ctx context.Context, t *testing.T, h *contribtest.Harness, id string, sess plugin.Session, params map[string]string, input []byte) []row {

@@ -284,8 +284,6 @@ func indexDrop(rc *plugin.RequestContext) (any, error) {
 	return actionResult{OK: true, Message: "index " + k.Document + " dropped"}, nil
 }
 
-// --- index advisor ----------------------------------------------------------
-
 // fieldRefRE matches the `alias`.`field` references the Query service emits in
 // EXPLAIN filter conditions.
 var fieldRefRE = regexp.MustCompile("`([^`]+)`\\.`([^`]+)`")

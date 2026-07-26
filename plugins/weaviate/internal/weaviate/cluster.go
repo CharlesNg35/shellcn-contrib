@@ -1,6 +1,7 @@
 package weaviate
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -44,12 +45,25 @@ func (c *clusterSnapshot) HealthyPct() float64 {
 	return round(float64(c.Healthy)/float64(c.Nodes)*100, 1)
 }
 
+// clusterStats returns the shard-level cluster snapshot. It is served from the
+// session cache: the verbose node status carries one entry per shard, and the
+// list, tree, node and metrics routes all read it.
 func clusterStats(rc *plugin.RequestContext) (*clusterSnapshot, error) {
 	s, err := session(rc)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.client.cluster.NodesStatusGetter().WithOutput("verbose").Do(rc.Ctx)
+	return s.cluster(rc.Ctx)
+}
+
+// liveStats reads the node roll-call without the per-shard array, which is all
+// the metrics ticker needs for node health and batch throughput.
+func liveStats(rc *plugin.RequestContext) (*clusterSnapshot, error) {
+	s, err := session(rc)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.client.cluster.NodesStatusGetter().WithOutput("minimal").Do(rc.Ctx)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -123,50 +137,70 @@ func metricsStream(rc *plugin.RequestContext, client plugin.ClientStream) error 
 	}
 }
 
+// metricsFrame ticks on the cheap node roll-call; the shard-level totals come
+// from the cached snapshot so an open panel cannot pull the whole shard table
+// every interval.
 func metricsFrame(rc *plugin.RequestContext, node string) row {
-	stats, err := clusterStats(rc)
+	live, err := liveStats(rc)
 	if err != nil {
 		return row{"error": err.Error()}
 	}
+	shards, _ := clusterStats(rc)
 	if node != "" {
-		return nodeMetricsFrame(stats, node)
+		return nodeMetricsFrame(live, shards, node)
 	}
-	return row{
-		"nodes":        stats.Nodes,
-		"healthyNodes": stats.Healthy,
-		"nodesPct":     stats.HealthyPct(),
-		"shards":       stats.Shards,
-		"objects":      stats.Objects,
-		"batchQueue":   stats.BatchQueue,
-		"rate":         stats.Rate,
-		"collections":  len(stats.Classes),
+	frame := row{
+		"nodes":        live.Nodes,
+		"healthyNodes": live.Healthy,
+		"nodesPct":     live.HealthyPct(),
+		"batchQueue":   live.BatchQueue,
+		"rate":         live.Rate,
 	}
+	if shards != nil {
+		frame["shards"] = shards.Shards
+		frame["objects"] = shards.Objects
+		frame["collections"] = len(shards.Classes)
+	}
+	return frame
 }
 
-func nodeMetricsFrame(stats *clusterSnapshot, name string) row {
-	for _, status := range stats.Statuses {
-		if status == nil || status.Name != name {
-			continue
-		}
-		frame := row{
-			"nodes":        1,
-			"healthyNodes": map[bool]int{true: 1, false: 0}[status.Status != nil && strings.EqualFold(*status.Status, "healthy")],
-			"collections":  len(nodeClasses(status)),
-		}
-		frame["nodesPct"] = round(float64(frame["healthyNodes"].(int))*100, 1)
-		if status.Stats != nil {
-			frame["objects"] = status.Stats.ObjectCount
-			frame["shards"] = status.Stats.ShardCount
-		}
-		if status.BatchStats != nil {
-			if status.BatchStats.QueueLength != nil {
-				frame["batchQueue"] = *status.BatchStats.QueueLength
-			}
-			frame["rate"] = status.BatchStats.RatePerSecond
-		}
-		return frame
+func nodeMetricsFrame(live, shards *clusterSnapshot, name string) row {
+	status := nodeStatusOf(live, name)
+	if status == nil {
+		return row{"error": "node " + name + " is not reporting"}
 	}
-	return row{"error": "node " + name + " is not reporting"}
+	healthy := map[bool]int{true: 1, false: 0}[status.Status != nil && strings.EqualFold(*status.Status, "healthy")]
+	frame := row{
+		"nodes":        1,
+		"healthyNodes": healthy,
+		"nodesPct":     round(float64(healthy)*100, 1),
+	}
+	if status.BatchStats != nil {
+		if status.BatchStats.QueueLength != nil {
+			frame["batchQueue"] = *status.BatchStats.QueueLength
+		}
+		frame["rate"] = status.BatchStats.RatePerSecond
+	}
+	if detail := nodeStatusOf(shards, name); detail != nil {
+		frame["collections"] = len(nodeClasses(detail))
+		if detail.Stats != nil {
+			frame["objects"] = detail.Stats.ObjectCount
+			frame["shards"] = detail.Stats.ShardCount
+		}
+	}
+	return frame
+}
+
+func nodeStatusOf(snap *clusterSnapshot, name string) *models.NodeStatus {
+	if snap == nil {
+		return nil
+	}
+	for _, status := range snap.Statuses {
+		if status != nil && status.Name == name {
+			return status
+		}
+	}
+	return nil
 }
 
 func nodeClasses(status *models.NodeStatus) []string {
@@ -251,30 +285,64 @@ func listNodeShards(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, status := range stats.Statuses {
-		if status == nil || status.Name != name {
-			continue
-		}
-		rows := make([]row, 0, len(status.Shards))
-		for _, shard := range status.Shards {
-			if shard == nil {
-				continue
-			}
-			rows = append(rows, row{
-				"name":                 shard.Name,
-				"collection":           shard.Class,
-				"objects":              shard.ObjectCount,
-				"vectorIndexingStatus": strings.ToUpper(shard.VectorIndexingStatus),
-				"compressed":           shard.Compressed,
-				"loaded":               shard.Loaded,
-				"replicas":             shard.NumberOfReplicas,
-				"replicationFactor":    shard.ReplicationFactor,
-			})
-		}
-		sort.Slice(rows, func(i, j int) bool { return text(rows[i]["name"]) < text(rows[j]["name"]) })
-		return broker.PageRows(rc, rows)
+	status := nodeStatusOf(stats, name)
+	if status == nil {
+		return nil, fmt.Errorf("%w: node %q", plugin.ErrNotFound, name)
 	}
-	return nil, fmt.Errorf("%w: node %q", plugin.ErrNotFound, name)
+	shards := make([]*models.NodeShardStatus, 0, len(status.Shards))
+	for _, shard := range status.Shards {
+		if shard != nil {
+			shards = append(shards, shard)
+		}
+	}
+	sort.Slice(shards, func(i, j int) bool { return shards[i].Name < shards[j].Name })
+	shards, truncated := capShards(shards)
+	rows := make([]row, 0, len(shards))
+	for _, shard := range shards {
+		rows = append(rows, row{
+			"name":                 shard.Name,
+			"collection":           shard.Class,
+			"objects":              shard.ObjectCount,
+			"vectorIndexingStatus": strings.ToUpper(shard.VectorIndexingStatus),
+			"compressed":           shard.Compressed,
+			"loaded":               shard.Loaded,
+			"replicas":             shard.NumberOfReplicas,
+			"replicationFactor":    shard.ReplicationFactor,
+		})
+	}
+	page, err := broker.PageRows(rc, rows)
+	if err != nil {
+		return nil, err
+	}
+	return capped(page, truncated, shardScanLimit), nil
+}
+
+// shardScanLimit caps the shard rows one listing materializes. A multi-tenant
+// collection has one shard per tenant, so the shard table is unbounded.
+const shardScanLimit = plugin.MaxPageLimit
+
+// cappedPage is a paged listing plus the scan cap signal. The embedded page
+// keeps the wire contract (items, nextCursor, total) unchanged; truncated and
+// scanLimit tell the browser the listing stopped at the cap.
+type cappedPage struct {
+	plugin.Page[row]
+	Truncated bool `json:"truncated,omitempty"`
+	ScanLimit int  `json:"scanLimit,omitempty"`
+}
+
+func capped(page plugin.Page[row], truncated bool, limit int) cappedPage {
+	out := cappedPage{Page: page, Truncated: truncated}
+	if truncated {
+		out.ScanLimit = limit
+	}
+	return out
+}
+
+func capShards[T any](shards []T) ([]T, bool) {
+	if len(shards) <= shardScanLimit {
+		return shards, false
+	}
+	return shards[:shardScanLimit], true
 }
 
 func listShards(rc *plugin.RequestContext) (any, error) {
@@ -286,10 +354,19 @@ func listShards(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	shards, err := s.client.schema.ShardsGetter().WithClassName(name).Do(rc.Ctx)
+	all, err := s.client.schema.ShardsGetter().WithClassName(name).Do(rc.Ctx)
 	if err != nil {
 		return nil, mapError(err)
 	}
+	shards := make([]*models.ShardStatusGetResponse, 0, len(all))
+	for _, shard := range all {
+		if shard != nil {
+			shards = append(shards, shard)
+		}
+	}
+	sort.Slice(shards, func(i, j int) bool { return shards[i].Name < shards[j].Name })
+	shards, truncated := capShards(shards)
+
 	stats, _ := clusterStats(rc)
 	objectsByShard := map[string]int64{}
 	nodeByShard := map[string]string{}
@@ -308,9 +385,6 @@ func listShards(rc *plugin.RequestContext) (any, error) {
 	}
 	rows := make([]row, 0, len(shards))
 	for _, shard := range shards {
-		if shard == nil {
-			continue
-		}
 		rows = append(rows, row{
 			"name":            shard.Name,
 			"collection":      name,
@@ -320,8 +394,11 @@ func listShards(rc *plugin.RequestContext) (any, error) {
 			"node":            nodeByShard[shard.Name],
 		})
 	}
-	sort.Slice(rows, func(i, j int) bool { return text(rows[i]["name"]) < text(rows[j]["name"]) })
-	return broker.PageRows(rc, rows)
+	page, err := broker.PageRows(rc, rows)
+	if err != nil {
+		return nil, err
+	}
+	return capped(page, truncated, shardScanLimit), nil
 }
 
 func updateShard(rc *plugin.RequestContext) (any, error) {
@@ -371,20 +448,70 @@ func listTenants(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	tenants, err := s.client.schema.TenantsGetter().WithClassName(name).Do(rc.Ctx)
+	snap, err := s.tenants(rc.Ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	page, err := broker.PageRows(rc, snap.rows)
+	if err != nil {
+		return nil, err
+	}
+	return capped(page, snap.truncated, tenantScanLimit), nil
+}
+
+// tenantScanLimit caps the tenants one listing keeps. Weaviate's tenants
+// endpoint has no cursor, so the whole list arrives in one response and a
+// collection is designed to hold hundreds of thousands of them.
+const tenantScanLimit = 5000
+
+const tenantCacheTTL = 10 * time.Second
+
+// tenantSnapshot is one collection's tenant listing, reused across page
+// navigation, search and refresh instead of re-fetching every request.
+type tenantSnapshot struct {
+	class     string
+	rows      []row
+	truncated bool
+	takenAt   time.Time
+}
+
+func (t *tenantSnapshot) fresh(class string, now time.Time) bool {
+	return t != nil && t.class == class && now.Sub(t.takenAt) < tenantCacheTTL
+}
+
+func (s *Session) tenants(ctx context.Context, class string) (*tenantSnapshot, error) {
+	s.tenantMu.Lock()
+	defer s.tenantMu.Unlock()
+	if s.tenantSnap.fresh(class, time.Now()) {
+		return s.tenantSnap, nil
+	}
+	tenants, err := s.client.schema.TenantsGetter().WithClassName(class).Do(ctx)
 	if err != nil {
 		return nil, mapError(err)
+	}
+	sort.Slice(tenants, func(i, j int) bool { return tenants[i].Name < tenants[j].Name })
+	truncated := len(tenants) > tenantScanLimit
+	if truncated {
+		tenants = tenants[:tenantScanLimit]
 	}
 	rows := make([]row, 0, len(tenants))
 	for _, tenant := range tenants {
 		rows = append(rows, row{
 			"name":           tenant.Name,
-			"collection":     name,
+			"collection":     class,
 			"activityStatus": strings.ToUpper(defaultString(tenant.ActivityStatus, "ACTIVE")),
 		})
 	}
-	sort.Slice(rows, func(i, j int) bool { return text(rows[i]["name"]) < text(rows[j]["name"]) })
-	return broker.PageRows(rc, rows)
+	snap := &tenantSnapshot{class: class, rows: rows, truncated: truncated, takenAt: time.Now()}
+	s.tenantSnap = snap
+	return snap, nil
+}
+
+// forgetTenants drops the cached listing so the next read sees a tenant change.
+func (s *Session) forgetTenants() {
+	s.tenantMu.Lock()
+	s.tenantSnap = nil
+	s.tenantMu.Unlock()
 }
 
 func createTenant(rc *plugin.RequestContext) (any, error) {
@@ -414,6 +541,7 @@ func createTenant(rc *plugin.RequestContext) (any, error) {
 	if err := s.client.schema.TenantsCreator().WithClassName(name).WithTenants(tenant).Do(rc.Ctx); err != nil {
 		return nil, mapError(err)
 	}
+	s.forgetTenants()
 	record(rc, "tenants", plugin.SeveritySuccess, "Tenant created", name+"/"+tenantName)
 	return row{"ok": true, "name": tenantName, "collection": name}, nil
 }
@@ -450,6 +578,7 @@ func updateTenant(rc *plugin.RequestContext) (any, error) {
 	if err := s.client.schema.TenantsUpdater().WithClassName(name).WithTenants(tenant).Do(rc.Ctx); err != nil {
 		return nil, mapError(err)
 	}
+	s.forgetTenants()
 	record(rc, "tenants", plugin.SeverityInfo, "Tenant status changed", name+"/"+tenantName+" -> "+status)
 	return row{"ok": true, "name": tenantName, "collection": name, "activityStatus": status}, nil
 }
@@ -473,6 +602,7 @@ func deleteTenant(rc *plugin.RequestContext) (any, error) {
 	if err := s.client.schema.TenantsDeleter().WithClassName(name).WithTenants(tenantName).Do(rc.Ctx); err != nil {
 		return nil, mapError(err)
 	}
+	s.forgetTenants()
 	record(rc, "tenants", plugin.SeverityDanger, "Tenant deleted", name+"/"+tenantName)
 	return row{"ok": true, "name": tenantName, "collection": name}, nil
 }

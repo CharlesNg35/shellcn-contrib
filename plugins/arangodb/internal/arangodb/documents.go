@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	driver "github.com/arangodb/go-driver/v2/arangodb"
@@ -31,7 +32,9 @@ func documentsList(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	bind := map[string]any{"@col": collection, "offset": offset, "limit": req.Limit}
+	// One document past the page proves there is a next page, so the cursor never
+	// depends on counting the collection.
+	bind := map[string]any{"@col": collection, "offset": offset, "limit": req.Limit + 1}
 	filter := ""
 	if term := strings.TrimSpace(req.Search()); term != "" {
 		filter = " FILTER CONTAINS(LOWER(JSON_STRINGIFY(doc)), LOWER(@q))"
@@ -54,20 +57,23 @@ func documentsList(rc *plugin.RequestContext) (any, error) {
 	}
 	aql += " LIMIT @offset, @limit RETURN doc"
 
-	rows, err := s.queryRows(rc.Ctx, database, aql, bind, req.Limit)
+	rows, err := s.queryRows(rc.Ctx, database, aql, bind, req.Limit+1)
 	if err != nil {
 		return nil, err
 	}
-	// The total must describe the same set the page came from, so a search term
-	// counts the filtered documents rather than the whole collection.
-	countAQL := "RETURN LENGTH(@@col)"
-	countBind := map[string]any{"@col": collection}
-	if filter != "" {
-		countAQL = "FOR doc IN @@col" + filter + " COLLECT WITH COUNT INTO matches RETURN matches"
-		countBind["q"] = bind["q"]
+	next := ""
+	if len(rows) > req.Limit {
+		rows = rows[:req.Limit]
+		next = strconv.Itoa(offset + req.Limit)
 	}
-	total := int(s.queryInt(rc.Ctx, database, countAQL, countBind))
-	return plugin.Page[row]{Items: rows, NextCursor: nextCursor(offset, len(rows), req.Limit), Total: &total}, nil
+	page := plugin.Page[row]{Items: rows, NextCursor: next}
+	// LENGTH() reads the collection's stored count. A search term has no such
+	// count, and scanning every document to produce one is not worth a number.
+	if filter == "" {
+		total := int(s.queryInt(rc.Ctx, database, "RETURN LENGTH(@@col)", map[string]any{"@col": collection}))
+		page.Total = &total
+	}
+	return page, nil
 }
 
 // documentColumns derives the grid's runtime columns from a bounded sample plus

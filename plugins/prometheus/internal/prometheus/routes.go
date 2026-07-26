@@ -9,9 +9,11 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charlesng35/shellcn-contrib/shared/broker"
@@ -77,7 +79,7 @@ func overview(rc *plugin.RequestContext) (any, error) {
 	_ = s.client.api(rc.Ctx, http.MethodGet, "/api/v1/status/buildinfo", nil, nil, ptr(out, "build"))
 	_ = s.client.api(rc.Ctx, http.MethodGet, "/api/v1/status/runtimeinfo", nil, nil, ptr(out, "runtime"))
 	_ = s.client.api(rc.Ctx, http.MethodGet, "/api/v1/status/tsdb", nil, nil, ptr(out, "tsdb"))
-	_ = s.client.api(rc.Ctx, http.MethodGet, "/api/v1/targets", nil, nil, ptr(out, "targets"))
+	_ = s.client.api(rc.Ctx, http.MethodGet, "/api/v1/targets", url.Values{"state": []string{"active"}}, nil, ptr(out, "targets"))
 	return out, nil
 }
 
@@ -135,12 +137,19 @@ func statusRead(rc *plugin.RequestContext) (any, error) {
 	return out, err
 }
 
+// boundedPage embeds the unchanged paged wire contract and adds the cap signal:
+// truncated and limit tell the browser the listing is partial.
+type boundedPage struct {
+	plugin.Page[row]
+	Truncated bool `json:"truncated,omitempty"`
+	Limit     int  `json:"limit,omitempty"`
+}
+
 func targetTree(rc *plugin.RequestContext) (any, error) {
-	res, err := targetList(rc)
+	page, err := targetsPage(rc)
 	if err != nil {
 		return nil, err
 	}
-	page := res.(plugin.Page[row])
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		uid := fmt.Sprint(item["uid"])
@@ -151,20 +160,45 @@ func targetTree(rc *plugin.RequestContext) (any, error) {
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
 }
 
-func targetList(rc *plugin.RequestContext) (any, error) {
+func targetsPage(rc *plugin.RequestContext) (boundedPage, error) {
 	s, err := session(rc)
 	if err != nil {
-		return nil, err
+		return boundedPage{}, err
 	}
-	rows, err := targets(rc.Ctx, s)
+	rows, truncated, err := scopedTargets(rc.Ctx, s, requestTargetScope(rc))
 	if err != nil {
-		return nil, err
+		return boundedPage{}, err
 	}
 	for _, item := range rows {
 		label := fmt.Sprint(item["job"]) + "/" + fmt.Sprint(item["instance"])
 		item["ref"] = plugin.ResourceIdentity{Kind: "target", Name: label, UID: fmt.Sprint(item["uid"])}
 	}
-	return broker.PageRows(rc, rows)
+	page, err := broker.PageRows(rc, rows)
+	if err != nil {
+		return boundedPage{}, err
+	}
+	out := boundedPage{Page: page}
+	if truncated {
+		out.Page.Total, out.Truncated, out.Limit = nil, true, plugin.MaxPageLimit
+	}
+	return out, nil
+}
+
+func targetList(rc *plugin.RequestContext) (any, error) {
+	return targetsPage(rc)
+}
+
+func requestTargetScope(rc *plugin.RequestContext) targetScope {
+	q := rc.Query()
+	state := strings.TrimSpace(q.Get("state"))
+	if state == "" {
+		state = strings.TrimSpace(q.Get("p.state"))
+	}
+	pool := strings.TrimSpace(q.Get("scrapePool"))
+	if pool == "" {
+		pool = strings.TrimSpace(q.Get("p.job"))
+	}
+	return targetScope{State: state, Pool: pool}
 }
 
 func targetRead(rc *plugin.RequestContext) (any, error) {
@@ -265,11 +299,10 @@ func ruleRead(rc *plugin.RequestContext) (any, error) {
 }
 
 func metricTree(rc *plugin.RequestContext) (any, error) {
-	res, err := metricList(rc)
+	page, err := metricsPage(rc)
 	if err != nil {
 		return nil, err
 	}
-	page := res.(plugin.Page[row])
 	nodes := make([]plugin.TreeNode, 0, len(page.Items))
 	for _, item := range page.Items {
 		name := fmt.Sprint(item["name"])
@@ -279,22 +312,33 @@ func metricTree(rc *plugin.RequestContext) (any, error) {
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
 }
 
-func metricList(rc *plugin.RequestContext) (any, error) {
+func metricsPage(rc *plugin.RequestContext) (boundedPage, error) {
 	s, err := session(rc)
 	if err != nil {
-		return nil, err
+		return boundedPage{}, err
 	}
-	names, err := metricNames(rc.Ctx, s)
+	req, err := rc.Page()
 	if err != nil {
-		return nil, err
+		return boundedPage{}, err
 	}
-	meta, _ := metadata(rc.Ctx, s, "")
-	rows := make([]row, 0, len(names))
+	offset, err := offsetCursor(req.Cursor)
+	if err != nil {
+		return boundedPage{}, err
+	}
 	filter := strings.TrimSpace(rc.Query().Get("filter"))
-	for _, name := range names {
-		if filter != "" && !strings.Contains(name, filter) {
-			continue
-		}
+	if filter == "" {
+		filter = req.Search()
+	}
+	fetch := min(offset+req.Limit+1, plugin.MaxPageLimit)
+	names, err := metricNames(rc.Ctx, s, filter, fetch)
+	if err != nil {
+		return boundedPage{}, err
+	}
+	truncated := len(names) >= fetch
+	window := pageSlice(names, offset, req.Limit)
+	meta := pageMetadata(rc.Ctx, s, window)
+	rows := make([]row, 0, len(window))
+	for _, name := range window {
 		item := row{"name": name}
 		if entries := meta[name]; len(entries) > 0 {
 			item["type"] = entries[0]["type"]
@@ -304,8 +348,68 @@ func metricList(rc *plugin.RequestContext) (any, error) {
 		item["ref"] = plugin.ResourceIdentity{Kind: "metric", Name: name, UID: name}
 		rows = append(rows, item)
 	}
-	return broker.PageRows(rc, rows)
+	next := ""
+	if offset+len(window) < len(names) {
+		next = strconv.Itoa(offset + len(window))
+	}
+	out := boundedPage{Page: plugin.Page[row]{Items: plugin.SortRows(rows, req.Sort), NextCursor: next}}
+	if truncated {
+		out.Truncated, out.Limit = true, fetch
+	}
+	return out, nil
 }
+
+func metricList(rc *plugin.RequestContext) (any, error) {
+	return metricsPage(rc)
+}
+
+func offsetCursor(cursor string) (int, error) {
+	if cursor == "" {
+		return 0, nil
+	}
+	offset, err := strconv.Atoi(cursor)
+	if err != nil || offset < 0 {
+		return 0, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+	}
+	return offset, nil
+}
+
+func pageSlice(values []string, offset, limit int) []string {
+	if offset > len(values) {
+		offset = len(values)
+	}
+	return values[offset:min(offset+limit, len(values))]
+}
+
+// pageMetadata fetches HELP/TYPE/UNIT for the names on one page. The unfiltered
+// /api/v1/metadata carries the metadata of every metric in the TSDB, so it is
+// asked per metric instead, concurrently.
+func pageMetadata(ctx context.Context, s *Session, names []string) map[string][]row {
+	out := make(map[string][]row, len(names))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, metadataConcurrency)
+	for _, name := range names {
+		wg.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer func() { <-slots; wg.Done() }()
+			meta, err := metadata(ctx, s, name)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			for key, entries := range meta {
+				out[key] = entries
+			}
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
+const metadataConcurrency = 8
 
 func metricRead(rc *plugin.RequestContext) (any, error) {
 	s, err := session(rc)
@@ -367,20 +471,51 @@ func labelList(rc *plugin.RequestContext) (any, error) {
 	return broker.PageRows(rc, rows)
 }
 
+// labelValues serves one page of a label's values. A high-cardinality label
+// (instance, pod, container_id) has millions of distinct values, so the window
+// is asked for server-side rather than sliced out of full copies in the heap.
 func labelValues(rc *plugin.RequestContext) (any, error) {
 	s, err := session(rc)
 	if err != nil {
 		return nil, err
 	}
-	var values []string
-	if err := s.client.api(rc.Ctx, http.MethodGet, "/api/v1/label/"+url.PathEscape(labelParam(rc))+"/values", nil, nil, &values); err != nil {
+	req, err := rc.Page()
+	if err != nil {
 		return nil, err
 	}
-	rows := make([]row, 0, len(values))
-	for _, value := range values {
+	offset, err := offsetCursor(req.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	label := labelParam(rc)
+	fetch := min(offset+req.Limit+1, plugin.MaxPageLimit)
+	q := url.Values{"limit": []string{strconv.Itoa(fetch)}}
+	filter := strings.TrimSpace(rc.Query().Get("filter"))
+	if filter == "" {
+		filter = req.Search()
+	}
+	if filter != "" {
+		q.Set("match[]", "{"+label+"=~\".*"+regexp.QuoteMeta(filter)+".*\"}")
+	}
+	var values []string
+	if err := s.client.api(rc.Ctx, http.MethodGet, "/api/v1/label/"+url.PathEscape(label)+"/values", q, nil, &values); err != nil {
+		return nil, err
+	}
+	truncated := len(values) >= fetch
+	window := pageSlice(values, offset, req.Limit)
+	rows := make([]row, 0, len(window))
+	for _, value := range window {
 		rows = append(rows, row{"value": value})
 	}
-	return broker.PageRows(rc, rows)
+	next := ""
+	if offset+len(window) < len(values) {
+		next = strconv.Itoa(offset + len(window))
+	}
+	out := boundedPage{Page: plugin.Page[row]{Items: plugin.SortRows(rows, req.Sort), NextCursor: next}}
+	if truncated {
+		out.Truncated, out.Limit = true, fetch
+	}
+	return out, nil
 }
 
 func createSnapshot(rc *plugin.RequestContext) (any, error) {
@@ -635,7 +770,7 @@ func liveMetricsStream(rc *plugin.RequestContext, stream plugin.ClientStream) er
 }
 
 func liveFrame(ctx context.Context, s *Session) row {
-	targetRows, _ := targets(ctx, s)
+	targetRows, _, _ := scopedTargets(ctx, s, targetScope{})
 	targetsTotal := float64(len(targetRows))
 	upTargets := 0.0
 	for _, item := range targetRows {
@@ -661,16 +796,39 @@ func completionRoute(*plugin.RequestContext) (any, error) {
 	}, nil
 }
 
+// targetScope is the server-side window a target listing asks for. state=any is
+// opt-in rather than the default: with Kubernetes discovery a server reports
+// hundreds of thousands of dropped targets, each with its discoveredLabels map.
+type targetScope struct {
+	State string
+	Pool  string
+}
+
 func targets(ctx context.Context, s *Session) ([]row, error) {
+	rows, _, err := scopedTargets(ctx, s, targetScope{})
+	return rows, err
+}
+
+func scopedTargets(ctx context.Context, s *Session, scope targetScope) ([]row, bool, error) {
+	q := url.Values{"state": []string{"active"}}
+	if scope.State == "dropped" || scope.State == "any" {
+		q.Set("state", scope.State)
+	}
+	if scope.Pool != "" {
+		q.Set("scrapePool", scope.Pool)
+	}
 	var out struct {
 		Active  []row `json:"activeTargets"`
 		Dropped []row `json:"droppedTargets"`
 	}
-	if err := s.client.api(ctx, http.MethodGet, "/api/v1/targets", url.Values{"state": []string{"any"}}, nil, &out); err != nil {
-		return nil, err
+	if err := s.client.api(ctx, http.MethodGet, "/api/v1/targets", q, nil, &out); err != nil {
+		return nil, false, err
 	}
-	rows := make([]row, 0, len(out.Active)+len(out.Dropped))
+	rows := make([]row, 0, min(len(out.Active)+len(out.Dropped), plugin.MaxPageLimit))
 	for _, item := range out.Active {
+		if len(rows) >= plugin.MaxPageLimit {
+			return rows, true, nil
+		}
 		labels, _ := item["labels"].(map[string]any)
 		item["state"] = "active"
 		item["job"] = fmt.Sprint(labels["job"])
@@ -679,6 +837,9 @@ func targets(ctx context.Context, s *Session) ([]row, error) {
 		rows = append(rows, item)
 	}
 	for _, item := range out.Dropped {
+		if len(rows) >= plugin.MaxPageLimit {
+			return rows, true, nil
+		}
 		labels, _ := item["labels"].(map[string]any)
 		if len(labels) == 0 {
 			labels, _ = item["discoveredLabels"].(map[string]any)
@@ -690,7 +851,7 @@ func targets(ctx context.Context, s *Session) ([]row, error) {
 		item["uid"] = stableID(item["scrapeUrl"], item["labels"], item["discoveredLabels"])
 		rows = append(rows, item)
 	}
-	return rows, nil
+	return rows, false, nil
 }
 
 func alerts(ctx context.Context, s *Session) ([]row, error) {
@@ -736,13 +897,28 @@ func rules(ctx context.Context, s *Session) ([]row, error) {
 	return rows, nil
 }
 
-// metricNames returns the full metric catalogue. Names are bounded and cheap, so
-// no server-side limit is applied — the metric browser paginates and filters the
-// complete list client-side rather than truncating to one page.
-func metricNames(ctx context.Context, s *Session) ([]string, error) {
+// metricNames returns one bounded window of the metric catalogue. Against
+// Thanos, Mimir, or Cortex the catalogue runs to hundreds of thousands of names,
+// so the browser's filter is pushed into match[] and the response is capped by
+// limit (honoured since Prometheus v2.54, ignored harmlessly by older servers).
+func metricNames(ctx context.Context, s *Session, filter string, limit int) ([]string, error) {
+	q := url.Values{"limit": []string{strconv.Itoa(limit)}}
+	if filter != "" {
+		q.Set("match[]", "{__name__=~\".*"+regexp.QuoteMeta(filter)+".*\"}")
+	}
 	var names []string
-	if err := s.client.api(ctx, http.MethodGet, "/api/v1/label/__name__/values", nil, nil, &names); err != nil {
+	if err := s.client.api(ctx, http.MethodGet, "/api/v1/label/__name__/values", q, nil, &names); err != nil {
 		return nil, err
+	}
+	if filter != "" {
+		// Older servers ignore match[]; keep the filter honest either way.
+		kept := names[:0]
+		for _, name := range names {
+			if strings.Contains(name, filter) {
+				kept = append(kept, name)
+			}
+		}
+		names = kept
 	}
 	sort.Strings(names)
 	return names, nil

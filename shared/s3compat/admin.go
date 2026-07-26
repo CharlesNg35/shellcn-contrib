@@ -1,7 +1,8 @@
 package s3compat
 
 import (
-	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -266,51 +267,105 @@ func listVersions(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &awss3.ListObjectVersionsInput{Bucket: aws.String(name)}
+	req, err := rc.Page()
+	if err != nil {
+		return nil, err
+	}
+	keyMarker, versionMarker, err := decodeVersionCursor(req.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = plugin.DefaultPageLimit
+	}
+	if limit > plugin.MaxPageLimit {
+		limit = plugin.MaxPageLimit
+	}
+	in := &awss3.ListObjectVersionsInput{Bucket: aws.String(name), MaxKeys: aws.Int32(int32(limit))}
 	if prefix := strings.TrimSpace(rc.Query().Get("prefix")); prefix != "" {
 		in.Prefix = aws.String(prefix)
 	}
-	items, err := collectVersions(rc.Ctx, c.s3, in)
+	if keyMarker != "" {
+		in.KeyMarker = aws.String(keyMarker)
+	}
+	if versionMarker != "" {
+		in.VersionIdMarker = aws.String(versionMarker)
+	}
+	out, err := c.s3.ListObjectVersions(rc.Ctx, in)
 	if err != nil {
 		return nil, mapAdminError(err)
 	}
-	return plugin.Page[objectVersionEntry]{Items: items}, nil
+	items := make([]objectVersionEntry, 0, len(out.Versions)+len(out.DeleteMarkers))
+	for _, v := range out.Versions {
+		entry := objectVersionEntry{
+			Key:       aws.ToString(v.Key),
+			VersionID: aws.ToString(v.VersionId),
+			IsLatest:  aws.ToBool(v.IsLatest),
+			Size:      aws.ToInt64(v.Size),
+		}
+		if v.LastModified != nil {
+			entry.ModTime = *v.LastModified
+		}
+		items = append(items, entry)
+	}
+	for _, m := range out.DeleteMarkers {
+		entry := objectVersionEntry{
+			Key:          aws.ToString(m.Key),
+			VersionID:    aws.ToString(m.VersionId),
+			IsLatest:     aws.ToBool(m.IsLatest),
+			DeleteMarker: true,
+		}
+		if m.LastModified != nil {
+			entry.ModTime = *m.LastModified
+		}
+		items = append(items, entry)
+	}
+	truncated := aws.ToBool(out.IsTruncated)
+	next := ""
+	if truncated {
+		next = encodeVersionCursor(aws.ToString(out.NextKeyMarker), aws.ToString(out.NextVersionIdMarker))
+	}
+	return versionsPage{Page: plugin.Page[objectVersionEntry]{Items: items, NextCursor: next}, Truncated: truncated}, nil
 }
 
-func collectVersions(ctx context.Context, api *awss3.Client, in *awss3.ListObjectVersionsInput) ([]objectVersionEntry, error) {
-	pager := awss3.NewListObjectVersionsPaginator(api, in)
-	var items []objectVersionEntry
-	for pager.HasMorePages() {
-		page, err := pager.NextPage(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, v := range page.Versions {
-			entry := objectVersionEntry{
-				Key:       aws.ToString(v.Key),
-				VersionID: aws.ToString(v.VersionId),
-				IsLatest:  aws.ToBool(v.IsLatest),
-				Size:      aws.ToInt64(v.Size),
-			}
-			if v.LastModified != nil {
-				entry.ModTime = *v.LastModified
-			}
-			items = append(items, entry)
-		}
-		for _, m := range page.DeleteMarkers {
-			entry := objectVersionEntry{
-				Key:          aws.ToString(m.Key),
-				VersionID:    aws.ToString(m.VersionId),
-				IsLatest:     aws.ToBool(m.IsLatest),
-				DeleteMarker: true,
-			}
-			if m.LastModified != nil {
-				entry.ModTime = *m.LastModified
-			}
-			items = append(items, entry)
-		}
+// versionsPage is one page of version history. S3 cannot count versions cheaply,
+// so no total is reported; truncated plus the cursor signal there is more.
+type versionsPage struct {
+	plugin.Page[objectVersionEntry]
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// versionCursor carries the key/version markers S3 needs to resume a listing.
+type versionCursor struct {
+	Key     string `json:"k,omitempty"`
+	Version string `json:"v,omitempty"`
+}
+
+func encodeVersionCursor(key, version string) string {
+	if key == "" && version == "" {
+		return ""
 	}
-	return items, nil
+	data, err := json.Marshal(versionCursor{Key: key, Version: version})
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeVersionCursor(raw string) (string, string, error) {
+	if raw == "" {
+		return "", "", nil
+	}
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+	}
+	var cursor versionCursor
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return "", "", fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+	}
+	return cursor.Key, cursor.Version, nil
 }
 
 func presignObject(rc *plugin.RequestContext) (any, error) {

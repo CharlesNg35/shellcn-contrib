@@ -180,8 +180,6 @@ func documentKeyspace(rc *plugin.RequestContext) (keyspace, error) {
 	return k, nil
 }
 
-// --- management API ---------------------------------------------------------
-
 func (s *Session) mgmtGet(ctx context.Context, path string, out any) error {
 	return s.mgmt.Do(ctx, "GET", path, nil, nil, out)
 }
@@ -244,8 +242,6 @@ func (s *Session) statsRange(ctx context.Context, metric, bucket string, seconds
 	}
 	return out[0].Data, nil
 }
-
-// --- query service ----------------------------------------------------------
 
 type n1qlError struct {
 	Code int    `json:"code"`
@@ -408,8 +404,6 @@ func mustJSON(v any) []byte {
 	}
 	return data
 }
-
-// --- generic value helpers --------------------------------------------------
 
 func asMap(v any) map[string]any {
 	if m, ok := v.(map[string]any); ok {

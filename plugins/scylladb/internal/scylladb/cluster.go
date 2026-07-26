@@ -631,7 +631,6 @@ func clientRows(ctx context.Context, s *Session) ([]row, error) {
 	return out, nil
 }
 
-// clientsByShard counts one node's CQL clients per shard.
 func clientsByShard(ctx context.Context, s *Session, hostID string) map[int]int {
 	out := map[int]int{}
 	rows, err := queryRowsOn(ctx, s, hostID, `SELECT shard_id FROM system.clients`, nil)
