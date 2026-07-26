@@ -4,7 +4,7 @@
   var sc = window.shellcn || {};
   var DUCK = null, adb = null, conn = null;
   var pageSize = 50, mode = null, cursor = null, table = null, selection = {};
-  var refs = {}, lastGrid = null;
+  var refs = {}, lastGrid = null, searchTimer = null;
 
   function applyTheme(theme, colors) {
     document.body.dataset.theme = theme === "light" ? "light" : "dark";
@@ -25,6 +25,7 @@
   function q1(s) { return '"' + String(s).replace(/"/g, '""') + '"'; }
   function qname(cat, sch, name) { return q1(cat) + "." + q1(sch) + "." + q1(name); }
   function sqlStr(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
+  function escapeLike(s) { return String(s).replace(/[\\%_]/g, "\\$&"); }
   function dropdown(label, items) {
     var wrap = el("div", { class: "dropdown" });
     var menu = el("div", { class: "menu" });
@@ -107,8 +108,12 @@
     [25, 50, 100, 200, 500].forEach(function (n) { var o = el("option", { value: String(n), text: n + " rows" }); if (n === pageSize) o.selected = true; refs.pageSize.appendChild(o); });
     refs.pageSize.addEventListener("change", function () { pageSize = parseInt(refs.pageSize.value, 10); reload(); });
 
+    refs.search = el("input", { type: "search", class: "input", placeholder: "Search rows…", title: "Filter rows of the browsed table" });
+    refs.search.disabled = true;
+    refs.search.addEventListener("input", function () { clearTimeout(searchTimer); searchTimer = setTimeout(applySearch, 250); });
+
     refs.run = button("Run", runQuery, "primary", "Ctrl/⌘ + Enter");
-    var runbar = el("div", { class: "runbar" }, [refs.run, el("span", { class: "kbd", text: "⌘↵" }), el("span", { class: "spacer" }), refs.pageSize, dropdown("Export ▾", [{ label: "Export CSV", onClick: exportCSV }, { label: "Export JSON", onClick: exportJSON }, { label: "Export Markdown", onClick: exportMarkdown }])]);
+    var runbar = el("div", { class: "runbar" }, [refs.run, el("span", { class: "kbd", text: "⌘↵" }), el("span", { class: "spacer" }), refs.search, refs.pageSize, dropdown("Export ▾", [{ label: "Export CSV", onClick: exportCSV }, { label: "Export JSON", onClick: exportJSON }, { label: "Export Markdown", onClick: exportMarkdown }])]);
 
     refs.results = el("div", { class: "results" });
     var main = el("div", { class: "main" }, [el("section", { class: "editor-pane" }, [refs.editorWrap, runbar]), el("section", { class: "result-pane" }, [refs.results])]);
@@ -174,7 +179,7 @@
       notify("Opened " + file.name + " · nothing uploaded", "ok");
     } catch (e) { renderError(msg(e)); notify("Could not open file: " + msg(e), "error"); }
   }
-  async function newDatabase() { if (!conn) return; setEditorValue(""); mode = null; cursor = null; table = null; await refreshSchema(); welcome(); setStatus("In-memory database — create tables or open a file", "ok"); }
+  async function newDatabase() { if (!conn) return; setEditorValue(""); mode = null; cursor = null; table = null; setSearch(false); await refreshSchema(); welcome(); setStatus("In-memory database — create tables or open a file", "ok"); }
   function reload() { if (mode === "table") loadTablePage(table.page || 0); else if (mode === "query" && cursor) runQuery(); }
 
   async function listRows(sql) { try { var res = await conn.query(sql); return res.toArray().map(function (r) { return Object.values(r.toJSON ? r.toJSON() : r); }); } catch (e) { return []; } }
@@ -216,24 +221,41 @@
     var cols = await describe(cat, sch, name);
     var pk = cols.filter(function (c) { return c.pk; });
     var writable = cat !== "attached" && String(type).indexOf("VIEW") === -1 && pk.length > 0;
-    table = { cat: cat, sch: sch, name: name, cols: cols, pk: pk, editable: writable, page: 0 };
+    table = { cat: cat, sch: sch, name: name, cols: cols, pk: pk, editable: writable, page: 0, search: "" };
     setEditorValue("SELECT * FROM " + qname(cat, sch, name));
     mode = "table"; selection = {};
+    setSearch(true);
     await loadTablePage(0);
   }
+
+  function setSearch(enabled) { clearTimeout(searchTimer); refs.search.value = ""; refs.search.disabled = !enabled; }
+  function applySearch() {
+    if (mode !== "table" || !table) return;
+    var term = refs.search.value.trim();
+    if (term === (table.search || "")) return;
+    table.search = term;
+    loadTablePage(0);
+  }
+  function searchWhere() {
+    if (!table || !table.search) return "";
+    var lit = sqlStr("%" + escapeLike(table.search) + "%");
+    return " WHERE (" + table.cols.map(function (c) { return "CAST(" + q1(c.name) + " AS VARCHAR) ILIKE " + lit + " ESCAPE '\\'"; }).join(" OR ") + ")";
+  }
+  function emptyText() { return mode === "table" && table && table.search ? "No rows match “" + table.search + "”" : "No rows"; }
 
   async function loadTablePage(pageIndex) {
     mode = "table"; table.page = pageIndex; selection = {};
     var qn = qname(table.cat, table.sch, table.name);
+    var where = searchWhere();
     var total = 0;
-    try { var c = await conn.query("SELECT count(*) AS n FROM " + qn); total = Number(c.toArray()[0].n); } catch (e) {}
+    try { var c = await conn.query("SELECT count(*) AS n FROM " + qn + where); total = Number(c.toArray()[0].n); } catch (e) {}
     var offset = pageIndex * pageSize;
     var names = table.cols.map(function (c) { return c.name; });
     var rows = [];
-    try { var res = await conn.query("SELECT * FROM " + qn + " LIMIT " + pageSize + " OFFSET " + offset); rows = res.toArray().map(function (r) { var o = r.toJSON ? r.toJSON() : r; return names.map(function (n) { return normalize(o[n]); }); }); }
+    try { var res = await conn.query("SELECT * FROM " + qn + where + " LIMIT " + pageSize + " OFFSET " + offset); rows = res.toArray().map(function (r) { var o = r.toJSON ? r.toJSON() : r; return names.map(function (n) { return normalize(o[n]); }); }); }
     catch (e) { renderError(msg(e)); return; }
     grid(names, rows, { start: offset, total: total, editable: table.editable, hasPrev: pageIndex > 0, hasNext: offset + rows.length < total, onPrev: function () { loadTablePage(pageIndex - 1); }, onNext: function () { loadTablePage(pageIndex + 1); } });
-    setStatus(table.name + " · " + total + " row(s)" + (table.editable ? " · editable" : ""), "ok");
+    setStatus(table.name + " · " + total + " row(s)" + (table.search ? " matching “" + table.search + "”" : "") + (table.editable ? " · editable" : ""), "ok");
   }
 
   function isReadQuery(text) {
@@ -246,6 +268,7 @@
     var text = refs.editor.value.trim();
     if (!text) return;
     await closeCursor();
+    setSearch(false);
     setBusy(true); setStatus("Running…");
     var t0 = performance.now();
     try {
@@ -331,7 +354,7 @@
     });
     tableEl.appendChild(tbody);
     scroll.appendChild(tableEl);
-    if (!rows.length) scroll.appendChild(el("div", { class: "empty", text: "No rows" }));
+    if (!rows.length) scroll.appendChild(el("div", { class: "empty", text: emptyText() }));
     refs.results.appendChild(scroll);
     refs.results.appendChild(pager(rows.length, nav));
     lastGrid = { columns: columns, rows: rows };
@@ -487,6 +510,9 @@
       ".btn.danger{color:var(--danger)}.btn.danger:hover:not(:disabled){border-color:var(--danger)}",
       ".btn.danger-solid{background:var(--danger);color:#fff;border-color:transparent}",
       ".select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:6px 8px;font:inherit;cursor:pointer}",
+      ".input{width:230px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:6px 10px;font:inherit;outline:none}",
+      ".input:focus{border-color:var(--accent)}",
+      ".input:disabled{opacity:.45}",
       ".dropdown{position:relative}",
       ".menu{position:absolute;right:0;top:calc(100% + 6px);min-width:170px;background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:0 12px 34px rgba(0,0,0,.4);display:none;overflow:hidden;z-index:20}",
       ".menu.show{display:block}",

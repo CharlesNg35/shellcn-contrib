@@ -4,7 +4,7 @@
   var sc = window.shellcn || {};
   var SQL = null, db = null, dbName = "", dirty = false;
   var pageSize = 50, mode = null, cursor = null, table = null, selection = {};
-  var refs = {}, lastGrid = null;
+  var refs = {}, lastGrid = null, searchTimer = null;
 
   function applyTheme(theme, colors) {
     document.body.dataset.theme = theme === "light" ? "light" : "dark";
@@ -28,6 +28,7 @@
     return b;
   }
   function ident(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+  function escapeLike(s) { return String(s).replace(/[\\%_]/g, "\\$&"); }
 
   function dropdown(label, items) {
     var wrap = el("div", { class: "dropdown" });
@@ -113,8 +114,12 @@
     [25, 50, 100, 200, 500].forEach(function (n) { var o = el("option", { value: String(n), text: n + " rows" }); if (n === pageSize) o.selected = true; refs.pageSize.appendChild(o); });
     refs.pageSize.addEventListener("change", function () { pageSize = parseInt(refs.pageSize.value, 10); reload(); });
 
+    refs.search = el("input", { type: "search", class: "input", placeholder: "Search rows…", title: "Filter rows of the browsed table" });
+    refs.search.disabled = true;
+    refs.search.addEventListener("input", function () { clearTimeout(searchTimer); searchTimer = setTimeout(applySearch, 250); });
+
     refs.run = button("Run", runQuery, "primary", "Ctrl/⌘ + Enter");
-    var runbar = el("div", { class: "runbar" }, [refs.run, el("span", { class: "kbd", text: "⌘↵" }), el("span", { class: "spacer" }), refs.pageSize, dropdown("Export ▾", [{ label: "Export CSV", onClick: exportCSV }, { label: "Export JSON", onClick: exportJSON }, { label: "Export Markdown", onClick: exportMarkdown }])]);
+    var runbar = el("div", { class: "runbar" }, [refs.run, el("span", { class: "kbd", text: "⌘↵" }), el("span", { class: "spacer" }), refs.search, refs.pageSize, dropdown("Export ▾", [{ label: "Export CSV", onClick: exportCSV }, { label: "Export JSON", onClick: exportJSON }, { label: "Export Markdown", onClick: exportMarkdown }])]);
 
     refs.results = el("div", { class: "results" });
     var main = el("div", { class: "main" }, [el("section", { class: "editor-pane" }, [refs.editorWrap, runbar]), el("section", { class: "result-pane" }, [refs.results])]);
@@ -157,7 +162,7 @@
     } catch (e) { notify("Could not open file: " + msg(e), "error"); }
   }
   function newDatabase() { closeDB(); db = new SQL.Database(); dbName = "untitled.db"; afterOpen(); setStatus("New empty database", "ok"); }
-  function afterOpen() { dirty = false; refs.download.disabled = true; refs.dbLabel.textContent = dbName; setEditorValue(""); mode = null; cursor = null; table = null; refreshSchema(); welcome(); }
+  function afterOpen() { dirty = false; refs.download.disabled = true; refs.dbLabel.textContent = dbName; setEditorValue(""); mode = null; cursor = null; table = null; setSearch(false); refreshSchema(); welcome(); }
   function closeDB() { if (cursor && cursor.stmt) { try { cursor.stmt.free(); } catch (e) {} } cursor = null; table = null; mode = null; if (db) { try { db.close(); } catch (e) {} db = null; } }
   function markDirty() { dirty = true; refs.download.disabled = false; }
   function reload() { if (mode === "table") loadTablePage(table.page || 0); else if (mode === "query") renderCursorPage(0); }
@@ -198,26 +203,43 @@
   function openTable(name) {
     var cols = columnsOf(name);
     if (!cols.length) { openView(name); return; }
-    table = { name: name, cols: cols, page: 0, hasRowid: true };
+    table = { name: name, cols: cols, page: 0, hasRowid: true, search: "" };
     setEditorValue("SELECT * FROM " + ident(name));
     mode = "table"; selection = {};
+    setSearch(true);
     loadTablePage(0);
   }
 
+  function setSearch(enabled) { clearTimeout(searchTimer); refs.search.value = ""; refs.search.disabled = !enabled; }
+  function applySearch() {
+    if (mode !== "table" || !table) return;
+    var term = refs.search.value.trim();
+    if (term === (table.search || "")) return;
+    table.search = term;
+    loadTablePage(0);
+  }
+  function searchWhere() {
+    if (!table || !table.search) return "";
+    return " WHERE (" + table.cols.map(function (c) { return "CAST(" + ident(c.name) + " AS TEXT) LIKE $q ESCAPE '\\'"; }).join(" OR ") + ")";
+  }
+  function searchParams() { return table && table.search ? { "$q": "%" + escapeLike(table.search) + "%" } : undefined; }
+  function emptyText() { return mode === "table" && table && table.search ? "No rows match “" + table.search + "”" : "No rows"; }
+
   function loadTablePage(pageIndex) {
     mode = "table"; table.page = pageIndex; selection = {};
+    var where = searchWhere(), params = searchParams();
     var total = 0;
-    try { var c = db.exec("SELECT count(*) FROM " + ident(table.name)); total = c.length ? c[0].values[0][0] : 0; } catch (e) {}
+    try { var c = db.exec("SELECT count(*) FROM " + ident(table.name) + where, params); total = c.length ? c[0].values[0][0] : 0; } catch (e) {}
     var offset = pageIndex * pageSize;
     var names = table.cols.map(function (c) { return c.name; });
     var rows = [];
     try {
       var idsel = table.hasRowid ? "rowid AS __rid, " : "";
-      var res = db.exec("SELECT " + idsel + table.cols.map(function (c) { return ident(c.name); }).join(", ") + " FROM " + ident(table.name) + " LIMIT " + pageSize + " OFFSET " + offset);
+      var res = db.exec("SELECT " + idsel + table.cols.map(function (c) { return ident(c.name); }).join(", ") + " FROM " + ident(table.name) + where + " LIMIT " + pageSize + " OFFSET " + offset, params);
       if (res.length) rows = res[0].values;
     } catch (e) { if (table.hasRowid) { table.hasRowid = false; return loadTablePage(pageIndex); } renderError(msg(e)); return; }
     grid(names, rows, { start: offset, total: total, hasPrev: pageIndex > 0, hasNext: offset + rows.length < total, onPrev: function () { loadTablePage(pageIndex - 1); }, onNext: function () { loadTablePage(pageIndex + 1); } }, table.hasRowid, function (row) { return row[0]; });
-    setStatus(table.name + " · " + total + " row(s)" + (table.hasRowid ? " · editable" : ""), "ok");
+    setStatus(table.name + " · " + total + " row(s)" + (table.search ? " matching “" + table.search + "”" : "") + (table.hasRowid ? " · editable" : ""), "ok");
   }
 
   function runQuery() {
@@ -228,6 +250,7 @@
     var t0 = performance.now();
     try {
       if (isSingleTableSelect(text)) { var tn = singleTableName(text); if (tn && tableExists(tn)) { openTable(tn); return; } }
+      setSearch(false);
       if (isReadQuery(text)) {
         mode = "query";
         var stmt = db.prepare(text.replace(/;+\s*$/, ""));
@@ -305,7 +328,7 @@
     });
     tableEl.appendChild(tbody);
     scroll.appendChild(tableEl);
-    if (!rows.length) scroll.appendChild(el("div", { class: "empty", text: "No rows" }));
+    if (!rows.length) scroll.appendChild(el("div", { class: "empty", text: emptyText() }));
     refs.results.appendChild(scroll);
     refs.results.appendChild(pager(rows.length, nav));
     lastGrid = { columns: columns, rows: rows.map(function (r) { return editable ? r.slice(1) : r; }) };
@@ -467,6 +490,9 @@
       ".btn.danger:hover:not(:disabled){border-color:var(--danger)}",
       ".btn.danger-solid{background:var(--danger);color:#fff;border-color:transparent}",
       ".select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:6px 8px;font:inherit;cursor:pointer}",
+      ".input{width:230px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:6px 10px;font:inherit;outline:none}",
+      ".input:focus{border-color:var(--accent)}",
+      ".input:disabled{opacity:.45}",
       ".dropdown{position:relative}",
       ".menu{position:absolute;right:0;top:calc(100% + 6px);min-width:170px;background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:0 12px 34px rgba(0,0,0,.4);display:none;overflow:hidden;z-index:20}",
       ".menu.show{display:block}",
