@@ -2,7 +2,7 @@ module github.com/charlesng35/shellcn-contrib/plugins/telnet
 
 go 1.26.5
 
-require github.com/charlesng35/shellcn/sdk v0.1.25
+require github.com/charlesng35/shellcn/sdk v0.1.26
 
 require (
 	github.com/fatih/color v1.13.0 // indirect

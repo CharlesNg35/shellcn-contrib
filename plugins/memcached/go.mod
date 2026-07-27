@@ -7,7 +7,7 @@ replace github.com/charlesng35/shellcn-contrib/shared => ../../shared
 require (
 	github.com/bradfitz/gomemcache v0.0.0-20260422231931-4d751bb6e37c
 	github.com/charlesng35/shellcn-contrib/shared v0.0.0-20260630074135-02f48aac98a5
-	github.com/charlesng35/shellcn/sdk v0.1.25
+	github.com/charlesng35/shellcn/sdk v0.1.26
 )
 
 require (

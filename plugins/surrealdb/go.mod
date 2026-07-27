@@ -3,7 +3,7 @@ module github.com/charlesng35/shellcn-contrib/plugins/surrealdb
 go 1.26.5
 
 require (
-	github.com/charlesng35/shellcn/sdk v0.1.25
+	github.com/charlesng35/shellcn/sdk v0.1.26
 	github.com/surrealdb/surrealdb.go v1.4.0
 )
 

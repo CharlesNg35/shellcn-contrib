@@ -3,7 +3,7 @@ module github.com/charlesng35/shellcn-contrib/plugins/notebook
 go 1.26.5
 
 require (
-	github.com/charlesng35/shellcn/sdk v0.1.25
+	github.com/charlesng35/shellcn/sdk v0.1.26
 	github.com/containerd/errdefs v1.0.0
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
