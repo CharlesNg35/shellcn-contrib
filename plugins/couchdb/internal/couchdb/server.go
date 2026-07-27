@@ -67,9 +67,12 @@ func (s *Session) databaseNames(rc *plugin.RequestContext) []string {
 }
 
 // databaseNamePage reads one bounded page of database names. CouchDB pages
-// /_all_dbs by key, so the cursor is the name to resume from; one extra name is
-// requested to derive the next cursor without counting the whole server.
-func (s *Session) databaseNamePage(rc *plugin.RequestContext, cursor string, limit int) ([]string, string) {
+// /_all_dbs by key, so the cursor is normally the name to resume from; the grid
+// falls back to the row offset whenever it has no remembered cursor, and a
+// database name can never be all digits, so that form is served with skip. One
+// extra name is requested to derive the next cursor without counting the whole
+// server.
+func (s *Session) databaseNamePage(rc *plugin.RequestContext, cursor string, limit int, desc bool) ([]string, string, error) {
 	if limit <= 0 {
 		limit = plugin.DefaultPageLimit
 	}
@@ -77,21 +80,31 @@ func (s *Session) databaseNamePage(rc *plugin.RequestContext, cursor string, lim
 		limit = plugin.MaxPageLimit
 	}
 	query := url.Values{"limit": []string{strconv.Itoa(limit + 1)}}
+	if desc {
+		query.Set("descending", "true")
+	}
 	if cursor != "" {
-		key, err := json.Marshal(cursor)
-		if err != nil {
-			return nil, ""
+		if offset, err := strconv.Atoi(cursor); err == nil {
+			if offset < 0 {
+				return nil, "", fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+			}
+			query.Set("skip", strconv.Itoa(offset))
+		} else {
+			key, err := json.Marshal(cursor)
+			if err != nil {
+				return nil, "", fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+			}
+			query.Set("startkey", string(key))
 		}
-		query.Set("startkey", string(key))
 	}
 	var names []string
 	if err := s.client.do(rc.Ctx, http.MethodGet, "/_all_dbs", query, nil, &names); err != nil {
-		return nil, ""
+		return nil, "", err
 	}
 	if len(names) > limit {
-		return names[:limit], names[limit]
+		return names[:limit], names[limit], nil
 	}
-	return names, ""
+	return names, "", nil
 }
 
 // serverOverview aggregates the welcome document, cluster membership, the local

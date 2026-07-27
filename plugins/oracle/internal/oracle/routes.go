@@ -367,13 +367,13 @@ func relationGraph(rc *plugin.RequestContext) (any, error) {
 		colFilter = " AND c.owner = :1"
 		colArgs = append(colArgs, schema)
 	}
-	// all_tab_columns spans every dictionary and application schema the user can
-	// see, so the join to all_tables drops dictionary views and the row limit
-	// keeps the diagram within a payload the panel can draw.
+	// all_tab_columns also covers clusters, so the join to all_objects keeps the
+	// diagram to tables and views, and the row limit keeps it within a payload
+	// the panel can draw.
 	colRows, colCapped, err := queryRowsCapped(rc.Ctx, s, `
 SELECT c.owner AS "table_schema", c.table_name AS "table_name", c.column_name AS "column_name", c.data_type AS "data_type"
 FROM all_tab_columns c
-JOIN all_tables t ON t.owner = c.owner AND t.table_name = c.table_name
+JOIN all_objects o ON o.owner = c.owner AND o.object_name = c.table_name AND o.object_type IN ('TABLE', 'VIEW')
 WHERE 1 = 1`+colFilter+`
 ORDER BY c.owner, c.table_name, c.column_id
 FETCH FIRST `+dialect.Placeholder(len(colArgs)+1)+` ROWS ONLY`, append(colArgs, graphColumnCap), graphColumnCap)
@@ -884,8 +884,9 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Paging on the primary key rides its index; sorting by ordinal position
-	// would sort the whole table on every page turn, and a view has no key.
+	// Paging on the primary key rides its index; a keyless table or a view falls
+	// back to the first column below, because Oracle's row-limiting clause is
+	// non-deterministic without an ORDER BY and pages could then repeat rows.
 	orderBy := ""
 	if len(pk) > 0 {
 		quoted := make([]string, 0, len(pk))
@@ -904,6 +905,9 @@ func tableRows(rc *plugin.RequestContext) (any, error) {
 			dir = "DESC"
 		}
 		orderBy = " ORDER BY " + quoteIdent(col) + " " + dir
+	}
+	if orderBy == "" {
+		orderBy = " ORDER BY 1"
 	}
 	// godror binds :N by order of appearance, so the WHERE clause (which precedes
 	// OFFSET in the text) must take the first placeholders and OFFSET/FETCH follow.
@@ -2012,8 +2016,11 @@ func statementsRequireReview(statements []string) bool {
 	return false
 }
 
+// pageRows slices a listing materialized by queryRows, which stops at scanCap. A
+// full scan window means the dictionary may have had more rows, so the page is
+// reported as truncated rather than counted.
 func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
-	return pageScannedRows(rc, rows, false)
+	return pageScannedRows(rc, rows, len(rows) >= scanCap)
 }
 
 // pageScannedRows slices an in-memory listing. A truncated scan omits Total so

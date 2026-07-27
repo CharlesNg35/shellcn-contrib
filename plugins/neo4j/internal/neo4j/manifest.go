@@ -182,11 +182,11 @@ func queryConfig(initial string) plugin.QueryEditorConfig {
 }
 
 func labelColumns() []plugin.Column {
-	return []plugin.Column{{Key: "name", Label: "Label", Sortable: true}, {Key: "nodes", Label: "Nodes", Type: plugin.ColumnNumber, Sortable: true}, {Key: "properties", Label: "Properties"}}
+	return []plugin.Column{{Key: "name", Label: "Label", Sortable: true}, {Key: "nodes", Label: "Nodes", Type: plugin.ColumnNumber}, {Key: "properties", Label: "Properties"}}
 }
 
 func relationshipTypeColumns() []plugin.Column {
-	return []plugin.Column{{Key: "name", Label: "Type", Sortable: true}, {Key: "relationships", Label: "Relationships", Type: plugin.ColumnNumber, Sortable: true}, {Key: "properties", Label: "Properties"}}
+	return []plugin.Column{{Key: "name", Label: "Type", Sortable: true}, {Key: "relationships", Label: "Relationships", Type: plugin.ColumnNumber}, {Key: "properties", Label: "Properties"}}
 }
 
 func nodeColumns() []plugin.Column {

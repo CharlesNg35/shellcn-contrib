@@ -1,6 +1,7 @@
 package couchdb
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -96,25 +97,88 @@ func databasePartitioned(info row) bool {
 	return false
 }
 
-// databasePage resolves the requested page of database names. CouchDB has no
-// server-side name filter, so a search term narrows the page that was fetched
-// rather than the whole server.
-func databasePage(rc *plugin.RequestContext, s *Session) ([]string, string, error) {
+// databaseScanWindows bounds how many /_all_dbs windows one search request
+// walks. CouchDB has no server-side name filter, so a search term is matched by
+// scanning names, which stay cheap; only the resulting page is ever enriched.
+const databaseScanWindows = 20
+
+// databasePage resolves the requested page of database names. An unfiltered page
+// rides CouchDB's key cursor; a search scans a bounded prefix of the name space
+// and pages the matches by offset, the way every other grid does. Total is set
+// only when the walk provably saw every name.
+func databasePage(rc *plugin.RequestContext, s *Session) ([]string, string, *int, error) {
 	page, err := rc.Page()
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
-	names, next := s.databaseNamePage(rc, page.Cursor, page.Limit)
+	desc := databaseSortDesc(page.Sort)
 	if q := page.Search(); q != "" {
-		kept := make([]string, 0, len(names))
+		return s.databaseSearchPage(rc, page.Cursor, q, page.Limit, desc)
+	}
+	names, next, err := s.databaseNamePage(rc, page.Cursor, page.Limit, desc)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	if page.Cursor == "" && next == "" {
+		total := len(names)
+		return names, next, &total, nil
+	}
+	return names, next, nil, nil
+}
+
+// databaseSortDesc reports the direction for the only column CouchDB can order
+// server-side; the info-derived columns are not advertised as sortable.
+func databaseSortDesc(sort []plugin.SortKey) bool {
+	for _, key := range sort {
+		if key.Field == "name" {
+			return key.Desc
+		}
+	}
+	return false
+}
+
+func (s *Session) databaseSearchPage(rc *plugin.RequestContext, cursor, q string, limit int, desc bool) ([]string, string, *int, error) {
+	offset := 0
+	if cursor != "" {
+		parsed, err := strconv.Atoi(cursor)
+		if err != nil || parsed < 0 {
+			return nil, "", nil, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+		}
+		offset = parsed
+	}
+	needle := strings.ToLower(q)
+	matched := make([]string, 0, min(offset+limit+1, databaseScanWindows*plugin.MaxPageLimit))
+	resume, exhausted := "", false
+	for range databaseScanWindows {
+		names, next, err := s.databaseNamePage(rc, resume, plugin.MaxPageLimit, desc)
+		if err != nil {
+			return nil, "", nil, err
+		}
 		for _, name := range names {
-			if strings.Contains(strings.ToLower(name), strings.ToLower(q)) {
-				kept = append(kept, name)
+			if strings.Contains(strings.ToLower(name), needle) {
+				matched = append(matched, name)
 			}
 		}
-		names = kept
+		resume = next
+		if next == "" {
+			exhausted = true
+			break
+		}
+		if len(matched) > offset+limit {
+			break
+		}
 	}
-	return names, next, nil
+	start := min(offset, len(matched))
+	end := min(start+limit, len(matched))
+	next := ""
+	if end < len(matched) {
+		next = strconv.Itoa(end)
+	}
+	if exhausted {
+		total := len(matched)
+		return matched[start:end], next, &total, nil
+	}
+	return matched[start:end], next, nil, nil
 }
 
 func listDatabases(rc *plugin.RequestContext) (any, error) {
@@ -122,7 +186,7 @@ func listDatabases(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	names, next, err := databasePage(rc, s)
+	names, next, total, err := databasePage(rc, s)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +194,7 @@ func listDatabases(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return plugin.Page[row]{Items: rows, NextCursor: next}, nil
+	return plugin.Page[row]{Items: rows, NextCursor: next, Total: total}, nil
 }
 
 func treeDatabases(rc *plugin.RequestContext) (any, error) {
@@ -138,7 +202,7 @@ func treeDatabases(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	names, next, err := databasePage(rc, s)
+	names, next, total, err := databasePage(rc, s)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +213,7 @@ func treeDatabases(rc *plugin.RequestContext) (any, error) {
 			Key: "database:" + name, Label: name, Icon: icon("database"), Ref: &ref, Leaf: true,
 		})
 	}
-	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: next}, nil
+	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: next, Total: total}, nil
 }
 
 // watchDatabases refreshes only the page the panel is showing; enumerating every
@@ -160,7 +224,7 @@ func watchDatabases(rc *plugin.RequestContext, client plugin.ClientStream) error
 		return err
 	}
 	return pollWatch(rc, client, 10*time.Second, func() ([]plugin.ResourceEvent, error) {
-		names, _, err := databasePage(rc, s)
+		names, _, _, err := databasePage(rc, s)
 		if err != nil {
 			return nil, err
 		}

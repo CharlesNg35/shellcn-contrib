@@ -161,15 +161,21 @@ func listCollections(rc *plugin.RequestContext) (any, error) {
 	}
 	ctx, cancel := withTimeout(rc, s)
 	defer cancel()
-	// A detail-column sort spans every page, so the describe calls have to run
-	// before paging. Milvus allows tens of thousands of collections, so the
-	// comparison covers a bounded prefix of the name list and says so.
-	if sortsOnCollectionDetail(req.Sort) {
-		scan := plugin.FilterRows(rows, req.Search())
+	// A search or a detail-column sort spans every page and reads columns only
+	// the describe call fills in, so those calls have to run before paging.
+	// Milvus allows tens of thousands of collections, so the comparison covers a
+	// bounded prefix of the name list and says so.
+	if req.Search() != "" || sortsOnCollectionDetail(req.Sort) {
+		scan := rows
 		truncated := false
 		if len(scan) > detailSortScan {
-			scan = scan[:detailSortScan]
-			truncated = true
+			// Too many to describe: narrow by the columns the bare listing
+			// already carries, so a name search still spans every collection.
+			scan = plugin.FilterRows(scan, req.Search())
+			if len(scan) > detailSortScan {
+				scan = scan[:detailSortScan]
+				truncated = true
+			}
 		}
 		describeCollections(ctx, c, scan)
 		page, err := broker.PageRows(rc, scan)
@@ -178,6 +184,9 @@ func listCollections(rc *plugin.RequestContext) (any, error) {
 		}
 		out := collectionsPage{Page: page, Truncated: truncated}
 		if truncated {
+			// The count only covers the prefix that was described, so the grid
+			// pages by cursor instead of asserting a total it knows is short.
+			out.Page.Total = nil
 			out.ScanLimit = detailSortScan
 		}
 		return out, nil

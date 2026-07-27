@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -110,28 +111,41 @@ const managementPageSize = 500
 // listPaged fetches one server-side page of a management list endpoint. The
 // un-paginated form of /api/queues, /api/exchanges, and /api/consumers ships
 // every item in the vhost with its full per-item stats block, which is the
-// documented way to stall the management node.
+// documented way to stall the management node. The wire cursor stays the
+// absolute row offset broker.PageRows emits, so a caller that derives one from
+// the row it wants next — as the grid does after a state restore or a page jump
+// — still lands on the right rows.
 func listPaged(rc *plugin.RequestContext, s *Session, apiPath, columns string) (plugin.Page[row], error) {
 	req, err := rc.Page()
 	if err != nil {
 		return plugin.Page[row]{}, err
 	}
-	number := 1
+	offset := 0
 	if req.Cursor != "" {
 		parsed, convErr := strconv.Atoi(req.Cursor)
-		if convErr != nil || parsed < 1 {
+		if convErr != nil || parsed < 0 {
 			return plugin.Page[row]{}, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
 		}
-		number = parsed
+		offset = parsed
 	}
 	size := min(req.Limit, managementPageSize)
+	number := offset/size + 1
 	q := url.Values{"page": {strconv.Itoa(number)}, "page_size": {strconv.Itoa(size)}}
 	if columns != "" {
 		q.Set("columns", columns)
 	}
-	if term := req.Search(); term != "" {
+	// The management API only filters and sorts on fields it returns, so both go
+	// to the broker — where they cover the whole vhost — whenever the projection
+	// carries the key, and stay local otherwise.
+	term := req.Search()
+	named := hasColumn(columns, "name")
+	if term != "" && named {
 		q.Set("name", term)
 		q.Set("use_regex", "false")
+	}
+	if len(req.Sort) > 0 && hasColumn(columns, req.Sort[0].Field) {
+		q.Set("sort", req.Sort[0].Field)
+		q.Set("sort_reverse", strconv.FormatBool(req.Sort[0].Desc))
 	}
 	var out pagedList
 	if err := s.get(rc.Ctx, apiPath+"?"+q.Encode(), &out); err != nil {
@@ -141,12 +155,24 @@ func listPaged(rc *plugin.RequestContext, s *Session, apiPath, columns string) (
 		// Broker ignored the page window; fall back to slicing what it sent.
 		return broker.PageRows(rc, out.Items)
 	}
+	items := out.Items
+	if skip := offset - (number-1)*size; skip > 0 {
+		items = items[min(skip, len(items)):]
+	}
+	if term != "" && !named {
+		items = plugin.FilterRows(items, term)
+	}
 	next := ""
 	if number < out.PageCount {
-		next = strconv.Itoa(number + 1)
+		next = strconv.Itoa(number * size)
 	}
 	total := out.FilteredCount
-	return plugin.Page[row]{Items: plugin.SortRows(out.Items, req.Sort), NextCursor: next, Total: &total}, nil
+	return plugin.Page[row]{Items: plugin.SortRows(items, req.Sort), NextCursor: next, Total: &total}, nil
+}
+
+// hasColumn reports whether an endpoint's projection carries a field.
+func hasColumn(columns, field string) bool {
+	return field != "" && slices.Contains(strings.Split(columns, ","), field)
 }
 
 func treeQueues(rc *plugin.RequestContext) (any, error) {
@@ -297,6 +323,12 @@ func exchangesPage(rc *plugin.RequestContext) (plugin.Page[row], error) {
 		}
 		r["ref"] = plugin.ResourceIdentity{Kind: "exchange", Namespace: fmt.Sprint(r["vhost"]), Name: name, UID: fmt.Sprint(r["vhost"]) + "/" + name}
 		filtered = append(filtered, r)
+	}
+	// The nameless default exchange is dropped after the broker counted it, so
+	// the total has to lose it too or the last page never reconciles.
+	if dropped := len(page.Items) - len(filtered); dropped > 0 && page.Total != nil {
+		total := *page.Total - dropped
+		page.Total = &total
 	}
 	page.Items = filtered
 	return page, nil
@@ -471,12 +503,19 @@ func listConsumers(rc *plugin.RequestContext) (any, error) {
 	if queue == "" {
 		return listPaged(rc, s, "/api/consumers/"+apiVHost(s.opts.VHost), consumerListColumns)
 	}
+	vhost := strings.TrimSpace(rc.Param("vhost"))
+	if vhost == "" {
+		vhost = strings.TrimSpace(rc.Query().Get("p.vhost"))
+	}
+	if vhost == "" {
+		vhost = s.opts.VHost
+	}
 	// A queue's own consumers come off the queue document, so scoping the tab to
 	// one queue never enumerates the vhost and filters afterwards.
 	var out struct {
 		ConsumerDetails []row `json:"consumer_details"`
 	}
-	if err := s.get(rc.Ctx, "/api/queues/"+apiVHost(vhostParam(rc))+"/"+apiName(queue)+"?columns=consumer_details", &out); err != nil {
+	if err := s.get(rc.Ctx, "/api/queues/"+apiVHost(vhost)+"/"+apiName(queue)+"?columns=consumer_details", &out); err != nil {
 		return nil, err
 	}
 	return broker.PageRows(rc, out.ConsumerDetails)

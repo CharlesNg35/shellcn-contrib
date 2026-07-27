@@ -128,6 +128,40 @@ func treeCollections(rc *plugin.RequestContext) (any, error) {
 }
 
 func listCollections(rc *plugin.RequestContext) (any, error) {
+	req, err := rc.Page()
+	if err != nil {
+		return nil, err
+	}
+	// A search or a detail-column sort spans every page and reads columns only
+	// the per-collection describe fills in, so those calls have to run before
+	// paging. A bounded prefix keeps the fan-out in check on deployments that
+	// run thousands of collections.
+	if req.Search() != "" || sortsOnCollectionDetail(req.Sort) {
+		rows, err := collectionRows(rc)
+		if err != nil {
+			return nil, err
+		}
+		truncated := false
+		if len(rows) > detailScanLimit {
+			// Too many to describe: narrow by the columns the bare listing
+			// already carries, so a name search still spans every collection.
+			rows = plugin.FilterRows(rows, req.Search())
+			if len(rows) > detailScanLimit {
+				rows, truncated = rows[:detailScanLimit], true
+			}
+		}
+		describeCollections(rc, rows)
+		page, err := broker.PageRows(rc, rows)
+		if err != nil {
+			return nil, err
+		}
+		if truncated {
+			// The count only covers the prefix that was described, so the grid
+			// pages by cursor instead of asserting a total it knows is short.
+			page.Total = nil
+		}
+		return page, nil
+	}
 	page, err := collectionNamePage(rc)
 	if err != nil {
 		return nil, err
@@ -136,21 +170,45 @@ func listCollections(rc *plugin.RequestContext) (any, error) {
 	return page, nil
 }
 
+// detailScanLimit caps how many collections a search or a detail-column sort
+// describes before paging.
+const detailScanLimit = plugin.MaxPageLimit
+
+// sortsOnCollectionDetail reports whether the grid ordered by a column the
+// bare listing does not carry.
+func sortsOnCollectionDetail(keys []plugin.SortKey) bool {
+	for _, key := range keys {
+		if key.Field != "" && key.Field != "name" {
+			return true
+		}
+	}
+	return false
+}
+
 // collectionNamePage pages the bare name list. Qdrant's /collections has no
 // limit parameter and per-tenant deployments run thousands of collections, so
 // only the rows this page returns are ever described.
 func collectionNamePage(rc *plugin.RequestContext) (plugin.Page[row], error) {
+	rows, err := collectionRows(rc)
+	if err != nil {
+		return plugin.Page[row]{}, err
+	}
+	return broker.PageRows(rc, rows)
+}
+
+// collectionRows reads the bare collection list and stamps each row's ref.
+func collectionRows(rc *plugin.RequestContext) ([]row, error) {
 	var out struct {
 		Collections []row `json:"collections"`
 	}
 	if err := qdrantAPI(rc, http.MethodGet, "/collections", nil, nil, &out); err != nil {
-		return plugin.Page[row]{}, err
+		return nil, err
 	}
 	for _, item := range out.Collections {
 		name := fmt.Sprint(item["name"])
 		item["ref"] = plugin.ResourceIdentity{Kind: "collection", Name: name, UID: name}
 	}
-	return broker.PageRows(rc, out.Collections)
+	return out.Collections, nil
 }
 
 // describeCollections fills in config, vector and point counts for one page of

@@ -1539,7 +1539,9 @@ func queryRowsOn(ctx context.Context, s *Session, hostID, cql string, args []any
 	if hostID != "" {
 		query = query.SetHostID(hostID)
 	}
-	return iterRows(query.Iter(), scanCap, nil)
+	// One row past the cap is the look-ahead that tells a scan which stopped at
+	// the cap from one that read the whole result set.
+	return iterRows(query.Iter(), scanCap+1, nil)
 }
 
 func execCQL(ctx context.Context, s *Session, cql string) error {
@@ -1605,9 +1607,13 @@ func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
 	if err != nil {
 		return plugin.Page[row]{}, err
 	}
-	// A listing that filled the scan cap was cut short, so it carries no Total:
-	// the grid must not show a count it already knows is short.
-	truncated := len(rows) >= scanCap
+	// A listing that read past the scan cap was cut short, so it carries no
+	// Total: the grid must not show a count it already knows is short. A scan
+	// that stopped exactly on the cap read everything and keeps its count.
+	truncated := len(rows) > scanCap
+	if truncated {
+		rows = rows[:scanCap]
+	}
 	rows = plugin.FilterRows(rows, req.Search())
 	sortRows(rows, req.Sort)
 	start, err := offsetCursor(req.Cursor)

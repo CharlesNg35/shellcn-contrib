@@ -5,7 +5,7 @@
   var DUCK = null, adb = null, conn = null;
   var pageSize = 50, mode = null, cursor = null, table = null, selection = {};
   var refs = {}, lastGrid = null, searchTimer = null;
-  var cursorScanLimit = 50000;
+  var cursorScanLimit = 50000, cursorNav = false;
 
   function applyTheme(theme, colors) {
     document.body.dataset.theme = theme === "light" ? "light" : "dark";
@@ -314,7 +314,14 @@
   async function rewindCursor() {
     try { if (cursor.reader.cancel) await cursor.reader.cancel(); else if (cursor.reader.return) await cursor.reader.return(); } catch (e) {}
     cursor.reader = await conn.send(cursor.text);
-    cursor.rows = []; cursor.base = 0; cursor.done = false;
+    cursor.rows = []; cursor.base = 0; cursor.done = false; cursor.capped = false;
+  }
+  // Paging back past the retained window re-runs the query, so the pager serialises its clicks and surfaces a failure instead of leaving a dead cursor.
+  function navCursorPage(pageIndex) {
+    if (cursorNav || !cursor) return;
+    var owner = cursor;
+    cursorNav = true; setBusy(true);
+    renderCursorPage(pageIndex).catch(function (e) { if (cursor === owner) { renderError(msg(e)); setStatus("Error", "error"); } }).then(function () { cursorNav = false; setBusy(false); });
   }
   async function renderCursorPage(pageIndex) {
     var start = pageIndex * pageSize;
@@ -324,8 +331,9 @@
     var from = start - cursor.base;
     var rows = cursor.rows.slice(from, from + pageSize);
     var end = cursor.base + cursor.rows.length;
-    grid(cursor.columns || [], rows, { start: start, total: cursor.done ? end : null, editable: false, hasPrev: pageIndex > 0, hasNext: end > start + pageSize, onPrev: function () { renderCursorPage(pageIndex - 1); }, onNext: function () { renderCursorPage(pageIndex + 1); } });
-    if (cursor.capped && !cursor.warned) { cursor.warned = true; notify("Stopped after " + cursorScanLimit + " rows — add a LIMIT or WHERE to page further", "error"); }
+    var hasNext = end > start + pageSize;
+    grid(cursor.columns || [], rows, { start: start, total: cursor.done ? end : null, editable: false, hasPrev: pageIndex > 0, hasNext: hasNext, onPrev: function () { navCursorPage(pageIndex - 1); }, onNext: function () { navCursorPage(pageIndex + 1); } });
+    if (cursor.capped && !cursor.done && !hasNext) notify("Stopped after " + cursorScanLimit + " rows — add a LIMIT or WHERE to page further", "error");
   }
 
   function normalize(v) {

@@ -193,7 +193,9 @@ func ruleColumns() []plugin.Column {
 }
 
 func metricColumns() []plugin.Column {
-	return []plugin.Column{{Key: "name", Label: "Metric", Sortable: true}, {Key: "type", Label: "Type", Sortable: true}, {Key: "unit", Label: "Unit"}, {Key: "help", Label: "Help"}}
+	// Only the name is server-ordered: type, unit, and help come from the
+	// per-page metadata lookup, so the server cannot order the catalogue by them.
+	return []plugin.Column{{Key: "name", Label: "Metric", Sortable: true}, {Key: "type", Label: "Type"}, {Key: "unit", Label: "Unit"}, {Key: "help", Label: "Help"}}
 }
 
 func seriesColumns() []plugin.Column {

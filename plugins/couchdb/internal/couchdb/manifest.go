@@ -102,11 +102,11 @@ func nodeParams() map[string]string { return map[string]string{"node": "${resour
 func databaseColumns() []plugin.Column {
 	return []plugin.Column{
 		{Key: "name", Label: "Database", Sortable: true},
-		{Key: "doc_count", Label: "Documents", Type: plugin.ColumnNumber, Sortable: true},
-		{Key: "doc_del_count", Label: "Deleted", Type: plugin.ColumnNumber, Sortable: true},
-		{Key: "disk_size", Label: "Disk", Type: plugin.ColumnBytes, Sortable: true},
-		{Key: "data_size", Label: "Active", Type: plugin.ColumnBytes, Sortable: true},
-		{Key: "fragmentation", Label: "Fragmentation", Type: plugin.ColumnPercent, Sortable: true},
+		{Key: "doc_count", Label: "Documents", Type: plugin.ColumnNumber},
+		{Key: "doc_del_count", Label: "Deleted", Type: plugin.ColumnNumber},
+		{Key: "disk_size", Label: "Disk", Type: plugin.ColumnBytes},
+		{Key: "data_size", Label: "Active", Type: plugin.ColumnBytes},
+		{Key: "fragmentation", Label: "Fragmentation", Type: plugin.ColumnPercent},
 		{Key: "update_seq", Label: "Update seq"},
 		{Key: "partitioned", Label: "Partitioned", Type: plugin.ColumnBool},
 	}
@@ -383,9 +383,6 @@ func serverDetailConfig() plugin.ObjectDetailConfig {
 			}},
 			{Title: "Content", Fields: []plugin.ObjectDetailField{
 				{Key: "databases", Label: "Databases", Type: plugin.ColumnNumber},
-				{Key: "documents", Label: "Documents", Type: plugin.ColumnNumber},
-				{Key: "deleted_documents", Label: "Deleted documents", Type: plugin.ColumnNumber},
-				{Key: "disk_size", Label: "On disk", Type: plugin.ColumnBytes},
 				{Key: "active_tasks", Label: "Active tasks", Type: plugin.ColumnNumber},
 				{Key: "replications", Label: "Replications", Type: plugin.ColumnNumber},
 			}},

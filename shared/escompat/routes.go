@@ -113,9 +113,6 @@ const (
 	// caller renders, so a cluster-wide listing does not ship unused ones.
 	indexListColumns = "index,health,status,uuid,pri,rep,docs.count,docs.deleted,store.size,pri.store.size"
 	indexTreeColumns = "index"
-	// maxIndexScan caps how deep the offset cursor may walk a cluster whose index
-	// count is unbounded; _cat has no cursor of its own.
-	maxIndexScan = 5 * plugin.MaxPageLimit
 )
 
 // indexSortColumns maps the table's row keys onto _cat column names so ordering
@@ -148,11 +145,7 @@ func treeIndexes(rc *plugin.RequestContext) (any, error) {
 		ref := plugin.ResourceIdentity{Kind: "index", Name: name, UID: name}
 		nodes = append(nodes, plugin.TreeNode{Key: "index:" + name, Label: name, Icon: icon("database"), Ref: &ref, Leaf: true})
 	}
-	out := treePage{Page: plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.next}, Truncated: page.truncated}
-	if page.truncated {
-		out.ScanLimit = maxIndexScan
-	}
-	return out, nil
+	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.next}, nil
 }
 
 func listIndexes(rc *plugin.RequestContext) (any, error) {
@@ -174,31 +167,14 @@ func listIndexes(rc *plugin.RequestContext) (any, error) {
 		r["ref"] = plugin.ResourceIdentity{Kind: "index", Name: name, UID: name}
 		rows = append(rows, r)
 	}
-	out := indexesPage{Page: plugin.Page[row]{Items: rows, NextCursor: page.next}, Truncated: page.truncated}
-	if page.truncated {
-		out.ScanLimit = maxIndexScan
-	}
-	return out, nil
+	return plugin.Page[row]{Items: rows, NextCursor: page.next}, nil
 }
 
-// indexesPage and treePage add the crawl-cap signal to the paged wire contract.
-// No total is reported: counting a cluster's indexes means reading every _cat row.
-type indexesPage struct {
-	plugin.Page[row]
-	Truncated bool `json:"truncated,omitempty"`
-	ScanLimit int  `json:"scanLimit,omitempty"`
-}
-
-type treePage struct {
-	plugin.Page[plugin.TreeNode]
-	Truncated bool `json:"truncated,omitempty"`
-	ScanLimit int  `json:"scanLimit,omitempty"`
-}
-
+// catPage is one decoded _cat window. No total is reported: counting a cluster's
+// indexes means reading every _cat row.
 type catPage struct {
-	rows      []row
-	next      string
-	truncated bool
+	rows []row
+	next string
 }
 
 // scanIndexes fetches one page of _cat/indices: the filter box narrows the index
@@ -216,16 +192,6 @@ func scanIndexes(rc *plugin.RequestContext, s *Session, columns string) (catPage
 			return catPage{}, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
 		}
 	}
-	limit := req.Limit
-	if limit > s.opts.PageLimit {
-		limit = s.opts.PageLimit
-	}
-	if from >= maxIndexScan {
-		return catPage{rows: []row{}, truncated: true}, nil
-	}
-	if from+limit > maxIndexScan {
-		limit = maxIndexScan - from
-	}
 	q := url.Values{
 		"format":           []string{"json"},
 		"bytes":            []string{"b"},
@@ -233,7 +199,7 @@ func scanIndexes(rc *plugin.RequestContext, s *Session, columns string) (catPage
 		"h":                []string{columns},
 		"s":                []string{indexSortParam(req.Sort)},
 	}
-	window := &catWindow{skip: from, limit: limit}
+	window := &catWindow{skip: from, limit: req.Limit}
 	if err := s.client.Do(rc.Ctx, http.MethodGet, catIndexPath(req.Search()), q, nil, window); err != nil {
 		if isMissing(err) {
 			return catPage{rows: []row{}}, nil
@@ -242,11 +208,7 @@ func scanIndexes(rc *plugin.RequestContext, s *Session, columns string) (catPage
 	}
 	page := catPage{rows: window.rows}
 	if window.more {
-		if from+limit >= maxIndexScan {
-			page.truncated = true
-		} else {
-			page.next = strconv.Itoa(from + limit)
-		}
+		page.next = strconv.Itoa(from + len(window.rows))
 	}
 	return page, nil
 }
@@ -290,8 +252,9 @@ func (w *catWindow) UnmarshalJSON(data []byte) error {
 }
 
 // catIndexPath narrows the listing to the filter term as an index pattern. The
-// term matches index names only; other columns are no longer filterable because
-// the whole cluster is never read back.
+// term matches index names only, case-insensitively like the grid filter it
+// replaces; other columns are no longer filterable because the whole cluster is
+// never read back.
 func catIndexPath(term string) string {
 	pattern := indexPattern(term)
 	if pattern == "" {
@@ -302,7 +265,7 @@ func catIndexPath(term string) string {
 
 func indexPattern(term string) string {
 	var b strings.Builder
-	for _, r := range term {
+	for _, r := range strings.ToLower(term) {
 		switch r {
 		case ',', '/', '\\', '"', '<', '>', '|', '?', '#', ' ', '\t':
 			continue

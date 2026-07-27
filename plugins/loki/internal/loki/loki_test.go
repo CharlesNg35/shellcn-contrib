@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -244,5 +245,46 @@ func TestLabelsList(t *testing.T) {
 	page := out.(plugin.Page[row])
 	if len(page.Items) != 2 || page.Items[0]["name"] != "app" {
 		t.Fatalf("unexpected labels: %#v", page.Items)
+	}
+}
+
+func TestBoundedRowsPagesFiltersAndTotals(t *testing.T) {
+	const total = 1200
+	values := make([]string, 0, total)
+	for i := range total {
+		values = append(values, fmt.Sprintf("value-%04d", i))
+	}
+	render := func(value string) row { return row{"value": value} }
+	page := func(q url.Values) plugin.Page[row] {
+		t.Helper()
+		res, err := boundedRows(plugin.NewRequestContext(context.Background(), plugin.User{}, nil, nil, q, nil), values, render)
+		if err != nil {
+			t.Fatalf("boundedRows %v: %v", q, err)
+		}
+		return res.(plugin.Page[row])
+	}
+
+	first := page(url.Values{"limit": {"50"}})
+	if len(first.Items) != 50 || first.NextCursor != "50" {
+		t.Fatalf("unexpected first page: %d items, cursor %q", len(first.Items), first.NextCursor)
+	}
+	if first.Total == nil || *first.Total != total {
+		t.Fatalf("total = %v, want %d", first.Total, total)
+	}
+
+	deep := page(url.Values{"cursor": {"1150"}, "limit": {"50"}})
+	if len(deep.Items) != 50 || deep.Items[0]["value"] != "value-1150" || deep.NextCursor != "" {
+		t.Fatalf("last page did not reach the end: %#v", deep)
+	}
+
+	// The grid's search has to see every value, not just the fetched window.
+	filtered := page(url.Values{"limit": {"50"}, "filter": {"VALUE-1199"}})
+	if len(filtered.Items) != 1 || filtered.Items[0]["value"] != "value-1199" {
+		t.Fatalf("search missed a match past the first page: %#v", filtered.Items)
+	}
+
+	sorted := page(url.Values{"limit": {"50"}, "sort": {"-value"}})
+	if len(sorted.Items) != 50 || sorted.Items[0]["value"] != "value-1199" {
+		t.Fatalf("sort did not order the whole listing: %#v", sorted.Items[0])
 	}
 }

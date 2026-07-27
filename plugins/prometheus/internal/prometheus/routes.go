@@ -137,14 +137,6 @@ func statusRead(rc *plugin.RequestContext) (any, error) {
 	return out, err
 }
 
-// boundedPage embeds the unchanged paged wire contract and adds the cap signal:
-// truncated and limit tell the browser the listing is partial.
-type boundedPage struct {
-	plugin.Page[row]
-	Truncated bool `json:"truncated,omitempty"`
-	Limit     int  `json:"limit,omitempty"`
-}
-
 func targetTree(rc *plugin.RequestContext) (any, error) {
 	page, err := targetsPage(rc)
 	if err != nil {
@@ -160,28 +152,20 @@ func targetTree(rc *plugin.RequestContext) (any, error) {
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
 }
 
-func targetsPage(rc *plugin.RequestContext) (boundedPage, error) {
+func targetsPage(rc *plugin.RequestContext) (plugin.Page[row], error) {
 	s, err := session(rc)
 	if err != nil {
-		return boundedPage{}, err
+		return plugin.Page[row]{}, err
 	}
-	rows, truncated, err := scopedTargets(rc.Ctx, s, requestTargetScope(rc))
+	rows, err := scopedTargets(rc.Ctx, s, requestTargetScope(rc))
 	if err != nil {
-		return boundedPage{}, err
+		return plugin.Page[row]{}, err
 	}
 	for _, item := range rows {
 		label := fmt.Sprint(item["job"]) + "/" + fmt.Sprint(item["instance"])
 		item["ref"] = plugin.ResourceIdentity{Kind: "target", Name: label, UID: fmt.Sprint(item["uid"])}
 	}
-	page, err := broker.PageRows(rc, rows)
-	if err != nil {
-		return boundedPage{}, err
-	}
-	out := boundedPage{Page: page}
-	if truncated {
-		out.Page.Total, out.Truncated, out.Limit = nil, true, plugin.MaxPageLimit
-	}
-	return out, nil
+	return broker.PageRows(rc, rows)
 }
 
 func targetList(rc *plugin.RequestContext) (any, error) {
@@ -312,29 +296,36 @@ func metricTree(rc *plugin.RequestContext) (any, error) {
 	return plugin.Page[plugin.TreeNode]{Items: nodes, Total: page.Total}, nil
 }
 
-func metricsPage(rc *plugin.RequestContext) (boundedPage, error) {
+func metricsPage(rc *plugin.RequestContext) (plugin.Page[row], error) {
 	s, err := session(rc)
 	if err != nil {
-		return boundedPage{}, err
+		return plugin.Page[row]{}, err
 	}
 	req, err := rc.Page()
 	if err != nil {
-		return boundedPage{}, err
+		return plugin.Page[row]{}, err
 	}
 	offset, err := offsetCursor(req.Cursor)
 	if err != nil {
-		return boundedPage{}, err
+		return plugin.Page[row]{}, err
 	}
 	filter := strings.TrimSpace(rc.Query().Get("filter"))
 	if filter == "" {
 		filter = req.Search()
 	}
-	fetch := min(offset+req.Limit+1, plugin.MaxPageLimit)
+	fetch := offset + req.Limit + 1
 	names, err := metricNames(rc.Ctx, s, filter, fetch)
 	if err != nil {
-		return boundedPage{}, err
+		return plugin.Page[row]{}, err
 	}
-	truncated := len(names) >= fetch
+	complete := len(names) != fetch
+	if filter != "" {
+		// Older servers ignore match[]; keep the filter honest either way.
+		names = keepContaining(names, filter)
+	}
+	if complete {
+		orderNames(names, "name", req.Sort)
+	}
 	window := pageSlice(names, offset, req.Limit)
 	meta := pageMetadata(rc.Ctx, s, window)
 	rows := make([]row, 0, len(window))
@@ -352,15 +343,27 @@ func metricsPage(rc *plugin.RequestContext) (boundedPage, error) {
 	if offset+len(window) < len(names) {
 		next = strconv.Itoa(offset + len(window))
 	}
-	out := boundedPage{Page: plugin.Page[row]{Items: plugin.SortRows(rows, req.Sort), NextCursor: next}}
-	if truncated {
-		out.Truncated, out.Limit = true, fetch
+	page := plugin.Page[row]{Items: plugin.SortRows(rows, req.Sort), NextCursor: next}
+	if complete {
+		total := len(names)
+		page.Total = &total
 	}
-	return out, nil
+	return page, nil
 }
 
 func metricList(rc *plugin.RequestContext) (any, error) {
 	return metricsPage(rc)
+}
+
+// orderNames applies the grid's column sort to a complete name list before it is
+// sliced. The catalogue arrives ascending, so only a descending sort on the name
+// column has anything to do; a partial window keeps the server's order because
+// the rows past it were never fetched.
+func orderNames(names []string, field string, keys []plugin.SortKey) {
+	if len(keys) == 0 || keys[0].Field != field || !keys[0].Desc {
+		return
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(names)))
 }
 
 func offsetCursor(cursor string) (int, error) {
@@ -488,20 +491,27 @@ func labelValues(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	label := labelParam(rc)
-	fetch := min(offset+req.Limit+1, plugin.MaxPageLimit)
+	fetch := offset + req.Limit + 1
 	q := url.Values{"limit": []string{strconv.Itoa(fetch)}}
 	filter := strings.TrimSpace(rc.Query().Get("filter"))
 	if filter == "" {
 		filter = req.Search()
 	}
 	if filter != "" {
-		q.Set("match[]", "{"+label+"=~\".*"+regexp.QuoteMeta(filter)+".*\"}")
+		q.Set("match[]", "{"+label+"=~"+containsMatcher(filter)+"}")
 	}
 	var values []string
 	if err := s.client.api(rc.Ctx, http.MethodGet, "/api/v1/label/"+url.PathEscape(label)+"/values", q, nil, &values); err != nil {
 		return nil, err
 	}
-	truncated := len(values) >= fetch
+	complete := len(values) != fetch
+	if filter != "" {
+		// Older servers ignore match[]; keep the filter honest either way.
+		values = keepContaining(values, filter)
+	}
+	if complete {
+		orderNames(values, "value", req.Sort)
+	}
 	window := pageSlice(values, offset, req.Limit)
 	rows := make([]row, 0, len(window))
 	for _, value := range window {
@@ -511,11 +521,12 @@ func labelValues(rc *plugin.RequestContext) (any, error) {
 	if offset+len(window) < len(values) {
 		next = strconv.Itoa(offset + len(window))
 	}
-	out := boundedPage{Page: plugin.Page[row]{Items: plugin.SortRows(rows, req.Sort), NextCursor: next}}
-	if truncated {
-		out.Truncated, out.Limit = true, fetch
+	page := plugin.Page[row]{Items: plugin.SortRows(rows, req.Sort), NextCursor: next}
+	if complete {
+		total := len(values)
+		page.Total = &total
 	}
-	return out, nil
+	return page, nil
 }
 
 func createSnapshot(rc *plugin.RequestContext) (any, error) {
@@ -770,7 +781,7 @@ func liveMetricsStream(rc *plugin.RequestContext, stream plugin.ClientStream) er
 }
 
 func liveFrame(ctx context.Context, s *Session) row {
-	targetRows, _, _ := scopedTargets(ctx, s, targetScope{})
+	targetRows, _ := scopedTargets(ctx, s, targetScope{})
 	targetsTotal := float64(len(targetRows))
 	upTargets := 0.0
 	for _, item := range targetRows {
@@ -804,12 +815,13 @@ type targetScope struct {
 	Pool  string
 }
 
+// targets resolves a target by UID, so it asks for every state: a dropped
+// target still has a detail page and a bookmarked link to it must resolve.
 func targets(ctx context.Context, s *Session) ([]row, error) {
-	rows, _, err := scopedTargets(ctx, s, targetScope{})
-	return rows, err
+	return scopedTargets(ctx, s, targetScope{State: "any"})
 }
 
-func scopedTargets(ctx context.Context, s *Session, scope targetScope) ([]row, bool, error) {
+func scopedTargets(ctx context.Context, s *Session, scope targetScope) ([]row, error) {
 	q := url.Values{"state": []string{"active"}}
 	if scope.State == "dropped" || scope.State == "any" {
 		q.Set("state", scope.State)
@@ -822,13 +834,10 @@ func scopedTargets(ctx context.Context, s *Session, scope targetScope) ([]row, b
 		Dropped []row `json:"droppedTargets"`
 	}
 	if err := s.client.api(ctx, http.MethodGet, "/api/v1/targets", q, nil, &out); err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	rows := make([]row, 0, min(len(out.Active)+len(out.Dropped), plugin.MaxPageLimit))
+	rows := make([]row, 0, len(out.Active)+len(out.Dropped))
 	for _, item := range out.Active {
-		if len(rows) >= plugin.MaxPageLimit {
-			return rows, true, nil
-		}
 		labels, _ := item["labels"].(map[string]any)
 		item["state"] = "active"
 		item["job"] = fmt.Sprint(labels["job"])
@@ -837,9 +846,6 @@ func scopedTargets(ctx context.Context, s *Session, scope targetScope) ([]row, b
 		rows = append(rows, item)
 	}
 	for _, item := range out.Dropped {
-		if len(rows) >= plugin.MaxPageLimit {
-			return rows, true, nil
-		}
 		labels, _ := item["labels"].(map[string]any)
 		if len(labels) == 0 {
 			labels, _ = item["discoveredLabels"].(map[string]any)
@@ -851,7 +857,7 @@ func scopedTargets(ctx context.Context, s *Session, scope targetScope) ([]row, b
 		item["uid"] = stableID(item["scrapeUrl"], item["labels"], item["discoveredLabels"])
 		rows = append(rows, item)
 	}
-	return rows, false, nil
+	return rows, nil
 }
 
 func alerts(ctx context.Context, s *Session) ([]row, error) {
@@ -904,24 +910,34 @@ func rules(ctx context.Context, s *Session) ([]row, error) {
 func metricNames(ctx context.Context, s *Session, filter string, limit int) ([]string, error) {
 	q := url.Values{"limit": []string{strconv.Itoa(limit)}}
 	if filter != "" {
-		q.Set("match[]", "{__name__=~\".*"+regexp.QuoteMeta(filter)+".*\"}")
+		q.Set("match[]", "{__name__=~"+containsMatcher(filter)+"}")
 	}
 	var names []string
 	if err := s.client.api(ctx, http.MethodGet, "/api/v1/label/__name__/values", q, nil, &names); err != nil {
 		return nil, err
 	}
-	if filter != "" {
-		// Older servers ignore match[]; keep the filter honest either way.
-		kept := names[:0]
-		for _, name := range names {
-			if strings.Contains(name, filter) {
-				kept = append(kept, name)
-			}
-		}
-		names = kept
-	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// containsMatcher renders the grid's free-text term as a PromQL matcher with the
+// same case-insensitive "contains" semantics plugin.FilterRows applies locally.
+// PromQL unquotes a double-quoted string with Go's escape rules before the regex
+// engine sees it, so the escapes QuoteMeta adds have to survive that pass —
+// hence strconv.Quote rather than wrapping the term in quotes by hand.
+func containsMatcher(filter string) string {
+	return strconv.Quote("(?i).*" + regexp.QuoteMeta(filter) + ".*")
+}
+
+func keepContaining(values []string, filter string) []string {
+	term := strings.ToLower(filter)
+	kept := values[:0]
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), term) {
+			kept = append(kept, value)
+		}
+	}
+	return kept
 }
 
 func metadata(ctx context.Context, s *Session, metric string) (map[string][]row, error) {

@@ -169,14 +169,11 @@ func TestKafkaTopicListBoundedPagingIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("topics list page %d: %v", pages+1, err)
 		}
-		page, ok := res.(listPage)
+		page, ok := res.(plugin.Page[row])
 		if !ok {
-			t.Fatalf("topics list page %d returned %T, want listPage", pages+1, res)
+			t.Fatalf("topics list page %d returned %T, want plugin.Page[row]", pages+1, res)
 		}
 		pages++
-		if page.Truncated || page.ScanLimit != 0 {
-			t.Fatalf("page %d reported truncated=%v scanLimit=%d for %d topics under the %d cap", pages, page.Truncated, page.ScanLimit, seeded, listScanLimit)
-		}
 		if page.Total == nil || *page.Total != seeded {
 			t.Fatalf("page %d total: got %v want %d", pages, page.Total, seeded)
 		}
@@ -213,17 +210,17 @@ func TestKafkaTopicListBoundedPagingIntegration(t *testing.T) {
 		t.Fatalf("cluster metadata swept %d times for %d pages in %s, want exactly 1", sweeps, pages, elapsed)
 	}
 
-	t.Run("scan cap", func(t *testing.T) {
-		const overflow = 250
-		names := make([]string, 0, listScanLimit+overflow)
-		for i := 0; i < listScanLimit+overflow; i++ {
+	t.Run("large sweep stays addressable", func(t *testing.T) {
+		const sweep = 2250
+		names := make([]string, 0, sweep)
+		for i := 0; i < sweep; i++ {
 			names = append(names, fmt.Sprintf("%scap_%05d", prefix, i))
 		}
 		snap := snapshotOf(names, func(name string) row {
 			return row{"name": name, "ref": plugin.ResourceIdentity{Kind: "topic", Name: name, UID: name}}
 		})
-		if !snap.truncated || len(snap.rows) != listScanLimit || snap.total != listScanLimit+overflow {
-			t.Fatalf("sweep of %d names: truncated=%v rows=%d total=%d", len(names), snap.truncated, len(snap.rows), snap.total)
+		if len(snap.rows) != sweep || snap.total != sweep {
+			t.Fatalf("sweep of %d names kept rows=%d total=%d", sweep, len(snap.rows), snap.total)
 		}
 		install := func() {
 			s.listMu.Lock()
@@ -232,7 +229,20 @@ func TestKafkaTopicListBoundedPagingIntegration(t *testing.T) {
 			s.listMu.Unlock()
 		}
 
-		capped := map[string]bool{}
+		// The last name sorts past every bounded page, so an exact search finding
+		// it proves the search still reaches the whole sweep.
+		last := names[sweep-1]
+		install()
+		res, err := handle(plugin.NewRequestContext(ctx, plugin.User{}, sess, nil, url.Values{"filter": {last}}, nil))
+		if err != nil {
+			t.Fatalf("search for %q: %v", last, err)
+		}
+		found := res.(plugin.Page[row])
+		if len(found.Items) != 1 || fmt.Sprint(found.Items[0]["name"]) != last {
+			t.Fatalf("search for %q returned %d rows, want exactly that topic", last, len(found.Items))
+		}
+
+		swept := map[string]bool{}
 		cursor, pages := "", 0
 		for {
 			install()
@@ -242,36 +252,33 @@ func TestKafkaTopicListBoundedPagingIntegration(t *testing.T) {
 			}
 			res, err := handle(plugin.NewRequestContext(ctx, plugin.User{}, sess, nil, query, nil))
 			if err != nil {
-				t.Fatalf("capped page %d: %v", pages+1, err)
+				t.Fatalf("sweep page %d: %v", pages+1, err)
 			}
-			page := res.(listPage)
+			page := res.(plugin.Page[row])
 			pages++
-			if !page.Truncated || page.ScanLimit != listScanLimit {
-				t.Fatalf("capped page %d: truncated=%v scanLimit=%d want true/%d", pages, page.Truncated, page.ScanLimit, listScanLimit)
+			if page.Total == nil || *page.Total != sweep {
+				t.Fatalf("sweep page %d total: got %v want %d", pages, page.Total, sweep)
 			}
-			if page.Total != nil {
-				t.Fatalf("capped page %d reported an exact total %d, want it omitted", pages, *page.Total)
-			}
-			if len(page.Items) != plugin.MaxPageLimit {
-				t.Fatalf("capped page %d returned %d rows, want a bounded page of %d", pages, len(page.Items), plugin.MaxPageLimit)
+			if len(page.Items) > plugin.MaxPageLimit {
+				t.Fatalf("sweep page %d returned %d rows, want a bounded page of %d", pages, len(page.Items), plugin.MaxPageLimit)
 			}
 			for _, item := range page.Items {
 				name := fmt.Sprint(item["name"])
-				if capped[name] {
-					t.Fatalf("capped page %d repeated %q", pages, name)
+				if swept[name] {
+					t.Fatalf("sweep page %d repeated %q", pages, name)
 				}
-				capped[name] = true
+				swept[name] = true
 			}
 			cursor = page.NextCursor
 			if cursor == "" {
 				break
 			}
-			if pages > listScanLimit/plugin.MaxPageLimit {
-				t.Fatalf("capped paging did not terminate after %d pages", pages)
+			if pages > sweep/plugin.MaxPageLimit+1 {
+				t.Fatalf("sweep paging did not terminate after %d pages", pages)
 			}
 		}
-		if len(capped) != listScanLimit {
-			t.Fatalf("capped paging exposed %d rows, want the %d-row sweep cap", len(capped), listScanLimit)
+		if len(swept) != sweep {
+			t.Fatalf("paging exposed %d of the %d swept rows", len(swept), sweep)
 		}
 	})
 	s.dropSnapshots()
