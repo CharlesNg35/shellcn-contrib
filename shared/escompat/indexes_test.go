@@ -64,9 +64,9 @@ func TestListIndexesReturnsOneBoundedPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listIndexes: %v", err)
 	}
-	page, ok := out.(indexesPage)
+	page, ok := out.(plugin.Page[row])
 	if !ok {
-		t.Fatalf("listIndexes returned %T, want indexesPage", out)
+		t.Fatalf("listIndexes returned %T, want plugin.Page[row]", out)
 	}
 	if len(page.Items) != 25 {
 		t.Fatalf("page has %d rows, want 25", len(page.Items))
@@ -97,30 +97,50 @@ func TestListIndexesResumesFromCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listIndexes: %v", err)
 	}
-	page := out.(indexesPage)
+	page := out.(plugin.Page[row])
 	if len(page.Items) != 10 {
 		t.Fatalf("page has %d rows, want 10", len(page.Items))
 	}
 	if page.Items[0]["index"] != "logs-00110" {
 		t.Fatalf("cursor ignored, first row is %v", page.Items[0]["index"])
 	}
-	if page.NextCursor != "" || page.Truncated {
-		t.Fatalf("last page should end the listing: %#v", page.Page)
+	if page.NextCursor != "" {
+		t.Fatalf("last page should end the listing: %#v", page)
 	}
 }
 
-func TestListIndexesStopsAtScanCap(t *testing.T) {
-	s, fake := newCatSession(t, 10)
-	out, err := listIndexes(indexRequest(t, s, url.Values{"cursor": {fmt.Sprint(maxIndexScan)}}))
+// TestListIndexesHonorsTheRequestedLimit pins that the connection's page_limit is
+// not a ceiling on an explicit client request: a table asking for 250 rows must
+// not silently receive a short page it cannot tell apart from the last one.
+func TestListIndexesHonorsTheRequestedLimit(t *testing.T) {
+	s, _ := newCatSession(t, 5000)
+	out, err := listIndexes(indexRequest(t, s, url.Values{"limit": {"250"}}))
 	if err != nil {
 		t.Fatalf("listIndexes: %v", err)
 	}
-	page := out.(indexesPage)
-	if !page.Truncated || page.ScanLimit != maxIndexScan || page.NextCursor != "" {
-		t.Fatalf("cap not reported: %#v", page)
+	page := out.(plugin.Page[row])
+	if len(page.Items) != 250 {
+		t.Fatalf("page has %d rows, want the requested 250", len(page.Items))
 	}
-	if fake.calls != 0 {
-		t.Fatalf("past the cap the cluster must not be queried, got %d calls", fake.calls)
+	if page.NextCursor != "250" {
+		t.Fatalf("nextCursor = %q, want 250", page.NextCursor)
+	}
+}
+
+// TestListIndexesPagesPastAnyScanDepth pins that a deep offset keeps returning
+// rows and a continue cursor: a large cluster must stay walkable to its end.
+func TestListIndexesPagesPastAnyScanDepth(t *testing.T) {
+	s, _ := newCatSession(t, 6000)
+	out, err := listIndexes(indexRequest(t, s, url.Values{"limit": {"50"}, "cursor": {"4000"}}))
+	if err != nil {
+		t.Fatalf("listIndexes: %v", err)
+	}
+	page := out.(plugin.Page[row])
+	if len(page.Items) != 50 || page.Items[0]["index"] != "logs-04000" {
+		t.Fatalf("deep page truncated: %d rows starting at %v", len(page.Items), page.Items[0]["index"])
+	}
+	if page.NextCursor != "4050" {
+		t.Fatalf("nextCursor = %q, want 4050", page.NextCursor)
 	}
 }
 
@@ -144,7 +164,7 @@ func TestTreeIndexesFetchesOnlyTheNameColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("treeIndexes: %v", err)
 	}
-	page := out.(treePage)
+	page := out.(plugin.Page[plugin.TreeNode])
 	if len(page.Items) != 2 || page.Items[0].Label != "logs-00000" {
 		t.Fatalf("unexpected tree page: %#v", page.Items)
 	}
@@ -164,6 +184,7 @@ func TestIndexPatternSanitizesTheFilterTerm(t *testing.T) {
 		"":            "",
 		"*":           "",
 		"logs":        "*logs*",
+		"Logs":        "*logs*",
 		"logs-*":      "*logs-*",
 		"a,b":         "*ab*",
 		"we ird/name": "*weirdname*",

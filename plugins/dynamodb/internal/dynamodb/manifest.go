@@ -143,14 +143,17 @@ func indexParams() map[string]string {
 	return map[string]string{"table": "${resource.namespace}", "index": "${resource.name}"}
 }
 
+// tableColumns declares no sort: ListTables pages the catalogue in name order
+// and the remaining cells come from a per-page DescribeTable, so no column can
+// be ordered across pages without scanning the whole region.
 func tableColumns() []plugin.Column {
 	return []plugin.Column{
-		{Key: "name", Label: "Table", Sortable: true},
-		{Key: "status", Label: "Status", Type: plugin.ColumnBadge, Sortable: true, Severities: statusSeverities},
-		{Key: "billing_mode", Label: "Billing", Type: plugin.ColumnBadge, Sortable: true},
-		{Key: "items", Label: "Items", Type: plugin.ColumnNumber, Sortable: true},
-		{Key: "size", Label: "Size", Type: plugin.ColumnBytes, Sortable: true},
-		{Key: "created", Label: "Created", Type: plugin.ColumnRelativeTime, Sortable: true},
+		{Key: "name", Label: "Table"},
+		{Key: "status", Label: "Status", Type: plugin.ColumnBadge, Severities: statusSeverities},
+		{Key: "billing_mode", Label: "Billing", Type: plugin.ColumnBadge},
+		{Key: "items", Label: "Items", Type: plugin.ColumnNumber},
+		{Key: "size", Label: "Size", Type: plugin.ColumnBytes},
+		{Key: "created", Label: "Created", Type: plugin.ColumnRelativeTime},
 	}
 }
 

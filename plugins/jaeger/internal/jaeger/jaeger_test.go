@@ -2,11 +2,14 @@ package jaeger
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"testing"
 
+	"github.com/charlesng35/shellcn-contrib/shared/broker"
 	"github.com/charlesng35/shellcn/sdk/plugin"
 	"github.com/charlesng35/shellcn/sdk/plugintest"
 )
@@ -109,4 +112,29 @@ func TestTraceRoutesUseAPIV3(t *testing.T) {
 
 func traceFixture() string {
 	return `{"result":{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"checkout"}}]},"scopeSpans":[{"spans":[{"traceId":"11111111111111111111111111111111","spanId":"1111111111111111","name":"GET /checkout","startTimeUnixNano":"1700000000000000000","endTimeUnixNano":"1700000000005000000","attributes":[{"key":"shellcn","value":{"stringValue":"true"}}]}]}]}]}}`
+}
+
+func TestSpansPageBeyondOnePage(t *testing.T) {
+	const total = plugin.MaxPageLimit + 120
+	spans := make([]any, 0, total)
+	for i := range total {
+		spans = append(spans, map[string]any{"spanId": fmt.Sprintf("span-%04d", i), "name": "op"})
+	}
+	trace := row{"resourceSpans": []any{map[string]any{"scopeSpans": []any{map[string]any{"spans": spans}}}}}
+	if rows := flattenSpans(trace); len(rows) != total {
+		t.Fatalf("flattened %d spans, want every one of the %d", len(rows), total)
+	}
+
+	query := url.Values{"cursor": {strconv.Itoa(plugin.MaxPageLimit)}, "limit": {"50"}}
+	rc := plugin.NewRequestContext(context.Background(), plugin.User{}, nil, nil, query, nil)
+	page, err := broker.PageRows(rc, flattenSpans(trace))
+	if err != nil {
+		t.Fatalf("page: %v", err)
+	}
+	if len(page.Items) != 50 || page.Items[0]["spanID"] != "span-0500" {
+		t.Fatalf("unexpected page past the old cap: %#v", page.Items)
+	}
+	if page.Total == nil || *page.Total != total {
+		t.Fatalf("total = %v, want %d", page.Total, total)
+	}
 }

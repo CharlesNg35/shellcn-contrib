@@ -134,34 +134,30 @@ func listLabels(rc *plugin.RequestContext) (any, error) {
 	return broker.PageRows(rc, rows)
 }
 
-// boundedPage embeds the unchanged paged wire contract and adds the metadata cap
-// signal: truncated and limit tell the browser the listing is partial.
-type boundedPage struct {
-	plugin.Page[row]
-	Truncated bool `json:"truncated,omitempty"`
-	Limit     int  `json:"limit,omitempty"`
-}
-
 // boundedRows pages a metadata listing the server answers in full. Loki's
-// /series and label-value endpoints take no limit, so a high-cardinality label
-// or a million-stream tenant is capped before rows are built rather than after,
-// and the page reports truncated instead of a false exact total.
-func boundedRows[T any](rc *plugin.RequestContext, values []T, render func(T) row) (boundedPage, error) {
+// /series and label-value endpoints take no limit, so only the page's rows are
+// rendered instead of the whole response. The grid's search and column sort need
+// every row, so those two render the full response and page it like every other
+// listing rather than filtering or ordering one window.
+func boundedRows[T any](rc *plugin.RequestContext, values []T, render func(T) row) (any, error) {
 	req, err := rc.Page()
 	if err != nil {
-		return boundedPage{}, err
+		return nil, err
+	}
+	if req.Search() != "" || len(req.Sort) > 0 {
+		rows := make([]row, 0, len(values))
+		for _, value := range values {
+			rows = append(rows, render(value))
+		}
+		return broker.PageRows(rc, rows)
 	}
 	offset := 0
 	if req.Cursor != "" {
 		parsed, convErr := strconv.Atoi(req.Cursor)
 		if convErr != nil || parsed < 0 {
-			return boundedPage{}, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+			return nil, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
 		}
 		offset = parsed
-	}
-	truncated := false
-	if len(values) > plugin.MaxPageLimit {
-		values, truncated = values[:plugin.MaxPageLimit], true
 	}
 	if offset > len(values) {
 		offset = len(values)
@@ -175,11 +171,8 @@ func boundedRows[T any](rc *plugin.RequestContext, values []T, render func(T) ro
 	if end < len(values) {
 		next = strconv.Itoa(end)
 	}
-	out := boundedPage{Page: plugin.Page[row]{Items: plugin.SortRows(rows, req.Sort), NextCursor: next}}
-	if truncated {
-		out.Truncated, out.Limit = true, plugin.MaxPageLimit
-	}
-	return out, nil
+	total := len(values)
+	return plugin.Page[row]{Items: rows, NextCursor: next, Total: &total}, nil
 }
 
 // metaQuery builds the parameters the metadata endpoints actually read.

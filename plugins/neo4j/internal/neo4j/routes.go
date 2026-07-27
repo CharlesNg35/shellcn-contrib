@@ -165,7 +165,7 @@ func labelsList(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	db := databaseName(rc)
-	names, next, err := catalogueNames(rc, s, db, "db.labels()", "label")
+	names, next, total, err := catalogueNames(rc, s, db, "db.labels()", "label")
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func labelsList(rc *plugin.RequestContext) (any, error) {
 			"ref":        plugin.ResourceIdentity{Kind: "label", Namespace: db, Name: name, UID: db + ":" + name},
 		})
 	}
-	return plugin.Page[row]{Items: rows, NextCursor: next}, nil
+	return plugin.Page[row]{Items: rows, NextCursor: next, Total: total}, nil
 }
 
 // propertyProbeLimit bounds the property-name sample taken per label or
@@ -200,33 +200,49 @@ func labelsList(rc *plugin.RequestContext) (any, error) {
 const propertyProbeLimit = "100"
 
 // catalogueNames reads one bounded page of names from the metadata store
-// (`db.labels()` / `db.relationshipTypes()`), which never touches the data.
-func catalogueNames(rc *plugin.RequestContext, s *Session, db, call, field string) ([]string, string, error) {
+// (`db.labels()` / `db.relationshipTypes()`), which never touches the data. The
+// store also does the ordering, and one look-ahead row tells an exactly-full
+// page from the last one so a full page never advertises an empty next page.
+func catalogueNames(rc *plugin.RequestContext, s *Session, db, call, field string) ([]string, string, *int, error) {
 	page, err := rc.Page()
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	skip := cursorOffset(page.Cursor)
 	query := "CALL " + call + " YIELD " + field + " WITH " + field + " AS name"
-	params := map[string]any{"skip": skip, "limit": page.Limit}
+	params := map[string]any{"skip": skip, "limit": page.Limit + 1}
 	if q := page.Search(); q != "" {
 		query += " WHERE toLower(name) CONTAINS toLower($q)"
 		params["q"] = q
 	}
-	query += " RETURN name ORDER BY name SKIP $skip LIMIT $limit"
+	query += " RETURN name ORDER BY name" + catalogueOrder(page.Sort) + " SKIP $skip LIMIT $limit"
 	rows, err := queryRows(rc.Ctx, s, db, query, params)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	names := make([]string, 0, len(rows))
 	for _, r := range rows {
 		names = append(names, fmt.Sprint(r["name"]))
 	}
 	next := ""
-	if len(names) == page.Limit {
-		next = strconv.Itoa(skip + len(names))
+	if len(names) > page.Limit {
+		names, next = names[:page.Limit], strconv.Itoa(skip+page.Limit)
 	}
-	return names, next, nil
+	var total *int
+	if skip == 0 && next == "" {
+		count := len(names)
+		total = &count
+	}
+	return names, next, total, nil
+}
+
+// catalogueOrder maps the grid's sort onto the name column, the only one the
+// metadata store can order; the per-page counts are not offered as sort keys.
+func catalogueOrder(keys []plugin.SortKey) string {
+	if len(keys) > 0 && keys[0].Field == "name" && keys[0].Desc {
+		return " DESC"
+	}
+	return ""
 }
 
 // unionByName evaluates one branch per name of the current page in a single
@@ -291,7 +307,7 @@ func relationshipTypesList(rc *plugin.RequestContext) (any, error) {
 		return nil, err
 	}
 	db := databaseName(rc)
-	names, next, err := catalogueNames(rc, s, db, "db.relationshipTypes()", "relationshipType")
+	names, next, total, err := catalogueNames(rc, s, db, "db.relationshipTypes()", "relationshipType")
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +334,7 @@ func relationshipTypesList(rc *plugin.RequestContext) (any, error) {
 			"ref":           plugin.ResourceIdentity{Kind: "relationship_type", Namespace: db, Name: name, UID: db + ":" + name},
 		})
 	}
-	return plugin.Page[row]{Items: rows, NextCursor: next}, nil
+	return plugin.Page[row]{Items: rows, NextCursor: next, Total: total}, nil
 }
 
 func relationshipTypeOverview(rc *plugin.RequestContext) (any, error) {

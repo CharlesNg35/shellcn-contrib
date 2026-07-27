@@ -124,16 +124,31 @@ type scanPage struct {
 // pageScan slices one page out of a bounded walk. A capped walk reports
 // truncated instead of a total, because the total it could offer would be the
 // cap rather than the account's real count.
-func pageScan(rc *plugin.RequestContext, rows []row, truncated bool) (scanPage, error) {
+func pageScan(rc *plugin.RequestContext, rows []row, truncated bool, budget int) (scanPage, error) {
 	page, err := broker.PageRows(rc, rows)
 	if err != nil {
 		return scanPage{}, err
 	}
 	out := scanPage{Page: page}
 	if truncated {
-		out.Page.Total, out.Truncated, out.ScanLimit = nil, true, scanLimit
+		out.Page.Total, out.Truncated, out.ScanLimit = nil, true, budget
 	}
 	return out, nil
+}
+
+// scanBudget is how far one request walks: scanLimit, but never short of the end
+// of the page being asked for, so a deep page keeps walking instead of stopping
+// at the cap with rows the client can no longer reach.
+func scanBudget(rc *plugin.RequestContext) int {
+	req, err := rc.Page()
+	if err != nil {
+		return scanLimit
+	}
+	offset := 0
+	if parsed, convErr := strconv.Atoi(req.Cursor); convErr == nil && parsed > 0 {
+		offset = parsed
+	}
+	return max(scanLimit, offset+req.Limit+1)
 }
 
 func treeStreams(rc *plugin.RequestContext) (any, error) {
@@ -159,20 +174,21 @@ func streamsPage(rc *plugin.RequestContext) (scanPage, error) {
 	// out at the cap does not leave it parked on an unread channel.
 	ctx, cancel := context.WithCancel(rc.Ctx)
 	defer cancel()
+	budget := scanBudget(rc)
 	rows := []row{}
 	truncated := false
 	for info := range s.js.Streams(natsclient.Context(ctx)) {
 		if info == nil {
 			continue
 		}
-		if len(rows) >= scanLimit {
+		if len(rows) >= budget {
 			truncated = true
 			break
 		}
 		rows = append(rows, streamRow(info))
 	}
 	sort.Slice(rows, func(i, j int) bool { return fmt.Sprint(rows[i]["name"]) < fmt.Sprint(rows[j]["name"]) })
-	return pageScan(rc, rows, truncated)
+	return pageScan(rc, rows, truncated, budget)
 }
 
 func listStreams(rc *plugin.RequestContext) (any, error) {
@@ -333,13 +349,14 @@ func listConsumers(rc *plugin.RequestContext) (any, error) {
 	}
 	ctx, cancel := context.WithCancel(rc.Ctx)
 	defer cancel()
+	budget := scanBudget(rc)
 	stream := streamParam(rc)
 	streams := []string{stream}
 	truncated := false
 	if stream == "" {
 		streams = nil
 		for name := range s.js.StreamNames(natsclient.Context(ctx)) {
-			if len(streams) >= scanLimit {
+			if len(streams) >= budget {
 				truncated = true
 				break
 			}
@@ -352,21 +369,21 @@ func listConsumers(rc *plugin.RequestContext) (any, error) {
 		if streamName == "" {
 			continue
 		}
-		if len(rows) >= scanLimit {
+		if len(rows) >= budget {
 			truncated = true
 			break
 		}
 		for info := range s.js.Consumers(streamName, natsclient.Context(ctx)) {
-			if info != nil {
-				rows = append(rows, consumerRow(info))
-			}
-			if len(rows) >= scanLimit {
+			if len(rows) >= budget {
 				truncated = true
 				break
 			}
+			if info != nil {
+				rows = append(rows, consumerRow(info))
+			}
 		}
 	}
-	return pageScan(rc, rows, truncated)
+	return pageScan(rc, rows, truncated, budget)
 }
 
 func consumerOverview(rc *plugin.RequestContext) (any, error) {

@@ -164,15 +164,61 @@ func tableNamesInput(cursor, prefix string, limit int) *awsdynamodb.ListTablesIn
 	return in
 }
 
+// tableCursor encodes where the next page resumes. The prefix keeps our cursor
+// apart from the row offset a client falls back to when it has no remembered
+// cursor, since a bare number is itself a legal table name.
+func tableCursor(name string, skip int) string {
+	if skip > 0 {
+		return "n:" + name + ":" + strconv.Itoa(skip)
+	}
+	return "n:" + name
+}
+
+// parseTableCursor reads a cursor as the table name to resume after plus the
+// number of matches still to skip. A bare number is the row offset the grid
+// synthesises after it drops its cursor map, and is honoured as a skip count so
+// the request lands on the page it asked for instead of back at the top.
+func parseTableCursor(cursor string) (string, int, error) {
+	cursor = strings.TrimSpace(cursor)
+	if cursor == "" {
+		return "", 0, nil
+	}
+	if rest, ok := strings.CutPrefix(cursor, "n:"); ok {
+		name, tail, split := strings.Cut(rest, ":")
+		if !split {
+			return name, 0, nil
+		}
+		skip, err := strconv.Atoi(tail)
+		if err != nil || skip < 0 {
+			return "", 0, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+		}
+		return name, skip, nil
+	}
+	skip, err := strconv.Atoi(cursor)
+	if err != nil || skip < 0 {
+		return "", 0, fmt.Errorf("%w: invalid cursor", plugin.ErrInvalidInput)
+	}
+	return "", skip, nil
+}
+
 // tableNames walks the table catalogue for exactly one page and returns the
 // cursor the next page resumes from.
 func tableNames(ctx context.Context, s *Session, cursor, term string, limit int) ([]string, string, error) {
+	start, skip, err := parseTableCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
 	prefix := s.opts.TablePrefix
 	lowered := strings.ToLower(term)
 	names := make([]string, 0, limit)
-	start := cursor
 	for calls := 0; calls < listTablesCalls; calls++ {
-		out, err := s.client.ListTables(ctx, tableNamesInput(start, prefix, limit))
+		// While skipping, take the widest window the API allows so an offset
+		// cursor costs as few round trips as possible.
+		window := limit
+		if skip > 0 {
+			window = listTablesLimit
+		}
+		out, err := s.client.ListTables(ctx, tableNamesInput(start, prefix, window))
 		if err != nil {
 			return nil, "", ddbErr(err)
 		}
@@ -186,8 +232,12 @@ func tableNames(ctx context.Context, s *Session, cursor, term string, limit int)
 			if lowered != "" && !strings.Contains(strings.ToLower(name), lowered) {
 				continue
 			}
+			if skip > 0 {
+				skip--
+				continue
+			}
 			if len(names) == limit {
-				return names, names[limit-1], nil
+				return names, tableCursor(names[limit-1], 0), nil
 			}
 			names = append(names, name)
 		}
@@ -196,10 +246,10 @@ func tableNames(ctx context.Context, s *Session, cursor, term string, limit int)
 		}
 		start = *out.LastEvaluatedTableName
 	}
-	if len(names) == 0 {
-		return names, "", nil
-	}
-	return names, names[len(names)-1], nil
+	// The scan window closed before the catalogue did. Hand back where it stopped
+	// so the next page carries on; reporting no cursor here would strand every
+	// name past the window, including the ones a search term is looking for.
+	return names, tableCursor(start, skip), nil
 }
 
 // tablesPage lists one page of tables. DescribeTable is an API call per table,
@@ -235,8 +285,10 @@ func tablesPage(rc *plugin.RequestContext) (plugin.Page[row], error) {
 	}
 	wg.Wait()
 	// No Total: DynamoDB exposes no cheap table count, and scanning the catalogue
-	// to produce one is the cost this page exists to avoid.
-	return plugin.Page[row]{Items: plugin.SortRows(rows, req.Sort), NextCursor: next}, nil
+	// to produce one is the cost this page exists to avoid. Rows stay in the
+	// catalogue order the cursor pages through; sorting the page alone would
+	// order it against the wrong set, so tableColumns() advertises no sort.
+	return plugin.Page[row]{Items: rows, NextCursor: next}, nil
 }
 
 func tablesList(rc *plugin.RequestContext) (any, error) {

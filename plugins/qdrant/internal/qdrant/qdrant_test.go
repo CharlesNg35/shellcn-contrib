@@ -96,6 +96,53 @@ func TestCollectionsListDescribesOnlyThePage(t *testing.T) {
 	}
 }
 
+func TestCollectionsListSortsAndSearchesDescribedColumns(t *testing.T) {
+	names := make([]string, 0, 200)
+	for i := range 200 {
+		names = append(names, fmt.Sprintf(`{"name":"c%03d"}`, i))
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/collections" {
+			_, _ = w.Write([]byte(`{"status":"ok","result":{"collections":[` + strings.Join(names, ",") + `]}}`))
+			return
+		}
+		points := 0
+		_, _ = fmt.Sscanf(strings.TrimPrefix(r.URL.Path, "/collections/"), "c%d", &points)
+		status := "green"
+		if points == 42 {
+			status = "yellow"
+		}
+		_, _ = fmt.Fprintf(w, `{"status":"ok","result":{"status":%q,"points_count":%d}}`, status, points)
+	}))
+	defer srv.Close()
+
+	p := New()
+	sess, err := p.Connect(context.Background(), plugin.ConnectConfig{Config: map[string]any{"endpoint": srv.URL}, Net: plugintest.DirectTransport()})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = sess.Close() }()
+	routes := plugintest.RouteMap(p.Routes())
+
+	list := func(query url.Values) plugin.Page[row] {
+		t.Helper()
+		out, err := routes[rid("collections.list")].Handle(plugin.NewRequestContext(context.Background(), plugin.User{}, sess, nil, query, nil))
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		return out.(plugin.Page[row])
+	}
+
+	sorted := list(url.Values{"limit": []string{"10"}, "sort": []string{"-points_count"}})
+	if len(sorted.Items) != 10 || fmt.Sprint(sorted.Items[0]["name"]) != "c199" {
+		t.Fatalf("a detail-column sort must order every collection, got %#v", sorted.Items)
+	}
+	searched := list(url.Values{"limit": []string{"10"}, "filter": []string{"yellow"}})
+	if len(searched.Items) != 1 || fmt.Sprint(searched.Items[0]["name"]) != "c042" {
+		t.Fatalf("the search box must match described columns, got %#v", searched.Items)
+	}
+}
+
 func TestRequestBodyAcceptsCodeEditorPayloads(t *testing.T) {
 	for _, body := range [][]byte{
 		[]byte(`{"body":{"points":[{"id":1,"vector":[0.1,0.2,0.3,0.4]}]}}`),

@@ -2,6 +2,7 @@ package nats
 
 import (
 	"context"
+	"net/url"
 	"testing"
 	"time"
 
@@ -147,4 +148,19 @@ func fieldMap(schema plugin.Schema) map[string]bool {
 		}
 	}
 	return out
+}
+
+func TestScanBudgetCoversTheRequestedPage(t *testing.T) {
+	budget := func(q url.Values) int {
+		return scanBudget(plugin.NewRequestContext(context.Background(), plugin.User{}, nil, nil, q, nil))
+	}
+	if got := budget(nil); got != scanLimit {
+		t.Fatalf("first page budget = %d, want %d", got, scanLimit)
+	}
+	if got := budget(url.Values{"cursor": {"2000"}, "limit": {"50"}}); got != 2051 {
+		t.Fatalf("deep page budget = %d, want the walk to reach past row 2050", got)
+	}
+	if got := budget(url.Values{"cursor": {"bogus"}, "limit": {"50"}}); got != scanLimit {
+		t.Fatalf("unparsable cursor budget = %d, want %d", got, scanLimit)
+	}
 }

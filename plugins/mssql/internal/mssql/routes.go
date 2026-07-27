@@ -1889,8 +1889,11 @@ func statementsRequireReview(statements []string) bool {
 	return false
 }
 
+// pageRows slices a listing materialized by queryRows, which stops at scanCap. A
+// full scan window means the catalog may have had more rows, so the page is
+// reported as truncated rather than counted.
 func pageRows(rc *plugin.RequestContext, rows []row) (plugin.Page[row], error) {
-	return pageScannedRows(rc, rows, false)
+	return pageScannedRows(rc, rows, len(rows) >= scanCap)
 }
 
 // pageScannedRows slices an in-memory listing. A truncated scan omits Total so

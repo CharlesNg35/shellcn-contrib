@@ -229,6 +229,9 @@
   function loadTablePage(pageIndex) {
     mode = "table"; table.page = pageIndex; selection = {};
     var where = searchWhere(), params = searchParams();
+    // An unfiltered count(*) walks the in-memory b-tree, a filtered one re-scans every column on every page turn — so search pages on an extra row and shows no total.
+    var total = null;
+    if (!where) { try { var c = db.exec("SELECT count(*) FROM " + ident(table.name)); total = c.length ? c[0].values[0][0] : null; } catch (e) { total = null; } }
     var offset = pageIndex * pageSize;
     var names = table.cols.map(function (c) { return c.name; });
     var rows = [];
@@ -237,12 +240,11 @@
       var res = db.exec("SELECT " + idsel + table.cols.map(function (c) { return ident(c.name); }).join(", ") + " FROM " + ident(table.name) + where + " LIMIT " + (pageSize + 1) + " OFFSET " + offset, params);
       if (res.length) rows = res[0].values;
     } catch (e) { if (table.hasRowid) { table.hasRowid = false; return loadTablePage(pageIndex); } renderError(msg(e)); return; }
-    // SQLite keeps no row count, so count(*) would full-scan on every page turn; the extra row answers hasNext instead.
     var hasNext = rows.length > pageSize;
     if (hasNext) rows = rows.slice(0, pageSize);
-    grid(names, rows, { start: offset, total: null, hasPrev: pageIndex > 0, hasNext: hasNext, onPrev: function () { loadTablePage(pageIndex - 1); }, onNext: function () { loadTablePage(pageIndex + 1); } }, table.hasRowid, function (row) { return row[0]; });
-    var range = rows.length ? offset + 1 : 0;
-    setStatus(table.name + " · rows " + range + "–" + (offset + rows.length) + (hasNext ? "+" : "") + (table.search ? " matching “" + table.search + "”" : "") + (table.hasRowid ? " · editable" : ""), "ok");
+    grid(names, rows, { start: offset, total: total, hasPrev: pageIndex > 0, hasNext: hasNext, onPrev: function () { loadTablePage(pageIndex - 1); }, onNext: function () { loadTablePage(pageIndex + 1); } }, table.hasRowid, function (row) { return row[0]; });
+    var count = total != null ? total + " row(s)" : "rows " + (rows.length ? offset + 1 : 0) + "–" + (offset + rows.length) + (hasNext ? "+" : "");
+    setStatus(table.name + " · " + count + (table.search ? " matching “" + table.search + "”" : "") + (table.hasRowid ? " · editable" : ""), "ok");
   }
 
   function runQuery() {
@@ -283,7 +285,9 @@
       var rows = [];
       if (cursor.pending) { rows.push(cursor.pending); cursor.pending = null; }
       while (rows.length < pageSize && cursor.stmt.step()) rows.push(cursor.stmt.get());
-      if (cursor.stmt.step()) cursor.pending = cursor.stmt.get(); else cursor.done = true;
+      // step() past the final row restarts the statement, so only probe for a next row when the page filled.
+      if (rows.length < pageSize) cursor.done = true;
+      else if (cursor.stmt.step()) cursor.pending = cursor.stmt.get(); else cursor.done = true;
       cursor.cache[cursor.read] = { rows: rows, hasNext: cursor.pending != null };
       cursor.order.push(cursor.read);
       cursor.read++;

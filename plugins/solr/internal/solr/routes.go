@@ -122,16 +122,45 @@ func treeCores(rc *plugin.RequestContext) (any, error) {
 }
 
 func listCores(rc *plugin.RequestContext) (any, error) {
-	page, err := corePage(rc)
+	s, err := session(rc)
 	if err != nil {
 		return nil, err
 	}
-	s, err := session(rc)
+	req, err := rc.Page()
+	if err != nil {
+		return nil, err
+	}
+	// The grid's search and its index-column sorts read cells the bare name list
+	// does not carry, so those go through the one cluster-wide status call rather
+	// than filtering or ordering a page that is not enriched yet.
+	if req.Search() != "" || statusOrdered(req.Sort) {
+		return statusPage(rc, s)
+	}
+	page, err := corePage(rc)
 	if err != nil {
 		return nil, err
 	}
 	statusInto(rc.Ctx, s, page.Items)
 	return page, nil
+}
+
+func statusOrdered(keys []plugin.SortKey) bool {
+	return len(keys) > 0 && keys[0].Field != "name"
+}
+
+func statusPage(rc *plugin.RequestContext, s *Session) (any, error) {
+	status, err := adminStatus(rc.Ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]row, 0, len(status))
+	for name, item := range status {
+		r := coreRow(name, item)
+		r["ref"] = plugin.ResourceIdentity{Kind: "core", Name: name, UID: name}
+		rows = append(rows, r)
+	}
+	sort.Slice(rows, func(i, j int) bool { return fmt.Sprint(rows[i]["name"]) < fmt.Sprint(rows[j]["name"]) })
+	return broker.PageRows(rc, rows)
 }
 
 // corePage pages the bare core/collection name list. The cluster-wide status

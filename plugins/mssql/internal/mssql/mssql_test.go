@@ -3,6 +3,8 @@ package mssql
 import (
 	"context"
 	"errors"
+	"net/url"
+	"strconv"
 	"testing"
 
 	"github.com/charlesng35/shellcn-contrib/shared/sqldb"
@@ -197,6 +199,28 @@ func TestJobNameValidation(t *testing.T) {
 	}
 	if _, err := jobName(rc("bad\x00name")); err == nil {
 		t.Fatal("job name with NUL accepted")
+	}
+}
+
+func TestPageRowsOmitsTotalWhenTheScanWasCut(t *testing.T) {
+	rc := plugin.NewRequestContext(context.Background(), plugin.User{}, nil, nil, url.Values{"limit": {"10"}}, nil)
+	rows := make([]row, scanCap)
+	for i := range rows {
+		rows[i] = row{"name": strconv.Itoa(i)}
+	}
+	cut, err := pageRows(rc, rows)
+	if err != nil {
+		t.Fatalf("page rows: %v", err)
+	}
+	if cut.Total != nil {
+		t.Fatalf("truncated scan reported %d as an authoritative total", *cut.Total)
+	}
+	whole, err := pageRows(rc, rows[:scanCap-1])
+	if err != nil {
+		t.Fatalf("page rows: %v", err)
+	}
+	if whole.Total == nil || *whole.Total != scanCap-1 {
+		t.Fatalf("complete scan lost its total: %v", whole.Total)
 	}
 }
 

@@ -137,6 +137,48 @@ func TestNormalizePartiQLStatementLimit(t *testing.T) {
 	}
 }
 
+func TestParseTableCursorAcceptsNamesAndOffsets(t *testing.T) {
+	tests := []struct {
+		name     string
+		cursor   string
+		wantName string
+		wantSkip int
+		wantErr  bool
+	}{
+		{name: "empty", cursor: ""},
+		{name: "name", cursor: tableCursor("orders", 0), wantName: "orders"},
+		{name: "name with pending skip", cursor: tableCursor("orders", 40), wantName: "orders", wantSkip: 40},
+		{name: "client offset fallback", cursor: "100", wantSkip: 100},
+		{name: "negative offset", cursor: "-1", wantErr: true},
+		{name: "foreign cursor", cursor: "page-2", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotName, gotSkip, err := parseTableCursor(tt.cursor)
+			if tt.wantErr {
+				if !errors.Is(err, plugin.ErrInvalidInput) {
+					t.Fatalf("want invalid input, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parse cursor: %v", err)
+			}
+			if gotName != tt.wantName || gotSkip != tt.wantSkip {
+				t.Fatalf("got (%q, %d), want (%q, %d)", gotName, gotSkip, tt.wantName, tt.wantSkip)
+			}
+		})
+	}
+}
+
+func TestTableColumnsAdvertiseNoUnservableSort(t *testing.T) {
+	for _, col := range tableColumns() {
+		if col.Sortable {
+			t.Fatalf("column %q advertises a sort the paged table listing cannot honor", col.Key)
+		}
+	}
+}
+
 func TestAttributeValueKeyRoundTrip(t *testing.T) {
 	key := map[string]types.AttributeValue{
 		"pk": &types.AttributeValueMemberS{Value: "user#1"},

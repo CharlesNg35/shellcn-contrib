@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -296,7 +297,6 @@ func listNodeShards(rc *plugin.RequestContext) (any, error) {
 		}
 	}
 	sort.Slice(shards, func(i, j int) bool { return shards[i].Name < shards[j].Name })
-	shards, truncated := capShards(shards)
 	rows := make([]row, 0, len(shards))
 	for _, shard := range shards {
 		rows = append(rows, row{
@@ -310,39 +310,7 @@ func listNodeShards(rc *plugin.RequestContext) (any, error) {
 			"replicationFactor":    shard.ReplicationFactor,
 		})
 	}
-	page, err := broker.PageRows(rc, rows)
-	if err != nil {
-		return nil, err
-	}
-	return capped(page, truncated, shardScanLimit), nil
-}
-
-// shardScanLimit caps the shard rows one listing materializes. A multi-tenant
-// collection has one shard per tenant, so the shard table is unbounded.
-const shardScanLimit = plugin.MaxPageLimit
-
-// cappedPage is a paged listing plus the scan cap signal. The embedded page
-// keeps the wire contract (items, nextCursor, total) unchanged; truncated and
-// scanLimit tell the browser the listing stopped at the cap.
-type cappedPage struct {
-	plugin.Page[row]
-	Truncated bool `json:"truncated,omitempty"`
-	ScanLimit int  `json:"scanLimit,omitempty"`
-}
-
-func capped(page plugin.Page[row], truncated bool, limit int) cappedPage {
-	out := cappedPage{Page: page, Truncated: truncated}
-	if truncated {
-		out.ScanLimit = limit
-	}
-	return out
-}
-
-func capShards[T any](shards []T) ([]T, bool) {
-	if len(shards) <= shardScanLimit {
-		return shards, false
-	}
-	return shards[:shardScanLimit], true
+	return broker.PageRows(rc, rows)
 }
 
 func listShards(rc *plugin.RequestContext) (any, error) {
@@ -365,7 +333,6 @@ func listShards(rc *plugin.RequestContext) (any, error) {
 		}
 	}
 	sort.Slice(shards, func(i, j int) bool { return shards[i].Name < shards[j].Name })
-	shards, truncated := capShards(shards)
 
 	stats, _ := clusterStats(rc)
 	objectsByShard := map[string]int64{}
@@ -394,11 +361,7 @@ func listShards(rc *plugin.RequestContext) (any, error) {
 			"node":            nodeByShard[shard.Name],
 		})
 	}
-	page, err := broker.PageRows(rc, rows)
-	if err != nil {
-		return nil, err
-	}
-	return capped(page, truncated, shardScanLimit), nil
+	return broker.PageRows(rc, rows)
 }
 
 func updateShard(rc *plugin.RequestContext) (any, error) {
@@ -452,27 +415,19 @@ func listTenants(rc *plugin.RequestContext) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	page, err := broker.PageRows(rc, snap.rows)
-	if err != nil {
-		return nil, err
-	}
-	return capped(page, snap.truncated, tenantScanLimit), nil
+	// The snapshot is shared across requests and PageRows sorts what it is
+	// given in place, so the cache never leaves this call as the backing array.
+	return broker.PageRows(rc, slices.Clone(snap.rows))
 }
-
-// tenantScanLimit caps the tenants one listing keeps. Weaviate's tenants
-// endpoint has no cursor, so the whole list arrives in one response and a
-// collection is designed to hold hundreds of thousands of them.
-const tenantScanLimit = 5000
 
 const tenantCacheTTL = 10 * time.Second
 
 // tenantSnapshot is one collection's tenant listing, reused across page
 // navigation, search and refresh instead of re-fetching every request.
 type tenantSnapshot struct {
-	class     string
-	rows      []row
-	truncated bool
-	takenAt   time.Time
+	class   string
+	rows    []row
+	takenAt time.Time
 }
 
 func (t *tenantSnapshot) fresh(class string, now time.Time) bool {
@@ -490,10 +445,6 @@ func (s *Session) tenants(ctx context.Context, class string) (*tenantSnapshot, e
 		return nil, mapError(err)
 	}
 	sort.Slice(tenants, func(i, j int) bool { return tenants[i].Name < tenants[j].Name })
-	truncated := len(tenants) > tenantScanLimit
-	if truncated {
-		tenants = tenants[:tenantScanLimit]
-	}
 	rows := make([]row, 0, len(tenants))
 	for _, tenant := range tenants {
 		rows = append(rows, row{
@@ -502,7 +453,7 @@ func (s *Session) tenants(ctx context.Context, class string) (*tenantSnapshot, e
 			"activityStatus": strings.ToUpper(defaultString(tenant.ActivityStatus, "ACTIVE")),
 		})
 	}
-	snap := &tenantSnapshot{class: class, rows: rows, truncated: truncated, takenAt: time.Now()}
+	snap := &tenantSnapshot{class: class, rows: rows, takenAt: time.Now()}
 	s.tenantSnap = snap
 	return snap, nil
 }
@@ -864,6 +815,7 @@ func restoreBackup(rc *plugin.RequestContext) (any, error) {
 	if resp != nil && resp.Error != "" {
 		return nil, fmt.Errorf("%w: %s", plugin.ErrUnavailable, resp.Error)
 	}
+	s.forgetSchema()
 	record(rc, "backups", plugin.SeverityWarn, "Backup restored", backend+"/"+id)
 	return row{"ok": true, "id": resp.ID, "backend": resp.Backend, "status": strings.ToUpper(stringOf(resp.Status)), "collections": resp.Classes}, nil
 }

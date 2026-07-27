@@ -104,3 +104,17 @@ func TestValidFieldDefinition(t *testing.T) {
 		})
 	}
 }
+
+func TestStatusOrderedRoutesIndexColumnsToTheFullStatus(t *testing.T) {
+	if statusOrdered(nil) {
+		t.Fatal("no sort should keep the bounded name page")
+	}
+	if statusOrdered([]plugin.SortKey{{Field: "name", Desc: true}}) {
+		t.Fatal("name sort should keep the bounded name page")
+	}
+	for _, field := range []string{"numDocs", "maxDoc", "deletedDocs", "health", "mode"} {
+		if !statusOrdered([]plugin.SortKey{{Field: field}}) {
+			t.Fatalf("%q is a status column and needs the full status", field)
+		}
+	}
+}

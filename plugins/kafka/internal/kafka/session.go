@@ -14,15 +14,9 @@ import (
 	"github.com/charlesng35/shellcn/sdk/plugin"
 )
 
-const (
-	// listSnapshotTTL is how long one cluster-wide name sweep backs the topic and
-	// consumer-group listings before the next page takes a fresh one.
-	listSnapshotTTL = 10 * time.Second
-
-	// listScanLimit caps how many names one sweep materializes, so a cluster with
-	// tens of thousands of topics or groups cannot be paged into the plugin heap.
-	listScanLimit = 2000
-)
+// listSnapshotTTL is how long one cluster-wide name sweep backs the topic and
+// consumer-group listings before the next page takes a fresh one.
+const listSnapshotTTL = 10 * time.Second
 
 type Session struct {
 	client sarama.Client
@@ -35,13 +29,13 @@ type Session struct {
 	groupSnap *listSnapshot
 }
 
-// listSnapshot is one cluster sweep rendered as rows. total is the name count
-// before the cap, so an overview can report it without holding every row.
+// listSnapshot is one cluster sweep rendered as rows. Kafka has no server-side
+// listing window, so the sweep holds every name: capping it would hide the tail
+// from the grid's search and paging with nothing left to page towards.
 type listSnapshot struct {
-	rows      []row
-	total     int
-	truncated bool
-	takenAt   time.Time
+	rows    []row
+	total   int
+	takenAt time.Time
 }
 
 func (snap *listSnapshot) fresh(now time.Time) bool {
@@ -57,9 +51,6 @@ func (snap *listSnapshot) page() []row {
 func snapshotOf(names []string, render func(string) row) *listSnapshot {
 	sort.Strings(names)
 	snap := &listSnapshot{total: len(names), takenAt: time.Now()}
-	if len(names) > listScanLimit {
-		names, snap.truncated = names[:listScanLimit], true
-	}
 	snap.rows = make([]row, 0, len(names))
 	for _, name := range names {
 		snap.rows = append(snap.rows, render(name))

@@ -91,35 +91,22 @@ func overview(rc *plugin.RequestContext) (any, error) {
 	if controller, err := s.client.Controller(); err == nil && controller != nil {
 		controllerID = controller.ID()
 	}
-	topics, _ := s.client.Topics()
+	// client.Topics() reads sarama's cached metadata, which only refreshes on its
+	// own schedule, so the tile would keep counting deleted topics for minutes.
+	topicCount := 0
+	if snap, err := s.topics(); err == nil {
+		topicCount = snap.total
+	}
 	groupCount := 0
 	if snap, err := s.groups(); err == nil {
 		groupCount = snap.total
 	}
-	return row{"brokers": len(brokers), "controller_id": controllerID, "topics": len(topics), "consumer_groups": groupCount, "readOnly": s.opts.ReadOnly}, nil
+	return row{"brokers": len(brokers), "controller_id": controllerID, "topics": topicCount, "consumer_groups": groupCount, "readOnly": s.opts.ReadOnly}, nil
 }
 
-// listPage embeds the unchanged paged wire contract and adds the sweep cap
-// signal: truncated and scanLimit tell the browser the sweep stopped at the cap.
-type listPage struct {
-	plugin.Page[row]
-	Truncated bool `json:"truncated,omitempty"`
-	ScanLimit int  `json:"scanLimit,omitempty"`
-}
-
-// pageSnapshot slices one page out of a cached sweep. A capped sweep reports
-// truncated instead of a total, because the total it could offer would be the
-// cap rather than the cluster's real count.
-func pageSnapshot(rc *plugin.RequestContext, snap *listSnapshot) (listPage, error) {
-	page, err := broker.PageRows(rc, snap.page())
-	if err != nil {
-		return listPage{}, err
-	}
-	out := listPage{Page: page}
-	if snap.truncated {
-		out.Page.Total, out.Truncated, out.ScanLimit = nil, true, listScanLimit
-	}
-	return out, nil
+// pageSnapshot slices one page out of a cached sweep.
+func pageSnapshot(rc *plugin.RequestContext, snap *listSnapshot) (plugin.Page[row], error) {
+	return broker.PageRows(rc, snap.page())
 }
 
 func treeTopics(rc *plugin.RequestContext) (any, error) {
@@ -150,14 +137,14 @@ func treeGroups(rc *plugin.RequestContext) (any, error) {
 	return plugin.Page[plugin.TreeNode]{Items: nodes, NextCursor: page.NextCursor, Total: page.Total}, nil
 }
 
-func topicsPage(rc *plugin.RequestContext) (listPage, error) {
+func topicsPage(rc *plugin.RequestContext) (plugin.Page[row], error) {
 	s, err := kafkaSession(rc)
 	if err != nil {
-		return listPage{}, err
+		return plugin.Page[row]{}, err
 	}
 	snap, err := s.topics()
 	if err != nil {
-		return listPage{}, err
+		return plugin.Page[row]{}, err
 	}
 	return pageSnapshot(rc, snap)
 }
@@ -403,23 +390,48 @@ func produceMessage(rc *plugin.RequestContext) (any, error) {
 }
 
 // groupsPage lists consumer groups. DescribeConsumerGroups carries every member
-// and its assignment, so it runs only for the names on the returned page.
-func groupsPage(rc *plugin.RequestContext) (listPage, error) {
+// and its assignment, so it runs only for the names on the returned page —
+// unless the grid sorts or searches on the fields it is the only source of, in
+// which case it has to run before the page is picked.
+func groupsPage(rc *plugin.RequestContext) (plugin.Page[row], error) {
 	s, err := kafkaSession(rc)
 	if err != nil {
-		return listPage{}, err
+		return plugin.Page[row]{}, err
 	}
 	snap, err := s.groups()
 	if err != nil {
-		return listPage{}, err
+		return plugin.Page[row]{}, err
+	}
+	req, err := rc.Page()
+	if err != nil {
+		return plugin.Page[row]{}, err
+	}
+	if describedFirst(req) {
+		return broker.PageRows(rc, describeGroups(s, snap.page()))
 	}
 	page, err := pageSnapshot(rc, snap)
 	if err != nil {
-		return listPage{}, err
+		return plugin.Page[row]{}, err
 	}
-	names := make([]string, 0, len(page.Items))
-	for _, item := range page.Items {
-		names = append(names, fmt.Sprint(item["name"]))
+	page.Items = describeGroups(s, page.Items)
+	return page, nil
+}
+
+// describedFirst reports whether the grid's search or sort reaches a field only
+// DescribeConsumerGroups supplies, which a page-scoped describe cannot answer.
+func describedFirst(req plugin.PageRequest) bool {
+	if req.Search() != "" {
+		return true
+	}
+	return len(req.Sort) > 0 && (req.Sort[0].Field == "state" || req.Sort[0].Field == "members")
+}
+
+// describeGroups returns copies of rows carrying state and member counts. The
+// rows come from the shared sweep, so they are never written in place.
+func describeGroups(s *Session, rows []row) []row {
+	names := make([]string, 0, len(rows))
+	for _, r := range rows {
+		names = append(names, fmt.Sprint(r["name"]))
 	}
 	byName := map[string]*sarama.GroupDescription{}
 	if len(names) > 0 {
@@ -430,17 +442,16 @@ func groupsPage(rc *plugin.RequestContext) (listPage, error) {
 			}
 		}
 	}
-	items := make([]row, 0, len(page.Items))
-	for _, item := range page.Items {
-		r := maps.Clone(item)
-		if d := byName[fmt.Sprint(r["name"])]; d != nil {
-			r["state"] = d.State
-			r["members"] = len(d.Members)
+	out := make([]row, 0, len(rows))
+	for _, r := range rows {
+		c := maps.Clone(r)
+		if d := byName[fmt.Sprint(c["name"])]; d != nil {
+			c["state"] = d.State
+			c["members"] = len(d.Members)
 		}
-		items = append(items, r)
+		out = append(out, c)
 	}
-	page.Items = items
-	return page, nil
+	return out
 }
 
 func listGroups(rc *plugin.RequestContext) (any, error) {
@@ -484,14 +495,10 @@ func groupOffsets(rc *plugin.RequestContext) (any, error) {
 		}
 		return fmt.Sprint(rows[i]["topic"]) < fmt.Sprint(rows[j]["topic"])
 	})
-	page, err := broker.PageRows(rc, rows)
-	if err != nil {
-		return nil, err
-	}
-	newest := newestOffsets(s, page.Items)
-	items := make([]row, 0, len(page.Items))
-	for _, item := range page.Items {
-		r := maps.Clone(item)
+	// Lag has to be on the rows before they are filtered, sorted, and sliced, or
+	// the Lag column sorts on a cell that does not exist yet.
+	newest := newestOffsets(s, rows)
+	for _, r := range rows {
 		key := partitionKey{topic: fmt.Sprint(r["topic"]), partition: r["partition"].(int32)}
 		high, ok := newest[key]
 		if !ok {
@@ -503,10 +510,8 @@ func groupOffsets(rc *plugin.RequestContext) (any, error) {
 			lag = high - committed
 		}
 		r["newest_offset"], r["lag"] = high, lag
-		items = append(items, r)
 	}
-	page.Items = items
-	return page, nil
+	return broker.PageRows(rc, rows)
 }
 
 type partitionKey struct {
@@ -514,8 +519,8 @@ type partitionKey struct {
 	partition int32
 }
 
-// newestOffsets resolves the log-end offset for the partitions on one page.
-// The lookups are grouped by partition leader into a single OffsetRequest per
+// newestOffsets resolves the log-end offset for a group's partitions. The
+// lookups are grouped by partition leader into a single OffsetRequest per
 // broker, so lag costs one round trip per broker instead of one per partition.
 func newestOffsets(s *Session, rows []row) map[partitionKey]int64 {
 	byLeader := map[*sarama.Broker][]partitionKey{}
